@@ -214,14 +214,16 @@ function apiMarkBillPaid(payload) {
       let transactionId = existingPayment ? existingPayment.id : '';
       if (!existingPayment) {
         transactionId = id_('tx');
-        appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, [{
+        const paymentTransaction = {
           id: transactionId, transfer_group_id: '', request_id: requestId,
           date: dateIso_(payload.date || new Date()), time: '', type: 'expense',
           account_id: accountId, destination_account_id: '', amount: assertPositiveMoney_(bill.amount),
           category: String(bill.category || 'Tagihan'), merchant: 'Bayar ' + String(bill.name || 'Tagihan'),
           notes: 'Pembayaran tagihan ' + String(bill.id), status: 'completed', direction: '',
           created_at: timestamp, updated_at: timestamp, deleted_at: ''
-        }]);
+        };
+        validateLedgerMutation_([], [paymentTransaction]);
+        appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, [paymentTransaction]);
       }
       bill.last_paid_period = period;
       bill.updated_at = timestamp;

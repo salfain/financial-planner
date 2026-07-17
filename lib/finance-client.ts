@@ -1,4 +1,4 @@
-import type { Account, Bill, Budget, Goal, Transaction } from "./finance";
+import type { Account, AuditLog, Bill, Budget, FinanceCategory, Goal, Transaction } from "./finance";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -16,6 +16,8 @@ export type FinanceSnapshot = {
   budgets: Budget[];
   goals: Goal[];
   bills: Bill[];
+  categories: FinanceCategory[];
+  auditLogs: AuditLog[];
 };
 
 export type SetupWorkspaceInput = {
@@ -48,9 +50,10 @@ async function webRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return (body.data ?? body) as T;
 }
 
-async function mutation<T>(action: string, path: string, payload: Record<string, unknown>) {
-  if (hasAppsScriptBridge()) return callAppsScript<T>(action, payload);
-  return webRequest<T>(path, { method: "POST", body: JSON.stringify(payload) });
+async function mutation<T>(action: string, path: string, payload: Record<string, unknown>, method = "POST") {
+  const requestPayload = { ...payload, requestId: payload.requestId ?? crypto.randomUUID() };
+  if (hasAppsScriptBridge()) return callAppsScript<T>(action, requestPayload);
+  return webRequest<T>(path, { method, body: JSON.stringify(requestPayload) });
 }
 
 const text = (value: unknown, fallback = "") => value === undefined || value === null ? fallback : String(value);
@@ -85,6 +88,39 @@ function normalizeTransaction(row: Record<string, unknown>): Transaction {
     amount: number(row.amount),
     status: text(row.status, "completed") as Transaction["status"],
     transferGroupId: text(row.transferGroupId ?? row.transfer_group_id) || undefined,
+    updatedAt: text(row.updatedAt ?? row.updated_at) || undefined,
+    deletedAt: text(row.deletedAt ?? row.deleted_at) || undefined,
+  };
+}
+
+function normalizeCategory(row: Record<string, unknown>): FinanceCategory {
+  const activeValue = row.active ?? row.isActive ?? row.is_active;
+  const archived = bool(row.archived) || (activeValue !== undefined && !bool(activeValue));
+  return {
+    id: text(row.id),
+    name: text(row.name, "Lainnya"),
+    type: text(row.type, "expense") as FinanceCategory["type"],
+    color: text(row.color, "#126b59"),
+    active: !archived,
+    archived,
+    isDefault: bool(row.isDefault ?? row.is_default),
+    icon: text(row.icon) || undefined,
+  };
+}
+
+function normalizeAuditLog(row: Record<string, unknown>): AuditLog {
+  let details = row.details ?? row.detailsJson ?? row.details_json;
+  if (typeof details === "string") {
+    try { details = JSON.parse(details) as Record<string, unknown>; } catch { /* keep readable legacy text */ }
+  }
+  return {
+    id: text(row.id),
+    action: text(row.action, "UPDATE"),
+    module: text(row.module ?? row.entityType ?? row.entity_type, "system"),
+    entityId: text(row.entityId ?? row.entity_id) || undefined,
+    details: details as AuditLog["details"],
+    actor: text(row.actor ?? row.actorEmail ?? row.actor_email) || undefined,
+    createdAt: text(row.createdAt ?? row.created_at),
   };
 }
 
@@ -139,6 +175,8 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
     budgets: ((source.budgets ?? []) as Record<string, unknown>[]).map(normalizeBudget),
     goals: ((source.goals ?? []) as Record<string, unknown>[]).map(normalizeGoal),
     bills: ((source.bills ?? []) as Record<string, unknown>[]).map((row) => normalizeBill(row, month)),
+    categories: ((source.categories ?? []) as Record<string, unknown>[]).map(normalizeCategory),
+    auditLogs: ((source.auditLogs ?? source.audit_logs ?? []) as Record<string, unknown>[]).map(normalizeAuditLog),
   };
 }
 
@@ -158,7 +196,7 @@ export const createFinanceAccount = (payload: Record<string, unknown>) =>
   mutation("createAccount", "/api/finance/accounts", payload);
 
 export const archiveFinanceAccount = (accountId: string) =>
-  mutation("archiveAccount", `/api/finance/accounts/${encodeURIComponent(accountId)}/archive`, { accountId });
+  mutation("archiveAccount", `/api/finance/accounts/${encodeURIComponent(accountId)}/archive`, { accountId, requestId: `account-archive:${accountId}` });
 
 export const createFinanceTransaction = (transaction: Transaction) =>
   mutation("createTransaction", "/api/finance/transactions", {
@@ -174,8 +212,24 @@ export const createFinanceTransaction = (transaction: Transaction) =>
     status: transaction.status,
   });
 
-export const deleteFinanceTransaction = (transactionId: string) =>
-  mutation("deleteTransaction", `/api/finance/transactions/${encodeURIComponent(transactionId)}/delete`, { transactionId, requestId: crypto.randomUUID() });
+export const updateFinanceTransaction = (transaction: Transaction, requestId = `transaction-update:${crypto.randomUUID()}`) =>
+  mutation("updateTransaction", `/api/finance/transactions/${encodeURIComponent(transaction.id)}`, {
+    requestId,
+    transactionId: transaction.id,
+    type: transaction.type,
+    date: transaction.date,
+    accountId: transaction.accountId,
+    destinationAccountId: transaction.destinationAccountId,
+    amount: transaction.amount,
+    category: transaction.category,
+    merchant: transaction.merchant || transaction.title,
+    title: transaction.title,
+    status: transaction.status,
+    expectedUpdatedAt: transaction.updatedAt,
+  }, "PATCH");
+
+export const deleteFinanceTransaction = (transactionId: string, expectedUpdatedAt?: string) =>
+  mutation("deleteTransaction", `/api/finance/transactions/${encodeURIComponent(transactionId)}/delete`, { transactionId, expectedUpdatedAt, requestId: `transaction-delete:${transactionId}` });
 
 export const upsertFinanceBudget = (payload: Record<string, unknown>) =>
   mutation("upsertBudget", "/api/finance/budgets", payload);
@@ -195,6 +249,35 @@ export const markFinanceBillPaid = (bill: Bill, period: string, date: string) =>
     period,
     date,
     requestId: `bill-payment:${bill.id}:${period}`,
+  });
+
+export const createFinanceCategory = (payload: { name: string; type: "income" | "expense"; color: string; icon?: string }, requestId = `category-create:${crypto.randomUUID()}`) =>
+  mutation("createCategory", "/api/finance/categories", {
+    ...payload,
+    requestId,
+  });
+
+export const updateFinanceCategory = (categoryId: string, payload: { name: string; type: "income" | "expense"; color: string; icon?: string }, requestId = `category-update:${crypto.randomUUID()}`) =>
+  mutation("updateCategory", `/api/finance/categories/${encodeURIComponent(categoryId)}`, {
+    ...payload,
+    categoryId,
+    requestId,
+  }, "PATCH");
+
+export const archiveFinanceCategory = (categoryId: string) =>
+  mutation("archiveCategory", `/api/finance/categories/${encodeURIComponent(categoryId)}/archive`, {
+    categoryId,
+    requestId: `category-archive:${categoryId}`,
+  });
+
+export const reconcileFinanceAccount = (accountId: string, actualBalance: number, date: string, note: string, requestId: string) =>
+  mutation("reconcileAccount", `/api/finance/accounts/${encodeURIComponent(accountId)}/reconcile`, {
+    accountId,
+    actualBalance,
+    date,
+    note,
+    notes: note,
+    requestId,
   });
 
 export const financeBackendLabel = () => hasAppsScriptBridge() ? "Google Sheets" : "Cloud database";

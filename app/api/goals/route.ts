@@ -1,5 +1,12 @@
 import { getD1 } from "@/db";
-import { nowIso, readJsonObject, resolveWorkspaceId, routeError } from "../_lib/api";
+import { auditStatement } from "../_lib/audit";
+import {
+  nowIso,
+  optionalString,
+  readJsonObject,
+  resolveWorkspaceId,
+  routeError,
+} from "../_lib/api";
 import { parseGoal } from "../_lib/domain";
 import {
   getGoalRow,
@@ -29,10 +36,12 @@ export async function POST(request: Request) {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    const requestId = optionalString(payload, "requestId", 120) ?? null;
     const goal = parseGoal(payload);
     const now = nowIso();
-    await getD1()
-      .prepare(
+    const d1 = getD1();
+    await d1.batch([
+      d1.prepare(
         `INSERT INTO goals
            (id, workspace_id, name, target, current, deadline, color, icon, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -48,8 +57,17 @@ export async function POST(request: Request) {
         goal.icon,
         now,
         now,
-      )
-      .run();
+      ),
+      auditStatement(d1, {
+        workspaceId,
+        action: "goal.create",
+        entityType: "goal",
+        entityId: goal.id,
+        requestId,
+        after: goal,
+        createdAt: now,
+      }),
+    ]);
     return Response.json(
       { goal: serializeGoal((await getGoalRow(workspaceId, goal.id))!) },
       { status: 201 },

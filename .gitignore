@@ -39,5 +39,7 @@ next-env.d.ts
 *.tsbuildinfo
 /dist/
 /.wrangler/
+/.wrangler-d1-smoke/
+/.codex-d1-smoke.*.log
 /outputs/
 /work/

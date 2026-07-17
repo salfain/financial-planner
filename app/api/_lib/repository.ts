@@ -19,6 +19,7 @@ type AccountRow = {
   type: string;
   institution: string;
   balance: number;
+  openingBalance: number;
   mask: string;
   color: string;
   liability: number;
@@ -33,9 +34,11 @@ type TransactionRow = {
   category: string;
   accountId: string;
   destinationAccountId: string | null;
+  transferGroupId: string | null;
   amount: number;
   status: string;
   idempotencyKey?: string;
+  updatedAt: string;
 };
 
 type BudgetRow = {
@@ -67,14 +70,39 @@ type BillRow = {
   lastPaidPeriod: string | null;
 };
 
+export type CategoryRow = {
+  id: string;
+  name: string;
+  type: string;
+  color: string;
+  icon: string;
+  archived: number;
+  isDefault: number;
+};
+
+export type AuditLogRow = {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  actor: string;
+  requestId: string | null;
+  beforeJson: string | null;
+  afterJson: string | null;
+  details: string;
+  createdAt: string;
+};
+
 export const accountSelect = `
-  SELECT id, name, type, institution, balance, mask, color, liability
+  SELECT id, name, type, institution, balance, opening_balance AS openingBalance,
+         mask, color, liability
   FROM accounts
 `;
 export const transactionSelect = `
   SELECT id, type, date, title, merchant, category, account_id AS accountId,
-         destination_account_id AS destinationAccountId, amount, status,
-         idempotency_key AS idempotencyKey
+         destination_account_id AS destinationAccountId,
+         transfer_group_id AS transferGroupId, amount, status,
+         idempotency_key AS idempotencyKey, updated_at AS updatedAt
   FROM transactions
 `;
 export const budgetSelect = `
@@ -89,6 +117,16 @@ export const billSelect = `
   SELECT id, name, amount, due_date AS dueDate, category, account_id AS accountId, paid,
          last_paid_period AS lastPaidPeriod
   FROM bills
+`;
+export const categorySelect = `
+  SELECT id, name, type, color, icon, archived, is_default AS isDefault
+  FROM categories
+`;
+export const auditLogSelect = `
+  SELECT id, action, entity_type AS entityType, entity_id AS entityId,
+         actor, request_id AS requestId, before_json AS beforeJson,
+         after_json AS afterJson, details, created_at AS createdAt
+  FROM audit_logs
 `;
 
 export function serializeWorkspace(row: WorkspaceRow | null, workspaceId: string) {
@@ -122,8 +160,10 @@ export const serializeTransaction = (row: TransactionRow) => {
     category: row.category,
     accountId: row.accountId,
     destinationAccountId: row.destinationAccountId,
+    transferGroupId: row.transferGroupId,
     amount: row.amount,
     status: row.status,
+    updatedAt: row.updatedAt,
   };
 };
 export const serializeBudget = (row: BudgetRow) => ({
@@ -144,6 +184,37 @@ export const serializeBill = (row: BillRow, period?: string) => ({
   paid: period ? row.lastPaidPeriod === period : Boolean(row.paid),
   lastPaidPeriod: row.lastPaidPeriod,
 });
+export const serializeCategory = (row: CategoryRow) => ({
+  id: row.id,
+  name: row.name,
+  type: row.type,
+  color: row.color,
+  icon: row.icon,
+  archived: Boolean(row.archived),
+  isDefault: Boolean(row.isDefault),
+});
+export const serializeAuditLog = (row: AuditLogRow) => {
+  const parseJson = (value: string | null, fallback: unknown) => {
+    if (value === null) return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  };
+  return {
+    id: row.id,
+    action: row.action,
+    entityType: row.entityType,
+    entityId: row.entityId,
+    actor: row.actor,
+    requestId: row.requestId,
+    before: parseJson(row.beforeJson, { raw: row.beforeJson }),
+    after: parseJson(row.afterJson, { raw: row.afterJson }),
+    details: parseJson(row.details, { raw: row.details }),
+    createdAt: row.createdAt,
+  };
+};
 
 export async function getWorkspace(workspaceId: string): Promise<WorkspaceRow | null> {
   return getD1()
@@ -177,6 +248,12 @@ export async function getBootstrap(workspaceId: string, period?: string) {
     : d1
         .prepare(`${budgetSelect} WHERE workspace_id = ? ORDER BY period DESC, category, id`)
         .bind(workspaceId);
+  const categoriesStatement = d1
+    .prepare(`${categorySelect} WHERE workspace_id = ? AND archived = 0 ORDER BY type, name, id`)
+    .bind(workspaceId);
+  const auditLogsStatement = d1
+    .prepare(`${auditLogSelect} WHERE workspace_id = ? ORDER BY created_at DESC, id DESC LIMIT 20`)
+    .bind(workspaceId);
   const results = await d1.batch([
     d1
       .prepare(
@@ -194,6 +271,8 @@ export async function getBootstrap(workspaceId: string, period?: string) {
     budgetsStatement,
     d1.prepare(`${goalSelect} WHERE workspace_id = ? ORDER BY deadline, created_at, id`).bind(workspaceId),
     d1.prepare(`${billSelect} WHERE workspace_id = ? ORDER BY due_date, created_at, id`).bind(workspaceId),
+    categoriesStatement,
+    auditLogsStatement,
   ]);
 
   const workspace = (results[0].results[0] as WorkspaceRow | undefined) ?? null;
@@ -205,6 +284,8 @@ export async function getBootstrap(workspaceId: string, period?: string) {
     budgets: (results[3].results as BudgetRow[]).map(serializeBudget),
     goals: (results[4].results as GoalRow[]).map(serializeGoal),
     bills: (results[5].results as BillRow[]).map((bill) => serializeBill(bill, period)),
+    categories: (results[6].results as CategoryRow[]).map(serializeCategory),
+    auditLogs: (results[7].results as AuditLogRow[]).map(serializeAuditLog),
   };
 }
 
@@ -247,4 +328,14 @@ export async function getBillRow(workspaceId: string, id: string): Promise<BillR
     .prepare(`${billSelect} WHERE workspace_id = ? AND id = ? LIMIT 1`)
     .bind(workspaceId, id)
     .first<BillRow>();
+}
+
+export async function getCategoryRow(
+  workspaceId: string,
+  id: string,
+): Promise<CategoryRow | null> {
+  return getD1()
+    .prepare(`${categorySelect} WHERE workspace_id = ? AND id = ? LIMIT 1`)
+    .bind(workspaceId, id)
+    .first<CategoryRow>();
 }

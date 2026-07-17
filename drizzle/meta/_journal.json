@@ -22,6 +22,20 @@
       "when": 1784300898010,
       "tag": "0002_premium_anita_blake",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784309984617,
+      "tag": "0003_careful_supernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784311279947,
+      "tag": "0004_chubby_callisto",
+      "breakpoints": true
     }
   ]
 }

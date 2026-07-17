@@ -86,6 +86,23 @@ export async function readJsonObject(request: Request): Promise<Record<string, u
   return value as Record<string, unknown>;
 }
 
+export async function readOptionalJsonObject(
+  request: Request,
+): Promise<Record<string, unknown>> {
+  const text = await request.text();
+  if (!text.trim()) return {};
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new ApiError(400, "INVALID_JSON", "Body harus berupa JSON yang valid.");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError(400, "INVALID_BODY", "Body harus berupa object JSON.");
+  }
+  return value as Record<string, unknown>;
+}
+
 export function resolveWorkspaceId(
   request: Request,
   payload?: Record<string, unknown>,

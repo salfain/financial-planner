@@ -1,4 +1,5 @@
 import { getD1 } from "@/db";
+import { auditStatement } from "../_lib/audit";
 import {
   ApiError,
   nowIso,
@@ -97,8 +98,9 @@ export async function POST(request: Request) {
         .prepare(
           `INSERT INTO transactions
              (id, workspace_id, type, date, title, merchant, category, account_id,
-              destination_account_id, amount, status, idempotency_key, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              destination_account_id, transfer_group_id, amount, status, idempotency_key,
+              created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           transaction.id,
@@ -110,6 +112,9 @@ export async function POST(request: Request) {
           transaction.category,
           transaction.accountId,
           transaction.destinationAccountId,
+          transaction.type === "transfer" || transaction.type === "investment_buy"
+            ? transaction.id
+            : null,
           transaction.amount,
           transaction.status,
           idempotencyKey,
@@ -117,6 +122,23 @@ export async function POST(request: Request) {
           now,
         ),
       ...balanceUpdateStatements(workspaceId, deltas),
+      auditStatement(d1, {
+        workspaceId,
+        action: "transaction.create",
+        entityType: "transaction",
+        entityId: transaction.id,
+        requestId: idempotencyKey,
+        after: {
+          ...transaction,
+          transferGroupId:
+            transaction.type === "transfer" || transaction.type === "investment_buy"
+              ? transaction.id
+              : null,
+          updatedAt: now,
+        },
+        details: { idempotencyKey },
+        createdAt: now,
+      }),
     ]);
     return Response.json(
       {

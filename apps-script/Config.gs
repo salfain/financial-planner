@@ -1,6 +1,6 @@
 const VINN_CONFIG = Object.freeze({
   APP_NAME: 'VINN STORE',
-  SCHEMA_VERSION: '1.0.0',
+  SCHEMA_VERSION: '1.1.0',
   TIMEZONE: 'Asia/Jakarta',
   CURRENCY: 'IDR',
   CACHE_SECONDS: 300,
@@ -20,7 +20,7 @@ const VINN_CONFIG = Object.freeze({
   HEADERS: {
     Settings: ['key', 'value', 'updated_at'],
     Accounts: ['id', 'name', 'type', 'institution', 'mask', 'currency', 'opening_balance', 'color', 'is_liability', 'is_active', 'created_at', 'updated_at'],
-    Categories: ['id', 'name', 'type', 'parent_id', 'color', 'icon', 'is_active'],
+    Categories: ['id', 'name', 'type', 'parent_id', 'color', 'icon', 'is_active', 'is_default', 'request_id', 'created_at', 'updated_at'],
     Transactions: ['id', 'transfer_group_id', 'request_id', 'date', 'time', 'type', 'account_id', 'destination_account_id', 'amount', 'category', 'merchant', 'notes', 'status', 'direction', 'created_at', 'updated_at', 'deleted_at'],
     Budgets: ['id', 'month', 'category', 'limit_amount', 'rollover', 'created_at', 'updated_at'],
     Goals: ['id', 'name', 'target_amount', 'current_amount', 'deadline', 'account_id', 'color', 'icon', 'status', 'created_at', 'updated_at'],
@@ -33,12 +33,12 @@ const VINN_CONFIG = Object.freeze({
 });
 
 const DEFAULT_CATEGORIES = [
-  ['cat-income', 'Pendapatan', 'income', '', '#16876f', 'wallet', true],
-  ['cat-food', 'Makanan', 'expense', '', '#16876f', 'utensils', true],
-  ['cat-home', 'Tempat Tinggal', 'expense', '', '#d4685c', 'home', true],
-  ['cat-bill', 'Tagihan', 'expense', '', '#da9a3a', 'receipt', true],
-  ['cat-transport', 'Transportasi', 'expense', '', '#4e79c7', 'car', true],
-  ['cat-fun', 'Hiburan', 'expense', '', '#aa67a6', 'sparkles', true],
-  ['cat-health', 'Kesehatan', 'expense', '', '#d26b7a', 'heart', true],
-  ['cat-fee', 'Biaya Keuangan', 'expense', '', '#a36c5a', 'credit-card', true]
+  ['cat-income', 'Pendapatan', 'income', '', '#16876f', 'wallet', true, true],
+  ['cat-food', 'Makanan', 'expense', '', '#16876f', 'utensils', true, true],
+  ['cat-home', 'Tempat Tinggal', 'expense', '', '#d4685c', 'home', true, true],
+  ['cat-bill', 'Tagihan', 'expense', '', '#da9a3a', 'receipt', true, true],
+  ['cat-transport', 'Transportasi', 'expense', '', '#4e79c7', 'car', true, true],
+  ['cat-fun', 'Hiburan', 'expense', '', '#aa67a6', 'sparkles', true, true],
+  ['cat-health', 'Kesehatan', 'expense', '', '#d26b7a', 'heart', true, true],
+  ['cat-fee', 'Biaya Keuangan', 'expense', '', '#a36c5a', 'credit-card', true, true]
 ];

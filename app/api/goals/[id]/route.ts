@@ -1,7 +1,9 @@
 import { getD1 } from "@/db";
+import { auditStatement } from "../../_lib/audit";
 import {
   ApiError,
   nowIso,
+  optionalString,
   readJsonObject,
   resolveWorkspaceId,
   routeError,
@@ -44,8 +46,15 @@ export async function PATCH(request: Request, context: Context) {
       ]),
       id,
     );
-    await getD1()
-      .prepare(
+    const requestId = optionalString(payload, "requestId", 120) ?? null;
+    const before = serializeGoal(current);
+    const now = nowIso();
+    const action = new URL(request.url).pathname.endsWith("/contribute")
+      ? "goal.contribute"
+      : "goal.update";
+    const d1 = getD1();
+    await d1.batch([
+      d1.prepare(
         `UPDATE goals
          SET name = ?, target = ?, current = ?, deadline = ?, color = ?, icon = ?, updated_at = ?
          WHERE workspace_id = ? AND id = ?`,
@@ -57,11 +66,23 @@ export async function PATCH(request: Request, context: Context) {
         goal.deadline,
         goal.color,
         goal.icon,
-        nowIso(),
+        now,
         workspaceId,
         id,
-      )
-      .run();
+      ),
+      auditStatement(d1, {
+        workspaceId,
+        action,
+        entityType: "goal",
+        entityId: id,
+        requestId,
+        before,
+        after: goal,
+        details:
+          action === "goal.contribute" ? { amount: goal.current - before.current } : undefined,
+        createdAt: now,
+      }),
+    ]);
     return Response.json({ goal: serializeGoal((await getGoalRow(workspaceId, id))!) });
   } catch (error) {
     return routeError(error);
@@ -73,10 +94,25 @@ export async function DELETE(request: Request, context: Context) {
     const workspaceId = resolveWorkspaceId(request);
     await requireWorkspace(workspaceId);
     const id = await routeId(context);
-    if (!(await getGoalRow(workspaceId, id))) {
+    const current = await getGoalRow(workspaceId, id);
+    if (!current) {
       throw new ApiError(404, "NOT_FOUND", "Target tidak ditemukan.");
     }
-    await getD1().prepare(`DELETE FROM goals WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id).run();
+    const d1 = getD1();
+    const now = nowIso();
+    const before = serializeGoal(current);
+    await d1.batch([
+      d1.prepare(`DELETE FROM goals WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id),
+      auditStatement(d1, {
+        workspaceId,
+        action: "goal.delete",
+        entityType: "goal",
+        entityId: id,
+        before,
+        after: { ...before, deleted: true },
+        createdAt: now,
+      }),
+    ]);
     return Response.json({ deleted: true, id });
   } catch (error) {
     return routeError(error);

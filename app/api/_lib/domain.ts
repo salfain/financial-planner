@@ -26,8 +26,31 @@ export const TRANSACTION_TYPES = [
   "transfer",
   "refund",
   "investment_buy",
+  "adjustment_in",
+  "adjustment_out",
 ] as const;
 export const TRANSACTION_STATUSES = ["completed", "pending"] as const;
+export const CATEGORY_TYPES = [
+  "income",
+  "expense",
+  "transfer",
+  "investment",
+  "system",
+] as const;
+
+export const DEFAULT_CATEGORIES = [
+  { name: "Pendapatan", type: "income", color: "#16876f", icon: "wallet-cards" },
+  { name: "Makanan", type: "expense", color: "#d4685c", icon: "utensils" },
+  { name: "Transportasi", type: "expense", color: "#4e79c7", icon: "car" },
+  { name: "Tagihan", type: "expense", color: "#da9a3a", icon: "receipt-text" },
+  { name: "Tempat Tinggal", type: "expense", color: "#8b6bb1", icon: "house" },
+  { name: "Hiburan", type: "expense", color: "#aa67a6", icon: "sparkles" },
+  { name: "Kesehatan", type: "expense", color: "#2e8b8b", icon: "heart-pulse" },
+  { name: "Transfer", type: "transfer", color: "#5574b8", icon: "arrow-right-left" },
+  { name: "Investasi", type: "investment", color: "#1c7567", icon: "trending-up" },
+  { name: "Kewajiban", type: "expense", color: "#c45b6c", icon: "credit-card" },
+  { name: "Penyesuaian Saldo", type: "system", color: "#687386", icon: "scale" },
+] as const;
 
 export type AccountInput = {
   id: string;
@@ -79,6 +102,14 @@ export type BillInput = {
   category: string;
   accountId: string;
   paid: boolean;
+};
+
+export type CategoryInput = {
+  id: string;
+  name: string;
+  type: (typeof CATEGORY_TYPES)[number];
+  color: string;
+  icon: string;
 };
 
 export function parseAccount(input: Record<string, unknown>, fallbackId?: string): AccountInput {
@@ -175,6 +206,19 @@ export function parseBill(input: Record<string, unknown>, fallbackId?: string): 
     category: requiredString(input, "category", 100),
     accountId: validateId(input.accountId, "accountId"),
     paid: input.paid === undefined ? false : booleanValue(input, "paid"),
+  };
+}
+
+export function parseCategory(
+  input: Record<string, unknown>,
+  fallbackId?: string,
+): CategoryInput {
+  return {
+    id: fallbackId ?? (input.id === undefined ? makeId("cat") : validateId(input.id)),
+    name: requiredString(input, "name", 100),
+    type: enumValue(input, "type", CATEGORY_TYPES),
+    color: input.color === undefined ? "#16876f" : colorValue(input),
+    icon: optionalString(input, "icon", 60) ?? "circle-dollar-sign",
   };
 }
 

@@ -71,6 +71,47 @@ test("refund mengurangi realisasi anggaran", () => {
   assert.equal(spent, 500_000);
 });
 
+test("penyesuaian saldo mengikuti arah ekonomi aset dan kewajiban", () => {
+  const assetIn = tx({ id: "asset-in", type: "adjustment_in", amount: 500_000 });
+  const assetOut = tx({ id: "asset-out", type: "adjustment_out", amount: 300_000 });
+  const debtDown = tx({ id: "debt-down", type: "adjustment_in", accountId: "card", amount: 200_000 });
+  const debtUp = tx({ id: "debt-up", type: "adjustment_out", accountId: "card", amount: 400_000 });
+
+  assert.equal(applyTransaction(accounts, assetIn).find((item) => item.id === "bank")?.balance, 10_500_000);
+  assert.equal(applyTransaction(accounts, assetOut).find((item) => item.id === "bank")?.balance, 9_700_000);
+  assert.equal(applyTransaction(accounts, debtDown).find((item) => item.id === "card")?.balance, 800_000);
+  assert.equal(applyTransaction(accounts, debtUp).find((item) => item.id === "card")?.balance, 1_400_000);
+
+  const adjusted = [assetIn, debtDown].reduce(applyTransaction, accounts);
+  assert.equal(accountSummary(adjusted).netWorth, accountSummary(accounts).netWorth + 700_000);
+  assert.deepEqual(reverseTransaction(applyTransaction(accounts, debtUp), debtUp), accounts);
+});
+
+test("penyesuaian mengubah ledger tetapi tidak masuk cashflow atau anggaran", () => {
+  const transactions = [
+    tx({ id: "income", type: "income", amount: 2_000_000 }),
+    tx({ id: "expense", type: "expense", amount: 600_000 }),
+    tx({ id: "adjust-in", type: "adjustment_in", amount: 900_000 }),
+    tx({ id: "adjust-out", type: "adjustment_out", amount: 450_000 }),
+  ];
+  const summary = monthlySummary(transactions, "2026-07");
+  assert.deepEqual(
+    { income: summary.income, expense: summary.expense, cashflow: summary.cashflow },
+    { income: 2_000_000, expense: 600_000, cashflow: 1_400_000 },
+  );
+  assert.equal(budgetSpent(transactions, "Makanan", "2026-07"), 600_000);
+});
+
+test("soft delete penyesuaian mengembalikan saldo tepat satu kali", () => {
+  const adjustment = tx({ id: "reconcile", type: "adjustment_out", accountId: "card", amount: 250_000 });
+  const posted = applyTransaction(accounts, adjustment);
+  assert.equal(posted.find((item) => item.id === "card")?.balance, 1_250_000);
+  const deleted = softDeleteTransaction(posted, [adjustment], adjustment.id);
+  assert.deepEqual(deleted.accounts, accounts);
+  assert.equal(deleted.changed, true);
+  assert.equal(softDeleteTransaction(deleted.accounts, deleted.transactions, adjustment.id).changed, false);
+});
+
 test("weighted average cost memasukkan fee", () => {
   const average = weightedAverageCost(10, 1_000, 5, 1_300, 150);
   assert.equal(average, 1_110);

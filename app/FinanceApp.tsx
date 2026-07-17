@@ -18,20 +18,24 @@ import {
   Eye,
   EyeOff,
   FileText,
+  History,
   Landmark,
   LayoutDashboard,
   Menu,
   Moon,
   MoreHorizontal,
+  Pencil,
   Plus,
   ReceiptText,
   Search,
   Send,
   Settings,
+  Scale,
   ShieldCheck,
   Sparkles,
   Sun,
   Target,
+  Tags,
   Trash2,
   TrendingUp,
   Upload,
@@ -42,8 +46,10 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Account,
+  AuditLog,
   Bill,
   Budget,
+  FinanceCategory,
   Goal,
   Transaction,
   TransactionType,
@@ -59,16 +65,21 @@ import {
   FinanceProfile,
   SetupWorkspaceInput,
   archiveFinanceAccount,
+  archiveFinanceCategory,
   contributeFinanceGoal,
   createFinanceAccount,
   createFinanceBill,
+  createFinanceCategory,
   createFinanceGoal,
   createFinanceTransaction,
   deleteFinanceTransaction,
   financeBackendLabel,
   loadFinanceSnapshot,
   markFinanceBillPaid,
+  reconcileFinanceAccount,
   setupFinanceWorkspace,
+  updateFinanceCategory,
+  updateFinanceTransaction,
   upsertFinanceBudget,
 } from "../lib/finance-client";
 
@@ -90,6 +101,8 @@ type StoredData = {
   budgets: Budget[];
   goals: Goal[];
   bills: Bill[];
+  categories: FinanceCategory[];
+  auditLogs: AuditLog[];
 };
 
 const currentMonth = () => getCurrentMonth();
@@ -184,6 +197,8 @@ export function FinanceApp() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
+  const [categories, setCategories] = useState<FinanceCategory[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [profile, setProfile] = useState<FinanceProfile>({ name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" });
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -194,6 +209,9 @@ export function FinanceApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [transactionOpen, setTransactionOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [reconcileTarget, setReconcileTarget] = useState<Account | null>(null);
+  const [categoryModal, setCategoryModal] = useState<{ category?: FinanceCategory } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
@@ -211,6 +229,8 @@ export function FinanceApp() {
     setBudgets(snapshot.budgets);
     setGoals(snapshot.goals);
     setBills(snapshot.bills);
+    setCategories(snapshot.categories);
+    setAuditLogs(snapshot.auditLogs);
   };
 
   const refreshData = async () => {
@@ -293,6 +313,11 @@ export function FinanceApp() {
     transaction.type === "transfer" ? "Transfer berhasil dicatat secara utuh." : "Transaksi berhasil disimpan.",
   );
 
+  const editTransaction = async (transaction: Transaction, requestId?: string) => runMutation(
+    () => updateFinanceTransaction(transaction, requestId),
+    "Transaksi dan saldo terkait berhasil diperbarui.",
+  );
+
   const payBill = async (bill: Bill) => {
     if (bill.paid) return;
     if (bill.category === "Kewajiban") {
@@ -311,12 +336,28 @@ export function FinanceApp() {
     await runMutation(() => contributeFinanceGoal(goal.id, contribution), `Progress ${goal.name} bertambah ${formatIDR(contribution)}.`);
   };
 
-  const deleteTransaction = async (transactionId: string) => {
-    await runMutation(() => deleteFinanceTransaction(transactionId), "Transaksi dipindahkan ke Trash.");
+  const deleteTransaction = async (transaction: Transaction) => {
+    await runMutation(() => deleteFinanceTransaction(transaction.id, transaction.updatedAt), "Transaksi dipindahkan ke Trash.");
   };
 
   const archiveAccount = async (accountId: string) => {
     await runMutation(() => archiveFinanceAccount(accountId), "Akun berhasil diarsipkan.");
+  };
+
+  const reconcileAccount = async (account: Account, actualBalance: number, date: string, note: string, requestId: string) => runMutation(
+    () => reconcileFinanceAccount(account.id, actualBalance, date, note, requestId),
+    actualBalance === account.balance ? "Saldo akun sudah cocok." : "Saldo berhasil direkonsiliasi dan jejak penyesuaian dibuat.",
+  );
+
+  const saveCategory = async (payload: { name: string; type: "income" | "expense"; color: string }, category?: FinanceCategory, requestId?: string) => runMutation(
+    () => category
+      ? updateFinanceCategory(category.id, payload, requestId)
+      : createFinanceCategory(payload, requestId),
+    category ? "Kategori berhasil diperbarui." : "Kategori baru berhasil dibuat.",
+  );
+
+  const archiveCategory = async (categoryId: string) => {
+    await runMutation(() => archiveFinanceCategory(categoryId), "Kategori berhasil diarsipkan.");
   };
 
   const openCreateForPage = () => {
@@ -426,15 +467,15 @@ export function FinanceApp() {
           </section>
 
           {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setTransactionOpen(true)} />}
-          {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onDelete={deleteTransaction} />}
-          {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onArchive={archiveAccount} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
+          {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDelete={deleteTransaction} />}
+          {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} />}
           {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onContribute={contributeGoal} onAdd={() => setGoalOpen(true)} />}
           {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onAdd={() => setBillOpen(true)} />}
           {activePage === "investments" && <InvestmentsPage privacy={privacy} />}
           {activePage === "reports" && <ReportsPage transactions={transactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} />}
           {activePage === "assistant" && <AssistantPage monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} privacy={privacy} />}
-          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} data={{ accounts, transactions, budgets, goals, bills }} backendLabel={financeBackendLabel()} onToast={showToast} />}
+          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} data={{ accounts, transactions, budgets, goals, bills, categories, auditLogs }} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} />}
         </div>
       </main>
 
@@ -443,11 +484,13 @@ export function FinanceApp() {
         <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={23} /></button>
       </nav>
 
-      {transactionOpen && <TransactionModal accounts={accounts} saving={saving} onClose={() => setTransactionOpen(false)} onSubmit={addTransaction} />}
+      {(transactionOpen || editingTransaction) && <TransactionModal accounts={accounts} categories={categories} initial={editingTransaction ?? undefined} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
       {accountOpen && <AccountModal saving={saving} onClose={() => setAccountOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceAccount(payload), "Akun baru berhasil ditambahkan."); if (ok) setAccountOpen(false); }} />}
-      {budgetOpen && <BudgetModal month={month} saving={saving} onClose={() => setBudgetOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => upsertFinanceBudget(payload), "Anggaran berhasil disimpan."); if (ok) setBudgetOpen(false); }} />}
+      {budgetOpen && <BudgetModal month={month} categories={categories} saving={saving} onClose={() => setBudgetOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => upsertFinanceBudget(payload), "Anggaran berhasil disimpan."); if (ok) setBudgetOpen(false); }} />}
       {goalOpen && <GoalModal saving={saving} onClose={() => setGoalOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceGoal(payload), "Target finansial berhasil dibuat."); if (ok) setGoalOpen(false); }} />}
-      {billOpen && <BillModal accounts={accounts} saving={saving} onClose={() => setBillOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceBill(payload), "Tagihan rutin berhasil ditambahkan."); if (ok) setBillOpen(false); }} />}
+      {billOpen && <BillModal accounts={accounts} categories={categories} saving={saving} onClose={() => setBillOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceBill(payload), "Tagihan rutin berhasil ditambahkan."); if (ok) setBillOpen(false); }} />}
+      {reconcileTarget && <ReconcileModal account={reconcileTarget} privacy={privacy} saving={saving} onClose={() => setReconcileTarget(null)} onSubmit={async (actualBalance, date, note, requestId) => { const ok = await reconcileAccount(reconcileTarget, actualBalance, date, note, requestId); if (ok) setReconcileTarget(null); }} />}
+      {categoryModal && <CategoryModal category={categoryModal.category} saving={saving} onClose={() => setCategoryModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveCategory(payload, categoryModal.category, requestId); if (ok) setCategoryModal(null); }} />}
       {toast && <div className="toast"><span><Check size={16} /></span>{toast}</div>}
     </div>
   );
@@ -584,13 +627,14 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   );
 }
 
-function TransactionsPage({ transactions, accounts, privacy, month, query, onQueryChange, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; month: string; query: string; onQueryChange: (value: string) => void; onDelete: (id: string) => void }) {
-  const [filter, setFilter] = useState<"all" | TransactionType>("all");
+function TransactionsPage({ transactions, accounts, privacy, month, query, onQueryChange, onEdit, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; month: string; query: string; onQueryChange: (value: string) => void; onEdit: (transaction: Transaction) => void; onDelete: (transaction: Transaction) => void }) {
+  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer" | "adjustment">("all");
   const monthTransactions = transactions.filter((item) => item.date.startsWith(month));
   const filtered = transactions.filter((item) => {
     const account = accounts.find((candidate) => candidate.id === item.accountId);
     const matchesQuery = `${item.title} ${item.merchant ?? ""} ${item.category} ${account?.name ?? ""}`.toLowerCase().includes(query.toLowerCase());
-    return matchesQuery && (filter === "all" || item.type === filter);
+    const matchesType = filter === "all" || item.type === filter || (filter === "adjustment" && (item.type === "adjustment_in" || item.type === "adjustment_out"));
+    return matchesQuery && matchesType;
   }).sort((a, b) => b.date.localeCompare(a.date));
   return (
     <div className="content-stack">
@@ -604,37 +648,42 @@ function TransactionsPage({ transactions, accounts, privacy, month, query, onQue
         <div className="filter-row">
           <label className="table-search"><Search size={17} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Cari merchant, akun, atau kategori" /></label>
           <div className="filter-tabs">
-            {(["all", "income", "expense", "transfer"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "all" ? "Semua" : item === "income" ? "Masuk" : item === "expense" ? "Keluar" : "Transfer"}</button>)}
+            {(["all", "income", "expense", "transfer", "adjustment"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "all" ? "Semua" : item === "income" ? "Masuk" : item === "expense" ? "Keluar" : item === "transfer" ? "Transfer" : "Penyesuaian"}</button>)}
           </div>
           <button className="secondary-button" disabled title="Impor CSV akan tersedia pada tahap integrasi berikutnya"><Upload size={16} /> Impor CSV · segera</button>
         </div>
-        {filtered.length > 0 ? <TransactionTable transactions={filtered} accounts={accounts} privacy={privacy} onDelete={onDelete} /> : <div className="empty-state"><Search size={28} /><h3>Transaksi tidak ditemukan</h3><p>Coba gunakan kata kunci atau filter yang berbeda.</p></div>}
+        {filtered.length > 0 ? <TransactionTable transactions={filtered} accounts={accounts} privacy={privacy} onEdit={onEdit} onDelete={onDelete} /> : <div className="empty-state"><Search size={28} /><h3>Transaksi tidak ditemukan</h3><p>Coba gunakan kata kunci atau filter yang berbeda.</p></div>}
       </section>
     </div>
   );
 }
 
-function TransactionTable({ transactions, accounts, privacy, compact = false, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; compact?: boolean; onDelete?: (id: string) => void }) {
+function TransactionTable({ transactions, accounts, privacy, compact = false, onEdit, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; compact?: boolean; onEdit?: (transaction: Transaction) => void; onDelete?: (transaction: Transaction) => void }) {
   return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
     {!compact && <div className="transaction-head"><span>Transaksi</span><span>Tanggal</span><span>Akun</span><span>Status</span><span>Nominal</span></div>}
     {transactions.map((transaction) => {
       const account = accounts.find((item) => item.id === transaction.accountId);
+      const isAdjustment = transaction.type === "adjustment_in" || transaction.type === "adjustment_out";
       const isPositive = transaction.type === "income" || transaction.type === "refund";
       const isTransfer = transaction.type === "transfer" || transaction.type === "investment_buy";
+      const editable = transaction.type !== "adjustment_in" && transaction.type !== "adjustment_out" && transaction.type !== "investment_buy";
+      const adjustmentLabel = account?.liability
+        ? transaction.type === "adjustment_in" ? "Rekonsiliasi · utang turun" : "Rekonsiliasi · utang naik"
+        : transaction.type === "adjustment_in" ? "Rekonsiliasi · saldo naik" : "Rekonsiliasi · saldo turun";
       return <div className="transaction-row" key={transaction.id}>
-        <span className={`transaction-icon ${isPositive ? "positive" : isTransfer ? "neutral" : "negative"}`}>{isPositive ? <ArrowDownLeft size={17} /> : isTransfer ? <ArrowRight size={17} /> : <ArrowUpRight size={17} />}</span>
-        <span className="transaction-main"><strong>{transaction.title}</strong><small>{transaction.merchant ?? transaction.category}</small></span>
+        <span className={`transaction-icon ${isAdjustment || isTransfer ? "neutral" : isPositive ? "positive" : "negative"}`}>{isAdjustment ? <Scale size={17} /> : isPositive ? <ArrowDownLeft size={17} /> : isTransfer ? <ArrowRight size={17} /> : <ArrowUpRight size={17} />}</span>
+        <span className="transaction-main"><strong>{transaction.title}</strong><small>{isAdjustment ? adjustmentLabel : transaction.merchant ?? transaction.category}</small></span>
         <span className="transaction-date">{shortDate(transaction.date)}</span>
         <span className="transaction-account">{account?.name ?? "Alokasi virtual"}</span>
         <span className={`transaction-status ${transaction.status === "pending" ? "pending" : ""}`}><i /> {transaction.status === "pending" ? "Menunggu" : "Selesai"}</span>
-        <Amount value={transaction.amount} privacy={privacy} className={`transaction-amount ${isPositive ? "positive-text" : isTransfer ? "" : "negative-text"}`} />
-        {onDelete && <button className="transaction-delete" onClick={() => window.confirm("Pindahkan transaksi ini ke Trash?") && onDelete(transaction.id)} aria-label={`Hapus ${transaction.title}`}><Trash2 size={15} /></button>}
+        <Amount value={transaction.amount} privacy={privacy} className={`transaction-amount ${isAdjustment || isTransfer ? "" : isPositive ? "positive-text" : "negative-text"}`} />
+        {(onEdit || onDelete) && <span className="transaction-actions">{onEdit && editable && <button className="transaction-edit" onClick={() => onEdit(transaction)} aria-label={`Edit ${transaction.title}`}><Pencil size={14} /></button>}{onDelete && <button className="transaction-delete" onClick={() => window.confirm("Pindahkan transaksi ini ke Trash?") && onDelete(transaction)} aria-label={`Hapus ${transaction.title}`}><Trash2 size={14} /></button>}</span>}
       </div>;
     })}
   </div>;
 }
 
-function AccountsPage({ accounts, privacy, onAdd, onArchive, onInspect }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onArchive: (id: string) => void; onInspect: (account: Account) => void }) {
+function AccountsPage({ accounts, privacy, onAdd, onArchive, onReconcile, onInspect }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onArchive: (id: string) => void; onReconcile: (account: Account) => void; onInspect: (account: Account) => void }) {
   const totals = accountSummary(accounts);
   return <div className="content-stack">
     <div className="summary-strip account-summary">
@@ -645,7 +694,7 @@ function AccountsPage({ accounts, privacy, onAdd, onArchive, onInspect }: { acco
     </div>
     <div className="account-grid">
       {accounts.map((account) => <article className={`account-card ${account.liability ? "liability" : ""}`} key={account.id}>
-        <div className="account-card-top"><span className="large-account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={22} /> : account.type === "Investment" ? <TrendingUp size={22} /> : account.liability ? <CreditCard size={22} /> : <WalletCards size={22} />}</span><button className="icon-button small" onClick={() => window.confirm(`Arsipkan ${account.name}?`) && onArchive(account.id)} aria-label={`Arsipkan ${account.name}`}><Trash2 size={16} /></button></div>
+        <div className="account-card-top"><span className="large-account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={22} /> : account.type === "Investment" ? <TrendingUp size={22} /> : account.liability ? <CreditCard size={22} /> : <WalletCards size={22} />}</span><span className="account-card-actions"><button className="icon-button small" onClick={() => onReconcile(account)} aria-label={`Rekonsiliasi ${account.name}`} title="Cocokkan saldo"><Scale size={16} /></button><button className="icon-button small" onClick={() => window.confirm(`Arsipkan ${account.name}?`) && onArchive(account.id)} aria-label={`Arsipkan ${account.name}`}><Trash2 size={16} /></button></span></div>
         <span>{account.type}</span><h3>{account.name}</h3><p>{account.institution} · {account.mask}</p>
         <Amount value={account.balance} privacy={privacy} className="account-card-value" />
         <div className="account-card-footer"><span><i style={{ background: account.color }} /> {account.liability ? "Kewajiban" : "Aktif"}</span><button onClick={() => onInspect(account)}>Lihat transaksi <ArrowRight size={14} /></button></div>
@@ -797,53 +846,92 @@ function AssistantPage({ monthly, accountTotals, healthScore, privacy }: { month
   </div>;
 }
 
-function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, data, backendLabel, onToast }: { darkMode: boolean; setDarkMode: (value: boolean) => void; privacy: boolean; setPrivacy: (value: boolean) => void; data: StoredData; backendLabel: string; onToast: (message: string) => void }) {
-  const backup = () => { const blob = new Blob([JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), ...data }, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "vinn-store-backup.json"; anchor.click(); URL.revokeObjectURL(url); onToast("Backup berhasil dibuat."); };
+function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, data, categories, auditLogs, backendLabel, onAddCategory, onEditCategory, onArchiveCategory, onToast }: {
+  darkMode: boolean;
+  setDarkMode: (value: boolean) => void;
+  privacy: boolean;
+  setPrivacy: (value: boolean) => void;
+  data: StoredData;
+  categories: FinanceCategory[];
+  auditLogs: AuditLog[];
+  backendLabel: string;
+  onAddCategory: () => void;
+  onEditCategory: (category: FinanceCategory) => void;
+  onArchiveCategory: (categoryId: string) => void;
+  onToast: (message: string) => void;
+}) {
+  const backup = () => {
+    const blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), ...data }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "vinn-store-backup.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+    onToast("Backup berhasil dibuat.");
+  };
+  const editableCategories = categories.filter((category) => category.active && (category.type === "income" || category.type === "expense"));
   return <div className="settings-layout">
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
+    <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
     <section className="panel settings-section"><div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Data & keamanan</h2><p>Backup portabel dari data yang sedang tersinkron.</p></div></div><div className="settings-actions"><button className="secondary-button" onClick={backup}><Download size={17} /> Unduh backup JSON</button></div><div className="settings-footnote">Data finansial utama tersimpan di backend, bukan localStorage. Setiap perubahan melewati validasi API dan ledger.</div></section>
+    <section className="panel settings-section"><div className="settings-title"><span><History size={20} /></span><div><h2>Audit trail</h2><p>20 aktivitas terbaru yang tercatat di workspace.</p></div></div><div className="audit-list">{auditLogs.slice(0, 20).map((log) => <div key={log.id}><span><strong>{log.action.replaceAll("_", " ")}</strong><small>{log.module}{log.entityId ? ` · ${log.entityId.slice(0, 18)}` : ""}</small></span><time>{log.createdAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(log.createdAt)) : "—"}</time></div>)}{!auditLogs.length && <div className="settings-empty">Belum ada aktivitas yang tercatat.</div>}</div></section>
   </div>;
 }
 
-function TransactionModal({ accounts, saving, onClose, onSubmit }: { accounts: Account[]; saving: boolean; onClose: () => void; onSubmit: (transaction: Transaction) => Promise<boolean> }) {
+function TransactionModal({ accounts, categories, initial, saving, onClose, onSubmit }: { accounts: Account[]; categories: FinanceCategory[]; initial?: Transaction; saving: boolean; onClose: () => void; onSubmit: (transaction: Transaction, requestId?: string) => Promise<boolean> }) {
   const sourceAccounts = accounts.filter((account) => account.type !== "Investment");
-  const initialAccountId = sourceAccounts[0]?.id ?? "";
-  const [draftId] = useState(() => `tx-${crypto.randomUUID()}`);
-  const [type, setType] = useState<TransactionType>("expense");
-  const [amount, setAmount] = useState("");
+  const initialAccountId = initial?.accountId ?? sourceAccounts[0]?.id ?? "";
+  const [draftId] = useState(() => initial?.id ?? `tx-${crypto.randomUUID()}`);
+  const [mutationRequestId] = useState(() => initial ? `transaction-update:${initial.id}:${crypto.randomUUID()}` : draftId);
+  const [type, setType] = useState<TransactionType>(initial?.type ?? "expense");
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : "");
   const [accountId, setAccountId] = useState(initialAccountId);
-  const [destinationAccountId, setDestinationAccountId] = useState(accounts.find((account) => account.id !== initialAccountId)?.id ?? "");
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("Makanan");
-  const [date, setDate] = useState(today());
+  const [destinationAccountId, setDestinationAccountId] = useState(initial?.destinationAccountId ?? accounts.find((account) => account.id !== initialAccountId)?.id ?? "");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [category, setCategory] = useState(initial?.category ?? categories.find((item) => item.active && item.type === "expense")?.name ?? "");
+  const [date, setDate] = useState(initial?.date ?? today());
   const [ocrMessage, setOcrMessage] = useState("");
+  const categoryType = type === "income" ? "income" : "expense";
+  const availableCategories = categories.filter((item) => item.active && item.type === categoryType);
+  const categoryOptions = availableCategories.some((item) => item.name === category)
+    ? availableCategories
+    : category ? [{ id: `legacy-${category}`, name: category, type: categoryType, color: categoryColors[category] ?? "#89918d", active: true } as FinanceCategory, ...availableCategories] : availableCategories;
+  const changeType = (nextType: TransactionType) => {
+    setType(nextType);
+    if (nextType === "income") setCategory(categories.find((item) => item.active && item.type === "income")?.name ?? "");
+    if (nextType === "expense") setCategory(categories.find((item) => item.active && item.type === "expense")?.name ?? "");
+  };
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); const value = Number(amount.replace(/\D/g, ""));
+    event.preventDefault();
+    const value = Number(amount.replace(/\D/g, ""));
     if (!value || value <= 0 || !title.trim() || !sourceAccounts.some((account) => account.id === accountId)) return;
     if ((type === "transfer" || type === "investment_buy") && (!destinationAccountId || accountId === destinationAccountId)) return;
-    const saved = await onSubmit({ id: draftId, type, date, title: title.trim(), merchant: title.trim(), category: type === "transfer" ? "Transfer" : type === "investment_buy" ? "Investasi" : category, accountId, destinationAccountId: type === "transfer" || type === "investment_buy" ? destinationAccountId : undefined, amount: value, status: "completed" });
+    if (type !== "transfer" && type !== "investment_buy" && !category) return;
+    const saved = await onSubmit({ id: draftId, type, date, title: title.trim(), merchant: title.trim(), category: type === "transfer" ? "Transfer" : type === "investment_buy" ? "Investasi" : category, accountId, destinationAccountId: type === "transfer" || type === "investment_buy" ? destinationAccountId : undefined, amount: value, status: initial?.status ?? "completed", transferGroupId: initial?.transferGroupId, updatedAt: initial?.updatedAt }, mutationRequestId);
     if (saved) onClose();
   };
   const explainOcr = () => setOcrMessage("OCR belum diaktifkan. Hubungkan Gemini API pada tahap AI/OCR; tidak ada data contoh yang dimasukkan.");
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal" role="dialog" aria-modal="true" aria-labelledby="transaction-title">
-      <div className="modal-head"><div><span className="card-kicker">Quick add</span><h2 id="transaction-title">Transaksi baru</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
+      <div className="modal-head"><div><span className="card-kicker">{initial ? "Edit ledger" : "Quick add"}</span><h2 id="transaction-title">{initial ? "Edit transaksi" : "Transaksi baru"}</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
       <form onSubmit={submit}>
         <div className="transaction-type-tabs">
-          {[{ key: "expense", label: "Pengeluaran", icon: ArrowUpRight }, { key: "income", label: "Pemasukan", icon: ArrowDownLeft }, { key: "transfer", label: "Transfer", icon: ArrowRight }].map((item) => { const Icon = item.icon; return <button type="button" key={item.key} className={type === item.key ? "active" : ""} onClick={() => setType(item.key as TransactionType)}><Icon size={16} />{item.label}</button>; })}
+          {[{ key: "expense", label: "Pengeluaran", icon: ArrowUpRight }, { key: "income", label: "Pemasukan", icon: ArrowDownLeft }, { key: "transfer", label: "Transfer", icon: ArrowRight }].map((item) => { const Icon = item.icon; const locked = Boolean(initial && (initial.type === "transfer" ? item.key !== "transfer" : item.key === "transfer")); return <button type="button" key={item.key} className={type === item.key ? "active" : ""} disabled={locked} onClick={() => changeType(item.key as TransactionType)}><Icon size={16} />{item.label}</button>; })}
         </div>
         <label className="amount-field"><span>Nominal</span><div><small>Rp</small><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" placeholder="0" required autoFocus /></div></label>
         <div className="form-grid">
           <label><span>Deskripsi / merchant</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Contoh: Belanja mingguan" required /></label>
           <label><span>Tanggal</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></label>
           <label><span>Akun {type === "transfer" ? "sumber" : ""}</span><select value={accountId} required onChange={(event) => { const nextId = event.target.value; setAccountId(nextId); if (nextId === destinationAccountId) setDestinationAccountId(accounts.find((account) => account.id !== nextId)?.id ?? ""); }}><option value="" disabled>Pilih akun</option>{sourceAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label>
-          {(type === "transfer" || type === "investment_buy") ? <label><span>Akun tujuan</span><select value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)}>{accounts.filter((item) => item.id !== accountId).map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label> : <label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{["Makanan", "Transportasi", "Tagihan", "Tempat Tinggal", "Hiburan", "Kesehatan", "Pendapatan"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label>}
+          {(type === "transfer" || type === "investment_buy") ? <label><span>Akun tujuan</span><select value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)}>{accounts.filter((item) => item.id !== accountId).map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label> : <label><span>Kategori</span><select value={category} required onChange={(event) => setCategory(event.target.value)}><option value="" disabled>Pilih kategori</option>{categoryOptions.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label>}
         </div>
-        <button type="button" className="ocr-button" onClick={explainOcr}><Upload size={17} /><span><strong>Isi dari foto struk</strong><small>Memerlukan konfigurasi Gemini API.</small></span></button>
+        {!initial && <button type="button" className="ocr-button" onClick={explainOcr}><Upload size={17} /><span><strong>Isi dari foto struk</strong><small>Memerlukan konfigurasi Gemini API.</small></span></button>}
         {ocrMessage && <div className="ocr-message"><Sparkles size={15} />{ocrMessage}</div>}
         {!sourceAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun pembayaran sebelum mencatat transaksi.</div>}
-        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" type="submit" disabled={saving || !sourceAccounts.length || (type === "transfer" && accounts.length < 2)}><Check size={17} /> {saving ? "Menyimpan…" : "Simpan transaksi"}</button></div>
+        {!availableCategories.length && type !== "transfer" && type !== "investment_buy" && !initial && <div className="ocr-message"><Tags size={15} />Tambahkan kategori {categoryType === "income" ? "pemasukan" : "pengeluaran"} di Pengaturan.</div>}
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" type="submit" disabled={saving || !sourceAccounts.length || (type === "transfer" && accounts.length < 2) || (type !== "transfer" && type !== "investment_buy" && !category)}><Check size={17} /> {saving ? "Menyimpan…" : initial ? "Simpan perubahan" : "Simpan transaksi"}</button></div>
       </form>
     </section>
   </div>;
@@ -910,11 +998,14 @@ function AccountModal({ saving, onClose, onSubmit }: { saving: boolean; onClose:
   </SimpleModal>;
 }
 
-function BudgetModal({ month, saving, onClose, onSubmit }: { month: string; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
-  const [category, setCategory] = useState("Makanan");
+function BudgetModal({ month, categories, saving, onClose, onSubmit }: { month: string; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+  const expenseCategories = categories.filter((item) => item.active && item.type === "expense");
+  const [category, setCategory] = useState(expenseCategories[0]?.name ?? "");
   const [limit, setLimit] = useState("");
-  return <SimpleModal title="Anggaran kategori" kicker={monthLabel(month)} saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ month, category, limitAmount: Number(limit || 0), limit: Number(limit || 0), color: categoryColors[category] || "#126b59" }); }}>
-    <div className="form-grid"><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{["Makanan", "Transportasi", "Tagihan", "Tempat Tinggal", "Hiburan", "Kesehatan"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Batas anggaran</span><input value={limit} onChange={(event) => setLimit(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" placeholder="0" required autoFocus /></label></div>
+  const color = expenseCategories.find((item) => item.name === category)?.color ?? categoryColors[category] ?? "#126b59";
+  return <SimpleModal title="Anggaran kategori" kicker={monthLabel(month)} saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ month, category, limitAmount: Number(limit || 0), limit: Number(limit || 0), color }); }}>
+    <div className="form-grid"><label><span>Kategori</span><select value={category} required onChange={(event) => setCategory(event.target.value)}><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Batas anggaran</span><input value={limit} onChange={(event) => setLimit(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" placeholder="0" required autoFocus /></label></div>
+    {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
   </SimpleModal>;
 }
 
@@ -929,16 +1020,49 @@ function GoalModal({ saving, onClose, onSubmit }: { saving: boolean; onClose: ()
   </SimpleModal>;
 }
 
-function BillModal({ accounts, saving, onClose, onSubmit }: { accounts: Account[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+function BillModal({ accounts, categories, saving, onClose, onSubmit }: { accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const paymentAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
+  const expenseCategories = categories.filter((item) => item.active && item.type === "expense");
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState("Tagihan");
+  const [category, setCategory] = useState(expenseCategories.find((item) => item.name === "Tagihan")?.name ?? expenseCategories[0]?.name ?? "");
   const [dueDate, setDueDate] = useState(today());
   const [accountId, setAccountId] = useState(paymentAccounts[0]?.id ?? "");
   return <SimpleModal title="Tagihan rutin" kicker="Reminder" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), amount: Number(amount || 0), category, dueDate, accountId, frequency: "monthly" }); }}>
-    <div className="form-grid"><label><span>Nama tagihan</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{["Tagihan", "Hiburan", "Kesehatan"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Jatuh tempo</span><input type="date" min={today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label></div>
+    <div className="form-grid"><label><span>Nama tagihan</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Jatuh tempo</span><input type="date" min={today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label></div>
     {!paymentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bank, e-wallet, atau cash untuk membayar tagihan.</div>}
+    {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
+  </SimpleModal>;
+}
+
+function ReconcileModal({ account, privacy, saving, onClose, onSubmit }: { account: Account; privacy: boolean; saving: boolean; onClose: () => void; onSubmit: (actualBalance: number, date: string, note: string, requestId: string) => Promise<void> }) {
+  const [actualBalance, setActualBalance] = useState(String(Math.max(0, account.balance)));
+  const [date, setDate] = useState(today());
+  const [note, setNote] = useState("");
+  const [requestId] = useState(() => `reconcile:${account.id}:${crypto.randomUUID()}`);
+  const actual = Number(actualBalance || 0);
+  const difference = actual - account.balance;
+  const direction = difference === 0
+    ? "Saldo sudah cocok; tidak ada transaksi penyesuaian yang dibuat."
+    : account.liability
+      ? difference > 0 ? "Utang aktual lebih tinggi dari ledger." : "Utang aktual lebih rendah dari ledger."
+      : difference > 0 ? "Saldo aktual lebih tinggi dari ledger." : "Saldo aktual lebih rendah dari ledger.";
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="reconcile-title"><div className="modal-head"><div><span className="card-kicker">Rekonsiliasi</span><h2 id="reconcile-title">Cocokkan saldo {account.name}</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div><form onSubmit={(event) => { event.preventDefault(); return onSubmit(actual, date, note.trim(), requestId); }}>
+    <div className="reconcile-summary"><span><small>Saldo ledger</small><Amount value={account.balance} privacy={privacy} /></span><span><small>Selisih</small><Amount value={Math.abs(difference)} privacy={privacy} className={difference === 0 ? "" : "reconcile-difference"} /></span></div>
+    <div className="form-grid"><label><span>Saldo aktual</span><input value={actualBalance} onChange={(event) => setActualBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[0-9]+" required autoFocus /></label><label><span>Tanggal saldo</span><input type="date" value={date} max={today()} onChange={(event) => setDate(event.target.value)} required /></label><label className="full-field"><span>Alasan / catatan</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Contoh: Cocokkan dengan mutasi rekening" required /></label></div>
+    <div className={`reconcile-preview ${difference === 0 ? "matched" : ""}`}><Scale size={17} /><span><strong>{direction}</strong><small>Sistem membuat transaksi penyesuaian; saldo akun tidak diedit langsung.</small></span></div>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" disabled={saving || !note.trim()}><Scale size={17} /> {saving ? "Mencocokkan…" : difference === 0 ? "Konfirmasi saldo cocok" : `Buat penyesuaian ${privacy ? "" : formatIDR(Math.abs(difference))}`}</button></div>
+  </form></section></div>;
+}
+
+function CategoryModal({ category, saving, onClose, onSubmit }: { category?: FinanceCategory; saving: boolean; onClose: () => void; onSubmit: (payload: { name: string; type: "income" | "expense"; color: string }, requestId: string) => Promise<void> }) {
+  const [name, setName] = useState(category?.name ?? "");
+  const [type, setType] = useState<"income" | "expense">(category?.type === "income" ? "income" : "expense");
+  const [color, setColor] = useState(category?.color ?? "#126b59");
+  const [requestId] = useState(() => `category-${category ? "update" : "create"}:${category?.id ?? "new"}:${crypto.randomUUID()}`);
+  return <SimpleModal title={category ? "Edit kategori" : "Kategori baru"} kicker="Kategori transaksi" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), type, color }, requestId); }}>
+    <div className="form-grid"><label><span>Nama kategori</span><input value={name} maxLength={60} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Operasional" required autoFocus /></label><label><span>Jenis</span><select value={type} disabled={category?.isDefault} onChange={(event) => setType(event.target.value as "income" | "expense")}><option value="expense">Pengeluaran</option><option value="income">Pemasukan</option></select><ChevronDown size={15} /></label><label className="color-field"><span>Warna</span><input type="color" value={color} onChange={(event) => setColor(event.target.value)} /><small>{color.toUpperCase()}</small></label></div>
+    {category?.isDefault && <div className="ocr-message"><ShieldCheck size={15} />Jenis kategori bawaan dikunci agar histori tetap konsisten.</div>}
   </SimpleModal>;
 }
 

@@ -2,28 +2,16 @@ function apiGetBootstrap(month) {
   try {
     month = month || Utilities.formatDate(new Date(), VINN_CONFIG.TIMEZONE, 'yyyy-MM');
     const cache = CacheService.getDocumentCache();
-    const cacheKey = 'dashboard:' + month;
+    const cacheKey = dashboardCacheKey_(month);
     const cached = cache.get(cacheKey);
     if (cached) return ok_(JSON.parse(cached));
 
-    const accounts = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).filter(function(row) {
-      return row.is_active !== false && String(row.is_active).toLowerCase() !== 'false';
-    });
+    const accounts = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).filter(accountIsActive_);
     const allTransactions = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(row) { return !row.deleted_at; });
     const completedTransactions = allTransactions.filter(function(row) { return String(row.status || 'completed') === 'completed'; });
-    const transactions = allTransactions.filter(function(row) { return String(row.date).slice(0, 7) === month; });
-    const deltas = {};
-    completedTransactions.forEach(function(row) {
-      const accountId = String(row.account_id);
-      if (!deltas[accountId]) deltas[accountId] = 0;
-      if (row.type === 'income' || row.type === 'refund' || row.direction === 'in') deltas[accountId] += Number(row.amount || 0);
-      if (row.type === 'expense' || row.direction === 'out') deltas[accountId] -= Number(row.amount || 0);
-    });
+    const transactions = completedTransactions.filter(function(row) { return String(row.date).slice(0, 7) === month; });
     const calculatedAccounts = accounts.map(function(account) {
-      const opening = Number(account.opening_balance || 0);
-      const isLiability = account.is_liability === true || String(account.is_liability).toLowerCase() === 'true';
-      const delta = deltas[String(account.id)] || 0;
-      return Object.assign({}, account, { current_balance: isLiability ? opening - delta : opening + delta });
+      return Object.assign({}, account, { current_balance: accountCurrentBalance_(account, completedTransactions) });
     });
 
     const income = transactions.filter(function(row) { return row.type === 'income'; }).reduce(function(sum, row) { return sum + Number(row.amount || 0); }, 0);
@@ -43,6 +31,8 @@ function apiGetBootstrap(month) {
       accounts: calculatedAccounts,
       budgets: rowsAsObjects_(VINN_CONFIG.SHEETS.BUDGETS).filter(function(row) { return String(row.month) === month; }),
       goals: rowsAsObjects_(VINN_CONFIG.SHEETS.GOALS), bills: rowsAsObjects_(VINN_CONFIG.SHEETS.BILLS),
+      categories: categoryRows_().filter(function(category) { return !category.archived; }),
+      auditLogs: recentAuditLogs_(20),
       transactions: clientTransactions.sort(function(a, b) {
         return String(b.date).localeCompare(String(a.date)) || String(b.created_at).localeCompare(String(a.created_at));
       })

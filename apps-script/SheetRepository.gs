@@ -59,6 +59,30 @@ function updateObjectRow_(sheetName, rowNumber, object) {
   })]);
 }
 
+function assertContiguousObjectRows_(entries) {
+  const sorted = (entries || []).slice().sort(function(a, b) { return a.rowNumber - b.rowNumber; });
+  if (!sorted.length) throw createError_('ROW_UPDATE_REQUIRED', 'Tidak ada baris yang akan diperbarui.');
+  sorted.forEach(function(entry, index) {
+    if (!entry.rowNumber || entry.rowNumber !== sorted[0].rowNumber + index) {
+      throw createError_('ROWS_NOT_CONTIGUOUS', 'Pasangan transaksi tidak berada pada baris berurutan; pembaruan dibatalkan.');
+    }
+  });
+  return sorted;
+}
+
+function updateContiguousObjectRows_(sheetName, entries) {
+  const sorted = assertContiguousObjectRows_(entries);
+  const headers = VINN_CONFIG.HEADERS[sheetName];
+  const sheet = getWorkbook_().getSheetByName(sheetName);
+  if (!sheet) throw createError_('SHEET_NOT_FOUND', 'Sheet ' + sheetName + ' belum tersedia.');
+  const values = sorted.map(function(entry) {
+    return headers.map(function(header) {
+      return entry.object[header] === undefined ? '' : entry.object[header];
+    });
+  });
+  sheet.getRange(sorted[0].rowNumber, 1, values.length, headers.length).setValues(values);
+}
+
 function withDocumentLock_(callback) {
   const lock = LockService.getDocumentLock();
   if (!lock.tryLock(15000)) throw createError_('LOCK_TIMEOUT', 'Data sedang diperbarui. Coba lagi beberapa saat.');

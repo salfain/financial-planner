@@ -15,16 +15,59 @@ function setupVinnStore() {
       ['setup_completed', 'true', nowIso_()]
     ].filter(function(row) { return existingKeys.indexOf(row[0]) === -1; });
     if (defaults.length) settingsSheet.getRange(settingsSheet.getLastRow() + 1, 1, defaults.length, 3).setValues(defaults);
-
-    const categories = rowsAsObjects_(VINN_CONFIG.SHEETS.CATEGORIES);
-    if (!categories.length) {
-      getWorkbook_().getSheetByName(VINN_CONFIG.SHEETS.CATEGORIES)
-        .getRange(2, 1, DEFAULT_CATEGORIES.length, DEFAULT_CATEGORIES[0].length)
-        .setValues(DEFAULT_CATEGORIES);
+    const schemaSetting = rowsAsObjects_(VINN_CONFIG.SHEETS.SETTINGS).find(function(row) {
+      return String(row.key) === 'schema_version';
+    });
+    if (schemaSetting && String(schemaSetting.value) !== VINN_CONFIG.SCHEMA_VERSION) {
+      updateObjectRow_(VINN_CONFIG.SHEETS.SETTINGS, schemaSetting._row, {
+        key: 'schema_version', value: VINN_CONFIG.SCHEMA_VERSION, updated_at: nowIso_()
+      });
     }
+
+    const categoryTimestamp = nowIso_();
+    let categories = rowsAsObjects_(VINN_CONFIG.SHEETS.CATEGORIES);
+    const missingDefaults = [];
+    DEFAULT_CATEGORIES.forEach(function(defaultCategory) {
+      const defaultId = String(defaultCategory[0]);
+      const defaultName = String(defaultCategory[1]).trim().toLowerCase();
+      const byId = categories.find(function(category) { return String(category.id) === defaultId; });
+      if (byId) return;
+      const byName = categories.find(function(category) {
+        return String(category.name).trim().toLowerCase() === defaultName;
+      });
+      if (byName) {
+        const rowNumber = byName._row;
+        byName.is_active = true;
+        byName.is_default = true;
+        byName.updated_at = byName.updated_at || categoryTimestamp;
+        const updated = Object.assign({}, byName);
+        delete updated._row;
+        updateObjectRow_(VINN_CONFIG.SHEETS.CATEGORIES, rowNumber, updated);
+        return;
+      }
+      missingDefaults.push({
+        id: defaultCategory[0], name: defaultCategory[1], type: defaultCategory[2],
+        parent_id: defaultCategory[3], color: defaultCategory[4], icon: defaultCategory[5],
+        is_active: true, is_default: true, request_id: '',
+        created_at: categoryTimestamp, updated_at: categoryTimestamp
+      });
+    });
+    if (missingDefaults.length) appendObjects_(VINN_CONFIG.SHEETS.CATEGORIES, missingDefaults);
+    categories = rowsAsObjects_(VINN_CONFIG.SHEETS.CATEGORIES);
+    categories.forEach(function(category) {
+      const rowNumber = category._row;
+      const isDefault = truthy_(category.is_default) || defaultCategoryId_(category.id);
+      category.is_active = (isDefault || category.is_active === '') ? true : category.is_active;
+      category.is_default = isDefault;
+      category.created_at = category.created_at || categoryTimestamp;
+      category.updated_at = category.updated_at || category.created_at;
+      delete category._row;
+      updateObjectRow_(VINN_CONFIG.SHEETS.CATEGORIES, rowNumber, category);
+    });
 
     PropertiesService.getDocumentProperties().setProperty('VINN_SCHEMA_VERSION', VINN_CONFIG.SCHEMA_VERSION);
     audit_('SETUP', 'system', '', id_('req'), { schemaVersion: VINN_CONFIG.SCHEMA_VERSION });
+    invalidateDashboard_();
     return ok_({ appName: VINN_CONFIG.APP_NAME, schemaVersion: VINN_CONFIG.SCHEMA_VERSION });
   });
 }

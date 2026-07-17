@@ -3,12 +3,14 @@ import {
   ApiError,
   monthPeriod,
   nowIso,
+  optionalString,
   readJsonObject,
   requiredString,
   resolveWorkspaceId,
   routeError,
 } from "../_lib/api";
-import { parseAccount } from "../_lib/domain";
+import { auditStatement } from "../_lib/audit";
+import { DEFAULT_CATEGORIES, parseAccount, parseCategory } from "../_lib/domain";
 import { getBootstrap, getWorkspace } from "../_lib/repository";
 
 function currentMonth(timezone: string) {
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
   try {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
+    const requestId = optionalString(payload, "requestId", 120) ?? null;
     const existing = await getWorkspace(workspaceId);
     const requestedMonth =
       payload.month === undefined ? undefined : monthPeriod(payload, "month");
@@ -93,6 +96,9 @@ export async function POST(request: Request) {
     if (new Set(accounts.map((account) => account.id)).size !== accounts.length) {
       throw new ApiError(400, "DUPLICATE_ACCOUNT_ID", "Setiap akun harus memiliki id unik.");
     }
+    const categories = DEFAULT_CATEGORIES.map((category) =>
+      parseCategory({ ...category }),
+    );
 
     const d1 = getD1();
     const now = nowIso();
@@ -116,9 +122,9 @@ export async function POST(request: Request) {
         d1
           .prepare(
             `INSERT INTO accounts
-               (id, workspace_id, name, type, institution, balance, mask, color, liability,
-                active, created_at, updated_at)
-             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?
+               (id, workspace_id, name, type, institution, balance, opening_balance, mask,
+                color, liability, active, created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?
              FROM workspaces WHERE id = ? AND configured = 0`,
           )
           .bind(
@@ -128,12 +134,41 @@ export async function POST(request: Request) {
             account.type,
             account.institution,
             account.balance,
+            account.balance,
             account.mask,
             account.color,
             account.liability ? 1 : 0,
             now,
             now,
             workspaceId,
+          ),
+      ),
+      ...categories.map((category) =>
+        d1
+          .prepare(
+            `INSERT INTO categories
+               (id, workspace_id, name, type, color, icon, archived, is_default,
+                created_at, updated_at)
+             SELECT ?, ?, ?, ?, ?, ?, 0, 1, ?, ?
+             FROM workspaces
+             WHERE id = ? AND configured = 0
+               AND NOT EXISTS (
+                 SELECT 1 FROM categories
+                 WHERE workspace_id = ? AND lower(name) = lower(?)
+               )`,
+          )
+          .bind(
+            category.id,
+            workspaceId,
+            category.name,
+            category.type,
+            category.color,
+            category.icon,
+            now,
+            now,
+            workspaceId,
+            workspaceId,
+            category.name,
           ),
       ),
       d1
@@ -143,6 +178,20 @@ export async function POST(request: Request) {
            WHERE id = ? AND configured = 0`,
         )
         .bind(now, now, workspaceId),
+      auditStatement(d1, {
+        workspaceId,
+        action: "workspace.setup",
+        entityType: "workspace",
+        entityId: workspaceId,
+        requestId,
+        details: {
+          storeName,
+          profileName,
+          accountCount: accounts.length,
+          categoryCount: categories.length,
+        },
+        createdAt: now,
+      }),
     ];
     await d1.batch(statements);
 

@@ -19,7 +19,15 @@ export async function POST(request: Request, context: Context) {
       throw new ApiError(409, "GOAL_OVERFUNDED", "Kontribusi melebihi sisa target.");
     }
     return updateGoal(
-      jsonRequest(request, "/api/goals/contribute", { current: current.current + amount }, "PATCH"),
+      jsonRequest(
+        request,
+        "/api/goals/contribute",
+        {
+          current: current.current + amount,
+          ...(payload.requestId === undefined ? {} : { requestId: payload.requestId }),
+        },
+        "PATCH",
+      ),
       context,
     );
   } catch (error) {

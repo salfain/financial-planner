@@ -1,7 +1,9 @@
 import { getD1 } from "@/db";
+import { auditStatement } from "../../_lib/audit";
 import {
   ApiError,
   nowIso,
+  optionalString,
   readJsonObject,
   resolveWorkspaceId,
   routeError,
@@ -52,9 +54,12 @@ export async function PATCH(request: Request, context: Context) {
     if (!(await getAccountRow(workspaceId, bill.accountId))) {
       throw new ApiError(400, "ACCOUNT_NOT_FOUND", "Akun pembayaran tidak ditemukan.");
     }
+    const requestId = optionalString(payload, "requestId", 120) ?? null;
+    const before = serializeBill(current);
     const now = nowIso();
-    await getD1()
-      .prepare(
+    const d1 = getD1();
+    await d1.batch([
+      d1.prepare(
         `UPDATE bills
          SET name = ?, amount = ?, due_date = ?, category = ?, account_id = ?, paid = ?,
              paid_at = CASE WHEN ? = 1 THEN COALESCE(paid_at, ?) ELSE NULL END,
@@ -79,8 +84,18 @@ export async function PATCH(request: Request, context: Context) {
         now,
         workspaceId,
         id,
-      )
-      .run();
+      ),
+      auditStatement(d1, {
+        workspaceId,
+        action: "bill.update",
+        entityType: "bill",
+        entityId: id,
+        requestId,
+        before,
+        after: bill,
+        createdAt: now,
+      }),
+    ]);
     return Response.json({ bill: serializeBill((await getBillRow(workspaceId, id))!) });
   } catch (error) {
     return routeError(error);
@@ -92,10 +107,25 @@ export async function DELETE(request: Request, context: Context) {
     const workspaceId = resolveWorkspaceId(request);
     await requireWorkspace(workspaceId);
     const id = await routeId(context);
-    if (!(await getBillRow(workspaceId, id))) {
+    const current = await getBillRow(workspaceId, id);
+    if (!current) {
       throw new ApiError(404, "NOT_FOUND", "Tagihan tidak ditemukan.");
     }
-    await getD1().prepare(`DELETE FROM bills WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id).run();
+    const d1 = getD1();
+    const now = nowIso();
+    const before = serializeBill(current);
+    await d1.batch([
+      d1.prepare(`DELETE FROM bills WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id),
+      auditStatement(d1, {
+        workspaceId,
+        action: "bill.delete",
+        entityType: "bill",
+        entityId: id,
+        before,
+        after: { ...before, deleted: true },
+        createdAt: now,
+      }),
+    ]);
     return Response.json({ deleted: true, id });
   } catch (error) {
     return routeError(error);

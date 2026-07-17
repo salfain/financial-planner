@@ -1,8 +1,11 @@
 import { getD1 } from "@/db";
+import { auditStatement } from "../../_lib/audit";
 import {
   ApiError,
   nowIso,
+  optionalString,
   readJsonObject,
+  readOptionalJsonObject,
   resolveWorkspaceId,
   routeError,
   validateId,
@@ -41,7 +44,7 @@ export async function PATCH(request: Request, context: Context) {
     const current = await getAccountRow(workspaceId, id);
     if (!current) throw new ApiError(404, "NOT_FOUND", "Akun tidak ditemukan.");
     const account = parseAccount(
-      mergePayload(current as unknown as Record<string, unknown>, payload, [
+      mergePayload(serializeAccount(current), payload, [
         "name",
         "type",
         "institution",
@@ -51,11 +54,14 @@ export async function PATCH(request: Request, context: Context) {
       ]),
       id,
     );
+    const requestId = optionalString(payload, "requestId", 120) ?? null;
+    const before = serializeAccount(current);
     const now = nowIso();
-    await getD1()
-      .prepare(
+    const d1 = getD1();
+    await d1.batch([
+      d1.prepare(
         `UPDATE accounts
-         SET name = ?, type = ?, institution = ?, balance = ?, mask = ?, color = ?,
+         SET name = ?, type = ?, institution = ?, mask = ?, color = ?,
              liability = ?, updated_at = ?
          WHERE workspace_id = ? AND id = ? AND active = 1`,
       )
@@ -63,15 +69,24 @@ export async function PATCH(request: Request, context: Context) {
         account.name,
         account.type,
         account.institution,
-        account.balance,
         account.mask,
         account.color,
         account.liability ? 1 : 0,
         now,
         workspaceId,
         id,
-      )
-      .run();
+      ),
+      auditStatement(d1, {
+        workspaceId,
+        action: "account.update",
+        entityType: "account",
+        entityId: id,
+        requestId,
+        before,
+        after: { ...before, ...account, openingBalance: before.openingBalance },
+        createdAt: now,
+      }),
+    ]);
     return Response.json({ account: serializeAccount((await getAccountRow(workspaceId, id))!) });
   } catch (error) {
     return routeError(error);
@@ -80,8 +95,10 @@ export async function PATCH(request: Request, context: Context) {
 
 export async function DELETE(request: Request, context: Context) {
   try {
-    const workspaceId = resolveWorkspaceId(request);
+    const payload = await readOptionalJsonObject(request);
+    const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    const requestId = optionalString(payload, "requestId", 120) ?? null;
     const id = await routeId(context);
     const current = await getAccountRow(workspaceId, id);
     if (!current) throw new ApiError(404, "NOT_FOUND", "Akun tidak ditemukan.");
@@ -103,10 +120,24 @@ export async function DELETE(request: Request, context: Context) {
         "Akun masih dipakai oleh transaksi atau tagihan. Arsipkan catatan terkait terlebih dahulu.",
       );
     }
-    await getD1()
-      .prepare(`UPDATE accounts SET active = 0, updated_at = ? WHERE workspace_id = ? AND id = ?`)
-      .bind(nowIso(), workspaceId, id)
-      .run();
+    const before = serializeAccount(current);
+    const now = nowIso();
+    const d1 = getD1();
+    await d1.batch([
+      d1
+        .prepare(`UPDATE accounts SET active = 0, updated_at = ? WHERE workspace_id = ? AND id = ?`)
+        .bind(now, workspaceId, id),
+      auditStatement(d1, {
+        workspaceId,
+        action: "account.archive",
+        entityType: "account",
+        entityId: id,
+        requestId,
+        before,
+        after: { ...before, active: false },
+        createdAt: now,
+      }),
+    ]);
     return Response.json({ deleted: true, id });
   } catch (error) {
     return routeError(error);

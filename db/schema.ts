@@ -31,6 +31,7 @@ export const accounts = sqliteTable(
     type: text("type").notNull(),
     institution: text("institution").notNull().default(""),
     balance: integer("balance").notNull().default(0),
+    openingBalance: integer("opening_balance").notNull().default(0),
     mask: text("mask").notNull().default(""),
     color: text("color").notNull().default("#16876f"),
     liability: integer("liability", { mode: "boolean" }).notNull().default(false),
@@ -41,6 +42,31 @@ export const accounts = sqliteTable(
   (table) => [
     index("accounts_workspace_idx").on(table.workspaceId),
     check("accounts_balance_nonnegative", sql`${table.balance} >= 0`),
+  ],
+);
+
+export const categories = sqliteTable(
+  "categories",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type").notNull(),
+    color: text("color").notNull().default("#16876f"),
+    icon: text("icon").notNull().default("circle-dollar-sign"),
+    archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+    isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("categories_workspace_name_uidx").on(
+      table.workspaceId,
+      sql`lower(${table.name})`,
+    ),
+    index("categories_workspace_archived_idx").on(table.workspaceId, table.archived),
   ],
 );
 
@@ -58,6 +84,7 @@ export const transactions = sqliteTable(
     category: text("category").notNull(),
     accountId: text("account_id").notNull(),
     destinationAccountId: text("destination_account_id"),
+    transferGroupId: text("transfer_group_id"),
     amount: integer("amount").notNull(),
     status: text("status").notNull().default("completed"),
     idempotencyKey: text("idempotency_key").notNull(),
@@ -146,5 +173,33 @@ export const bills = sqliteTable(
     index("bills_workspace_due_idx").on(table.workspaceId, table.dueDate),
     index("bills_workspace_account_idx").on(table.workspaceId, table.accountId),
     check("bills_amount_positive", sql`${table.amount} > 0`),
+  ],
+);
+
+export const auditLogs = sqliteTable(
+  "audit_logs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id"),
+    actor: text("actor").notNull().default("system"),
+    requestId: text("request_id"),
+    beforeJson: text("before_json"),
+    afterJson: text("after_json"),
+    details: text("details").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("audit_logs_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    uniqueIndex("audit_logs_workspace_request_action_entity_uidx").on(
+      table.workspaceId,
+      table.requestId,
+      table.action,
+      table.entityId,
+    ),
   ],
 );

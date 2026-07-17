@@ -1,7 +1,9 @@
 import { getD1 } from "@/db";
+import { auditStatement } from "../_lib/audit";
 import {
   monthPeriod,
   nowIso,
+  optionalString,
   readJsonObject,
   resolveWorkspaceId,
   routeError,
@@ -45,10 +47,12 @@ export async function POST(request: Request) {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    const requestId = optionalString(payload, "requestId", 120) ?? null;
     const budget = parseBudget({ ...payload, period: payload.period ?? defaultPeriod() });
     const now = nowIso();
-    await getD1()
-      .prepare(
+    const d1 = getD1();
+    await d1.batch([
+      d1.prepare(
         `INSERT INTO budgets
            (id, workspace_id, category, amount_limit, period, color, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -62,8 +66,17 @@ export async function POST(request: Request) {
         budget.color,
         now,
         now,
-      )
-      .run();
+      ),
+      auditStatement(d1, {
+        workspaceId,
+        action: "budget.create",
+        entityType: "budget",
+        entityId: budget.id,
+        requestId,
+        after: budget,
+        createdAt: now,
+      }),
+    ]);
     return Response.json(
       { budget: serializeBudget((await getBudgetRow(workspaceId, budget.id))!) },
       { status: 201 },

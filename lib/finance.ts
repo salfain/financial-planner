@@ -3,7 +3,9 @@ export type TransactionType =
   | "expense"
   | "transfer"
   | "refund"
-  | "investment_buy";
+  | "investment_buy"
+  | "adjustment_in"
+  | "adjustment_out";
 
 export type AccountType =
   | "Bank"
@@ -37,6 +39,8 @@ export interface Transaction {
   transferGroupId?: string;
   amount: number;
   status: "completed" | "pending";
+  /** Versi optimistik dari backend untuk mencegah edit stale lintas tab. */
+  updatedAt?: string;
   /** Soft-delete marker. Transaksi di Trash tidak ikut perhitungan ledger. */
   deletedAt?: string;
 }
@@ -66,6 +70,27 @@ export interface Bill {
   category: string;
   accountId: string;
   paid: boolean;
+}
+
+export interface FinanceCategory {
+  id: string;
+  name: string;
+  type: "income" | "expense" | "transfer" | "investment" | "system";
+  color: string;
+  active: boolean;
+  archived?: boolean;
+  isDefault?: boolean;
+  icon?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  module: string;
+  entityId?: string;
+  details?: string | Record<string, unknown>;
+  actor?: string;
+  createdAt: string;
 }
 
 export interface Investment {
@@ -328,8 +353,11 @@ const transactionDeltas = (accounts: Account[], transaction: Transaction) => {
     return deltas;
   }
 
-  if (transaction.type === "expense") addDelta(source, -transaction.amount);
-  else addDelta(source, transaction.amount); // income dan refund
+  if (transaction.type === "expense" || transaction.type === "adjustment_out") {
+    addDelta(source, -transaction.amount);
+  } else {
+    addDelta(source, transaction.amount); // income, refund, dan adjustment_in
+  }
   return deltas;
 };
 

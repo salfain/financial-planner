@@ -1,4 +1,5 @@
 import { getD1 } from "@/db";
+import { auditStatementWhenTransactionExists } from "../../../../_lib/audit";
 import {
   ApiError,
   isoDate,
@@ -181,6 +182,39 @@ export async function POST(request: Request, context: Context) {
              AND COALESCE(last_paid_period, '') <> ?`,
         )
         .bind(now, period, now, workspaceId, billId, period),
+      auditStatementWhenTransactionExists(
+        d1,
+        {
+          workspaceId,
+          action: "transaction.create",
+          entityType: "transaction",
+          entityId: transaction.id,
+          requestId: idempotencyKey,
+          after: { ...transaction, transferGroupId: null, updatedAt: now },
+          details: { source: "bill.payment", billId, period },
+          createdAt: now,
+        },
+        transaction.id,
+      ),
+      auditStatementWhenTransactionExists(
+        d1,
+        {
+          workspaceId,
+          action: "bill.mark_paid",
+          entityType: "bill",
+          entityId: billId,
+          requestId: idempotencyKey,
+          before: serializeBill(bill, period),
+          after: {
+            ...serializeBill(bill, period),
+            paid: true,
+            lastPaidPeriod: period,
+          },
+          details: { transactionId: transaction.id, period },
+          createdAt: now,
+        },
+        transaction.id,
+      ),
     ]);
     const insertedTransaction = Number(batchResults[0].meta.changes ?? 0) > 0;
 

@@ -1,0 +1,268 @@
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import vm from "node:vm";
+import { fileURLToPath } from "node:url";
+
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const appsScriptDirectory = join(projectRoot, "apps-script");
+const sources = readdirSync(appsScriptDirectory)
+  .filter((file) => file.endsWith(".gs"))
+  .sort()
+  .map((file) => readFileSync(join(appsScriptDirectory, file), "utf8"));
+const combinedSource = sources.join("\n");
+for (const action of [
+  "listCategories", "createCategory", "updateCategory", "archiveCategory",
+  "updateTransaction", "reconcileAccount", "listAuditLogs",
+]) {
+  assert.match(combinedSource, new RegExp(`\\b${action}\\s*:`), `Router action ${action} is missing`);
+}
+
+let uuid = 0;
+const properties = new Map();
+const cache = new Map();
+const writes = [];
+const sheetNames = [
+  "Settings", "Accounts", "Categories", "Transactions", "Budgets", "Goals",
+  "Bills", "Assets", "InvestmentTransactions", "AuditLog", "Trash",
+];
+const sheets = Object.fromEntries(sheetNames.map((name) => [name, []]));
+const context = vm.createContext({
+  sheets, writes,
+  console: { log: console.log, error: () => {} },
+  Utilities: {
+    getUuid: () => `uuid-${++uuid}`,
+    formatDate(value, _timezone, format) {
+      const iso = new Date(value).toISOString();
+      if (format === "yyyy-MM") return iso.slice(0, 7);
+      if (format === "yyyy-MM-dd") return iso.slice(0, 10);
+      return iso;
+    },
+  },
+  PropertiesService: {
+    getDocumentProperties: () => ({
+      getProperty: (key) => properties.get(key) ?? null,
+      setProperty: (key, value) => properties.set(key, value),
+    }),
+  },
+  CacheService: {
+    getDocumentCache: () => ({
+      get: (key) => cache.get(key) ?? null,
+      put: (key, value) => cache.set(key, value),
+      remove: (key) => cache.delete(key),
+    }),
+  },
+  Session: { getActiveUser: () => ({ getEmail: () => "owner@test" }) },
+});
+
+new vm.Script(combinedSource, { filename: "apps-script/combined.gs" }).runInContext(context);
+vm.runInContext(`
+  rowsAsObjects_ = function(name) {
+    return (sheets[name] || []).map(function(row, index) {
+      return Object.assign({ _row: index + 2 }, row);
+    });
+  };
+  appendObjects_ = function(name, objects) {
+    if (!sheets[name]) sheets[name] = [];
+    objects.forEach(function(row) { sheets[name].push(Object.assign({}, row)); });
+  };
+  findById_ = function(name, id) {
+    return rowsAsObjects_(name).find(function(row) { return String(row.id) === String(id); }) || null;
+  };
+  updateObjectRow_ = function(name, rowNumber, object) {
+    sheets[name][rowNumber - 2] = Object.assign({}, object);
+  };
+  withDocumentLock_ = function(callback) { return callback(); };
+  mockSheet_ = function(name) {
+    return {
+      getLastRow: function() { return (sheets[name] || []).length + 1; },
+      getRange: function(row, column) {
+        return {
+          setValues: function(values) {
+            writes.push({ sheet: name, row: row, count: values.length });
+            const headers = VINN_CONFIG.HEADERS[name];
+            values.forEach(function(valuesRow, offset) {
+              const object = {};
+              valuesRow.forEach(function(value, index) { object[headers[column - 1 + index]] = value; });
+              const dataIndex = row - 2 + offset;
+              if (dataIndex >= sheets[name].length) sheets[name].push(object);
+              else sheets[name][dataIndex] = Object.assign({}, sheets[name][dataIndex], object);
+            });
+          }
+        };
+      }
+    };
+  };
+  getWorkbook_ = function() { return { getSheetByName: function(name) { return mockSheet_(name); } }; };
+  ensureSheet_ = function(name) { if (!sheets[name]) sheets[name] = []; return mockSheet_(name); };
+`, context);
+
+const invoke = (expression) => vm.runInContext(expression, context);
+const add = (sheet, row) => sheets[sheet].push({ ...row });
+const transactionBase = {
+  transfer_group_id: "", destination_account_id: "", category: "", merchant: "",
+  notes: "", status: "completed", direction: "", created_at: "2026-07-18T00:00:00Z",
+  updated_at: "2026-07-18T00:00:00Z", deleted_at: "",
+};
+
+for (const [id, liability] of [
+  ["asset-up", false], ["asset-down", false], ["debt-up", true],
+  ["debt-down", true], ["source", false], ["destination", false], ["recovery", false],
+]) {
+  add("Accounts", { id, name: id, opening_balance: 1000, is_liability: liability, is_active: true });
+}
+add("Categories", {
+  id: "cat-food", name: "Makanan", type: "expense", parent_id: "", color: "#16876f",
+  icon: "tag", is_active: true, is_default: true, request_id: "",
+});
+
+let result = invoke(`apiCreateCategory({ requestId: "cat-create", name: "Hobi", type: "expense", color: "#112233", icon: "sparkles" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.duplicate, false);
+result = invoke(`apiCreateCategory({ requestId: "cat-create", name: "Hobi", type: "expense", color: "#112233", icon: "sparkles" })`);
+assert.equal(result.data.duplicate, true);
+assert.equal(sheets.Categories.filter((category) => category.name === "Hobi").length, 1);
+result = invoke(`apiCreateCategory({ requestId: "cat-duplicate-name", name: "  hObI  ", type: "income", color: "#112233", icon: "wallet" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "CATEGORY_EXISTS");
+
+result = invoke(`apiArchiveCategory({ requestId: "archive-default", categoryId: "cat-food" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "DEFAULT_CATEGORY");
+
+const customCategory = sheets.Categories.find((category) => category.name === "Hobi");
+add("Transactions", {
+  ...transactionBase, id: "category-reference", request_id: "category-reference",
+  date: "2026-07-01", type: "expense", account_id: "source", amount: 50, category: "Hobi",
+});
+add("Budgets", { id: "budget-reference", month: "2026-07", category: "Hobi", limit_amount: 500, updated_at: "" });
+add("Bills", { id: "bill-reference", category: "Hobi", account_id: "source", updated_at: "" });
+result = invoke(`apiUpdateCategory({ requestId: "cat-update", categoryId: "${customCategory.id}", name: "Hiburan Baru", type: "expense", color: "#112233", icon: "sparkles" })`);
+assert.equal(result.ok, true);
+assert.equal(sheets.Transactions.find((row) => row.id === "category-reference").category, "Hiburan Baru");
+assert.equal(sheets.Budgets[0].category, "Hiburan Baru");
+assert.equal(sheets.Bills[0].category, "Hiburan Baru");
+
+add("Transactions", {
+  ...transactionBase, id: "transfer-out", transfer_group_id: "transfer-group",
+  request_id: "transfer-create", date: "2026-07-02", type: "transfer", account_id: "source",
+  destination_account_id: "destination", amount: 100, category: "Transfer", direction: "out",
+});
+add("Transactions", {
+  ...transactionBase, id: "transfer-in", transfer_group_id: "transfer-group",
+  request_id: "transfer-create", date: "2026-07-02", type: "transfer", account_id: "destination",
+  destination_account_id: "source", amount: 100, category: "Transfer", direction: "in",
+});
+result = invoke(`apiUpdateTransaction({ requestId: "transfer-update", transactionId: "transfer-out", type: "transfer", accountId: "source", destinationAccountId: "destination", amount: 275, date: "2026-07-03", title: "Transfer diperbarui", status: "completed" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.updated, 2);
+assert.equal(result.data.transaction.updatedAt, sheets.Transactions.find((row) => row.id === "transfer-out").updated_at);
+assert.equal(sheets.Transactions.find((row) => row.id === "transfer-out").amount, 275);
+assert.equal(sheets.Transactions.find((row) => row.id === "transfer-in").amount, 275);
+assert.equal(writes.filter((write) => write.sheet === "Transactions" && write.count === 2).length, 1);
+result = invoke(`apiUpdateTransaction({ requestId: "transfer-update", transactionId: "transfer-out", amount: 999 })`);
+assert.equal(result.data.duplicate, true);
+assert.equal(sheets.Transactions.find((row) => row.id === "transfer-out").amount, 275);
+const pairAuditCount = sheets.AuditLog.length;
+result = invoke(`apiUpdateTransaction({ requestId: "transfer-overdraw", transactionId: "transfer-out", amount: 2000 })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "INSUFFICIENT_BALANCE");
+assert.equal(sheets.Transactions.find((row) => row.id === "transfer-out").amount, 275);
+assert.equal(sheets.Transactions.find((row) => row.id === "transfer-in").amount, 275);
+assert.equal(sheets.AuditLog.length, pairAuditCount);
+result = invoke(`apiUpdateTransaction({ requestId: "transfer-stale", transactionId: "transfer-out", amount: 300, expectedUpdatedAt: "stale-version" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "STALE_TRANSACTION");
+assert.equal(sheets.Transactions.find((row) => row.id === "transfer-out").amount, 275);
+
+const beforeRejectedCreate = sheets.Transactions.length;
+result = invoke(`apiCreateTransaction({ requestId: "expense-overdraw", type: "expense", date: "2026-07-18", accountId: "asset-down", amount: 2000, category: "Hiburan Baru" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "INSUFFICIENT_BALANCE");
+assert.equal(sheets.Transactions.length, beforeRejectedCreate);
+
+for (const [accountId, target, adjustmentType] of [
+  ["asset-up", 1200, "adjustment_in"], ["asset-down", 800, "adjustment_out"],
+  ["debt-up", 1200, "adjustment_out"], ["debt-down", 800, "adjustment_in"],
+]) {
+  result = invoke(`apiReconcileAccount({ requestId: "reconcile-${accountId}", accountId: "${accountId}", actualBalance: ${target}, date: "2026-07-18", notes: "saldo fisik" })`);
+  assert.equal(result.ok, true);
+  assert.equal(result.data.adjustmentType, adjustmentType);
+  assert.equal(sheets.Transactions.find((row) => row.id === result.data.transactionId).category, "Penyesuaian Saldo");
+  assert.equal(invoke(`accountCurrentBalance_(findById_("Accounts", "${accountId}"), rowsAsObjects_("Transactions"))`), target);
+  const transactionCount = sheets.Transactions.length;
+  result = invoke(`apiReconcileAccount({ requestId: "reconcile-${accountId}", accountId: "${accountId}", actualBalance: ${target} })`);
+  assert.equal(result.data.duplicate, true);
+  assert.equal(sheets.Transactions.length, transactionCount);
+}
+
+result = invoke(`apiReconcileAccount({ requestId: "reconcile-negative", accountId: "asset-up", actualBalance: -1 })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "INVALID_BALANCE");
+
+add("Transactions", {
+  ...transactionBase, id: "partial-adjustment", request_id: "reconcile-recovery",
+  date: "2026-07-18", type: "adjustment_in", account_id: "recovery", amount: 100,
+  category: "Penyesuaian Saldo", direction: "in",
+});
+result = invoke(`apiReconcileAccount({ requestId: "reconcile-recovery", accountId: "recovery", actualBalance: 1100 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.duplicate, true);
+assert.equal(result.data.previousBalance, 1000);
+assert.equal(result.data.actualBalance, 1100);
+assert.equal(sheets.AuditLog.filter((row) => row.request_id === "reconcile-recovery").length, 1);
+
+const beforeRejectedTransfer = sheets.Transactions.length;
+result = invoke(`apiCreateTransaction({ requestId: "debt-overpayment", type: "transfer", date: "2026-07-18", accountId: "asset-up", destinationAccountId: "debt-down", amount: 900, category: "Transfer" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "INSUFFICIENT_BALANCE");
+assert.equal(sheets.Transactions.length, beforeRejectedTransfer);
+
+result = invoke(`apiGetBootstrap("2026-07")`);
+assert.equal(result.ok, true);
+assert.equal(result.data.summary.income, 0);
+assert.equal(result.data.summary.expense, 50);
+assert.equal(result.data.categories.length, 2);
+assert.ok(result.data.auditLogs.length >= 7);
+for (const [accountId, target] of [["asset-up", 1200], ["asset-down", 800], ["debt-up", 1200], ["debt-down", 800]]) {
+  assert.equal(result.data.accounts.find((account) => account.id === accountId).current_balance, target);
+}
+
+result = invoke(`apiListAuditLogs({ page: 1, pageSize: 100, module: "accounts" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.total, 5);
+
+const transferVersion = sheets.Transactions.find((row) => row.id === "transfer-out").updated_at;
+const transactionWritesBeforeDelete = writes.filter((write) => write.sheet === "Transactions").length;
+result = invoke(`apiDeleteTransaction("transfer-out", "transfer-delete-stale", "stale-version")`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "STALE_TRANSACTION");
+assert.equal(sheets.Transactions.filter((row) => row.transfer_group_id === "transfer-group" && row.deleted_at).length, 0);
+result = invoke(`apiDeleteTransaction("transfer-out", "transfer-delete", "${transferVersion}")`);
+assert.equal(result.ok, true);
+assert.equal(result.data.deleted, 2);
+assert.equal(sheets.Transactions.filter((row) => row.transfer_group_id === "transfer-group" && row.deleted_at).length, 2);
+assert.equal(writes.filter((write) => write.sheet === "Transactions").length, transactionWritesBeforeDelete + 1);
+assert.equal(writes.filter((write) => write.sheet === "Transactions").at(-1).count, 2);
+const trashCount = sheets.Trash.length;
+result = invoke(`apiDeleteTransaction("transfer-out", "transfer-delete", "${transferVersion}")`);
+assert.equal(result.data.duplicate, true);
+assert.equal(sheets.Trash.length, trashCount);
+
+add("Categories", {
+  id: "custom-transport", name: "Transportasi", type: "expense", parent_id: "",
+  color: "#123456", icon: "car", is_active: true, is_default: false, request_id: "custom-seed",
+});
+sheets.Categories.find((category) => category.id === "cat-food").is_active = false;
+result = invoke(`setupVinnStore()`);
+assert.equal(result.ok, true);
+const categoryCountAfterMigration = sheets.Categories.length;
+assert.equal(sheets.Categories.filter((category) => category.is_default === true).length, 8);
+assert.equal(sheets.Categories.some((category) => category.id === "cat-transport"), false);
+assert.equal(sheets.Categories.find((category) => category.id === "custom-transport").is_default, true);
+assert.equal(sheets.Categories.find((category) => category.id === "cat-food").is_active, true);
+result = invoke(`setupVinnStore()`);
+assert.equal(result.ok, true);
+assert.equal(sheets.Categories.length, categoryCountAfterMigration);
+
+console.log(`GAS core smoke passed: ${sources.length} files, ${sheets.Transactions.length} transactions, ${sheets.AuditLog.length} audit rows.`);

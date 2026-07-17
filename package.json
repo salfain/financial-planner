@@ -9,8 +9,9 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run test:unit && npm run build",
-    "test:unit": "node --import tsx --test tests/*.test.ts",
+    "test": "npm run test:unit && npm run test:gas && npm run build",
+    "test:unit": "node --import tsx --test tests/*.test.ts tests/*.test.mjs",
+    "test:gas": "node scripts/smoke-gas-core.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "build:gas": "node scripts/build-gas-frontend.mjs",
     "db:generate": "drizzle-kit generate"

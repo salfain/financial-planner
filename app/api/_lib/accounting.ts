@@ -57,7 +57,11 @@ export function transactionDeltas(
   const source = accounts.get(transaction.accountId)!;
 
   if (transaction.type === "income") {
-    deltas.set(source.id, transaction.amount);
+    deltas.set(source.id, source.liability ? -transaction.amount : transaction.amount);
+  } else if (transaction.type === "adjustment_in") {
+    deltas.set(source.id, source.liability ? -transaction.amount : transaction.amount);
+  } else if (transaction.type === "adjustment_out") {
+    deltas.set(source.id, source.liability ? transaction.amount : -transaction.amount);
   } else if (transaction.type === "expense") {
     deltas.set(source.id, source.liability ? transaction.amount : -transaction.amount);
   } else if (transaction.type === "refund") {
@@ -128,5 +132,40 @@ export function balanceUpdateStatements(
          WHERE workspace_id = ? AND id = ? AND active = 1`,
       )
       .bind(delta, now, workspaceId, id),
+  );
+}
+
+export function balanceUpdateStatementsWhenTransactionVersion(
+  workspaceId: string,
+  deltas: Map<string, number>,
+  transactionId: string,
+  updatedAt: string,
+  deletedAt: string | null,
+): D1PreparedStatement[] {
+  const d1 = getD1();
+  const now = nowIso();
+  return [...deltas].map(([id, delta]) =>
+    d1
+      .prepare(
+        `UPDATE accounts
+         SET balance = balance + ?, updated_at = ?
+         WHERE workspace_id = ? AND id = ? AND active = 1
+           AND EXISTS (
+             SELECT 1 FROM transactions
+             WHERE workspace_id = ? AND id = ? AND updated_at = ?
+               AND ((? IS NULL AND deleted_at IS NULL) OR deleted_at = ?)
+           )`,
+      )
+      .bind(
+        delta,
+        now,
+        workspaceId,
+        id,
+        workspaceId,
+        transactionId,
+        updatedAt,
+        deletedAt,
+        deletedAt,
+      ),
   );
 }
