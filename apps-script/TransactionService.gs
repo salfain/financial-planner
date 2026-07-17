@@ -39,13 +39,13 @@ function apiCreateTransaction(payload) {
           Object.assign({}, base, { id: id_('tx'), transfer_group_id: groupId, account_id: destinationId, destination_account_id: accountId, direction: 'in' })
         ]);
         audit_('CREATE_TRANSFER', 'transactions', groupId, requestId, { amount: amount, from: accountId, to: destinationId });
-        CacheService.getDocumentCache().remove('dashboard:2026-07');
+        invalidateDashboard_(String(base.date).slice(0, 7));
         return ok_({ transactionId: groupId, duplicate: false }, requestId);
       }
 
       appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, [base]);
       audit_('CREATE', 'transactions', transactionId, requestId, { type: type, amount: amount });
-      CacheService.getDocumentCache().remove('dashboard:2026-07');
+      invalidateDashboard_(String(base.date).slice(0, 7));
       return ok_({ transactionId: transactionId, duplicate: false }, requestId);
     });
   } catch (error) { return fail_(error, requestId); }
@@ -80,6 +80,7 @@ function apiDeleteTransaction(transactionId, requestId) {
         row.deleted_at = deletedAt; row.updated_at = deletedAt; delete row._row;
         updateObjectRow_(VINN_CONFIG.SHEETS.TRANSACTIONS, findById_(VINN_CONFIG.SHEETS.TRANSACTIONS, row.id)._row, row);
       });
+      invalidateDashboard_(String(transaction.date).slice(0, 7));
       audit_('SOFT_DELETE', 'transactions', transaction.transfer_group_id || transaction.id, requestId, {});
       return ok_({ deleted: related.length }, requestId);
     });

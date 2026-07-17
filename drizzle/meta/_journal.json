@@ -1,5 +1,27 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784299007691,
+      "tag": "0000_daffy_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784299298784,
+      "tag": "0001_famous_wild_pack",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784300898010,
+      "tag": "0002_premium_anita_blake",
+      "breakpoints": true
+    }
+  ]
 }

@@ -1,0 +1,70 @@
+.gas-bridge-status {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, #17826c 24%, transparent);
+  border-radius: 999px;
+  color: #17483d;
+  background: color-mix(in srgb, #ffffff 94%, transparent);
+  box-shadow: 0 12px 32px rgba(18, 60, 48, 0.14);
+  font: 600 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  backdrop-filter: blur(12px);
+}
+
+.gas-bridge-status > span {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #d49a38;
+  box-shadow: 0 0 0 4px rgba(212, 154, 56, 0.14);
+}
+
+.gas-bridge-status--connecting > span {
+  animation: gas-bridge-pulse 1.1s ease-in-out infinite;
+}
+
+.gas-bridge-status--connected > span {
+  background: #17826c;
+  box-shadow: 0 0 0 4px rgba(23, 130, 108, 0.14);
+}
+
+.gas-bridge-status--error,
+.gas-bridge-status--needs_setup {
+  border-color: rgba(196, 92, 76, 0.28);
+  color: #7b342a;
+}
+
+.gas-bridge-status--error > span,
+.gas-bridge-status--needs_setup > span {
+  background: #c45c4c;
+  box-shadow: 0 0 0 4px rgba(196, 92, 76, 0.14);
+}
+
+@keyframes gas-bridge-pulse {
+  50% {
+    opacity: 0.42;
+    transform: scale(0.82);
+  }
+}
+
+@media (max-width: 640px) {
+  .gas-bridge-status {
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gas-bridge-status--connecting > span {
+    animation: none;
+  }
+}

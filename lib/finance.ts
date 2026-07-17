@@ -18,6 +18,8 @@ export interface Account {
   type: AccountType;
   institution: string;
   balance: number;
+  /** Sumber kebenaran untuk menghitung ulang saldo dari ledger. */
+  openingBalance?: number;
   mask: string;
   color: string;
   liability?: boolean;
@@ -32,8 +34,11 @@ export interface Transaction {
   category: string;
   accountId: string;
   destinationAccountId?: string;
+  transferGroupId?: string;
   amount: number;
   status: "completed" | "pending";
+  /** Soft-delete marker. Transaksi di Trash tidak ikut perhitungan ledger. */
+  deletedAt?: string;
 }
 
 export interface Budget {
@@ -74,80 +79,115 @@ export interface Investment {
   color: string;
 }
 
-export const initialAccounts: Account[] = [
-  { id: "bca", name: "BCA Utama", type: "Bank", institution: "Bank Central Asia", balance: 18_450_000, mask: "•• 7812", color: "#2256a3" },
-  { id: "jago", name: "Kantong Nabung", type: "Bank", institution: "Bank Jago", balance: 8_750_000, mask: "•• 1049", color: "#e58b27" },
-  { id: "gopay", name: "GoPay", type: "E-Wallet", institution: "GoTo Financial", balance: 1_280_000, mask: "•• 0921", color: "#15966f" },
-  { id: "cash", name: "Uang Tunai", type: "Cash", institution: "Dompet", balance: 850_000, mask: "Tunai", color: "#7d67b7" },
-  { id: "portfolio", name: "Portofolio", type: "Investment", institution: "Multi-aset", balance: 32_400_000, mask: "3 aset", color: "#1c7567" },
-  { id: "cc", name: "Kartu Kredit", type: "Credit Card", institution: "BCA Card", balance: 3_200_000, mask: "•• 4451", color: "#d65d67", liability: true },
-];
+export const INDONESIAN_LOCALE = "id-ID";
+export const INDONESIAN_TIME_ZONE = "Asia/Jakarta";
 
-export const initialTransactions: Transaction[] = [
-  { id: "tx-001", type: "income", date: "2026-07-01", title: "Gaji bulanan", merchant: "VINN STORE", category: "Pendapatan", accountId: "bca", amount: 12_500_000, status: "completed" },
-  { id: "tx-002", type: "expense", date: "2026-07-02", title: "Sewa apartemen", merchant: "Residence 88", category: "Tempat Tinggal", accountId: "bca", amount: 2_500_000, status: "completed" },
-  { id: "tx-003", type: "transfer", date: "2026-07-03", title: "Isi kantong tabungan", category: "Transfer", accountId: "bca", destinationAccountId: "jago", amount: 3_000_000, status: "completed" },
-  { id: "tx-004", type: "expense", date: "2026-07-05", title: "Belanja mingguan", merchant: "Ranch Market", category: "Makanan", accountId: "cc", amount: 625_000, status: "completed" },
-  { id: "tx-005", type: "expense", date: "2026-07-07", title: "Tagihan listrik", merchant: "PLN", category: "Tagihan", accountId: "bca", amount: 450_000, status: "completed" },
-  { id: "tx-006", type: "investment_buy", date: "2026-07-09", title: "Beli BBCA", merchant: "Stockbit", category: "Investasi", accountId: "jago", destinationAccountId: "portfolio", amount: 2_000_000, status: "completed" },
-  { id: "tx-007", type: "expense", date: "2026-07-11", title: "Makan malam", merchant: "Sushi Hiro", category: "Makanan", accountId: "gopay", amount: 185_000, status: "completed" },
-  { id: "tx-008", type: "expense", date: "2026-07-12", title: "Transportasi", merchant: "Grab", category: "Transportasi", accountId: "gopay", amount: 320_000, status: "completed" },
-  { id: "tx-009", type: "expense", date: "2026-07-14", title: "Internet rumah", merchant: "MyRepublic", category: "Tagihan", accountId: "bca", amount: 350_000, status: "completed" },
-  { id: "tx-010", type: "expense", date: "2026-07-16", title: "Kopi dan pastry", merchant: "Djournal", category: "Hiburan", accountId: "gopay", amount: 78_000, status: "completed" },
-];
+export type MonthSelector = string | Date | MonthlySummaryOptions;
 
-export const initialBudgets: Budget[] = [
-  { id: "bd-1", category: "Makanan", limit: 2_500_000, color: "#16876f" },
-  { id: "bd-2", category: "Transportasi", limit: 1_000_000, color: "#4e79c7" },
-  { id: "bd-3", category: "Tagihan", limit: 1_500_000, color: "#da9a3a" },
-  { id: "bd-4", category: "Hiburan", limit: 750_000, color: "#aa67a6" },
-  { id: "bd-5", category: "Tempat Tinggal", limit: 3_000_000, color: "#d4685c" },
-];
+export interface MonthlySummaryOptions {
+  /** Format YYYY-MM. Date dikonversi memakai timeZone yang dipilih. */
+  month?: string | Date;
+  timeZone?: string;
+  includePending?: boolean;
+}
 
-export const initialGoals: Goal[] = [
-  { id: "goal-1", name: "Dana Darurat", target: 30_000_000, current: 21_500_000, deadline: "2026-12-31", color: "#16876f", icon: "shield" },
-  { id: "goal-2", name: "Liburan Jepang", target: 18_000_000, current: 7_250_000, deadline: "2027-04-01", color: "#d6953b", icon: "plane" },
-  { id: "goal-3", name: "Laptop Baru", target: 24_000_000, current: 4_800_000, deadline: "2027-01-15", color: "#5574b8", icon: "laptop" },
-];
+interface ResolvedMonthlySummaryOptions {
+  month: string;
+  timeZone: string;
+  includePending: boolean;
+}
 
-export const initialBills: Bill[] = [
-  { id: "bill-1", name: "Netflix", amount: 186_000, dueDate: "2026-07-19", category: "Hiburan", accountId: "cc", paid: false },
-  { id: "bill-2", name: "Kartu Kredit BCA", amount: 3_200_000, dueDate: "2026-07-22", category: "Kewajiban", accountId: "bca", paid: false },
-  { id: "bill-3", name: "BPJS Kesehatan", amount: 150_000, dueDate: "2026-07-25", category: "Kesehatan", accountId: "bca", paid: false },
-  { id: "bill-4", name: "Spotify", amount: 54_990, dueDate: "2026-07-14", category: "Hiburan", accountId: "gopay", paid: true },
-];
+const assertValidDate = (date: Date) => {
+  if (Number.isNaN(date.getTime())) throw new RangeError("Tanggal tidak valid.");
+};
 
-export const initialInvestments: Investment[] = [
-  { id: "inv-1", ticker: "BBCA", name: "Bank Central Asia", className: "Saham", units: 1_500, avgPrice: 8_950, marketPrice: 9_875, color: "#2462a7" },
-  { id: "inv-2", ticker: "BTC", name: "Bitcoin", className: "Kripto", units: 0.0062, avgPrice: 1_450_000_000, marketPrice: 1_620_000_000, color: "#e49a2f" },
-  { id: "inv-3", ticker: "RDPU", name: "Reksa Dana Pasar Uang", className: "Reksadana", units: 5_850, avgPrice: 1_165, marketPrice: 1_212, color: "#21836f" },
-];
+const assertMonthKey = (month: string) => {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    throw new RangeError(`Bulan harus berformat YYYY-MM, diterima: ${month}`);
+  }
+  return month;
+};
+
+/** Menghasilkan bulan berjalan berdasarkan zona waktu Indonesia, bukan zona UTC runtime. */
+export const getCurrentMonth = (
+  date = new Date(),
+  timeZone = INDONESIAN_TIME_ZONE,
+) => {
+  assertValidDate(date);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    timeZone,
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  if (!year || !month) throw new RangeError(`Zona waktu tidak dapat diproses: ${timeZone}`);
+  return `${year}-${month}`;
+};
+
+const resolveMonthOptions = (selector?: MonthSelector): ResolvedMonthlySummaryOptions => {
+  const options: MonthlySummaryOptions = typeof selector === "string" || selector instanceof Date
+    ? { month: selector }
+    : selector ?? {};
+  const timeZone = options.timeZone ?? INDONESIAN_TIME_ZONE;
+  const rawMonth = options.month ?? new Date();
+  const month = rawMonth instanceof Date
+    ? getCurrentMonth(rawMonth, timeZone)
+    : assertMonthKey(rawMonth);
+  return { month, timeZone, includePending: options.includePending ?? false };
+};
+
+export const formatMonthLabel = (
+  selector?: MonthSelector,
+  locale = INDONESIAN_LOCALE,
+) => {
+  const { month, timeZone } = resolveMonthOptions(selector);
+  const date = new Date(`${month}-15T12:00:00.000Z`);
+  return new Intl.DateTimeFormat(locale, {
+    month: "long",
+    year: "numeric",
+    timeZone,
+  }).format(date);
+};
 
 export const formatIDR = (value: number, compact = false) =>
-  new Intl.NumberFormat("id-ID", {
+  new Intl.NumberFormat(INDONESIAN_LOCALE, {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
     notation: compact ? "compact" : "standard",
   }).format(value);
 
-export const monthlySummary = (transactions: Transaction[], month = "2026-07") => {
-  const filtered = transactions.filter((item) => item.date.startsWith(month) && item.status === "completed");
+const isActiveTransaction = (transaction: Transaction, includePending = false) =>
+  !transaction.deletedAt && (includePending || transaction.status === "completed");
+
+/**
+ * Ringkasan arus kas satu bulan. Transfer dan pembelian investasi dikecualikan
+ * karena hanya memindahkan nilai antar-akun.
+ */
+export const monthlySummary = (transactions: Transaction[], selector?: MonthSelector) => {
+  const { month, includePending } = resolveMonthOptions(selector);
+  const filtered = transactions.filter((item) =>
+    item.date.startsWith(month) && isActiveTransaction(item, includePending));
   const income = filtered
     .filter((item) => item.type === "income")
     .reduce((sum, item) => sum + item.amount, 0);
-  const expense = filtered
+  const grossExpense = filtered
     .filter((item) => item.type === "expense")
     .reduce((sum, item) => sum + item.amount, 0);
   const refund = filtered
     .filter((item) => item.type === "refund")
     .reduce((sum, item) => sum + item.amount, 0);
-  const netExpense = Math.max(0, expense - refund);
+  const expense = grossExpense - refund;
+  const cashflow = income - expense;
   return {
+    month,
     income,
-    expense: netExpense,
-    cashflow: income - netExpense,
-    savingsRate: income > 0 ? ((income - netExpense) / income) * 100 : 0,
+    grossExpense,
+    refund,
+    expense,
+    cashflow,
+    savingsRate: income > 0 ? (cashflow / income) * 100 : 0,
   };
 };
 
@@ -161,14 +201,23 @@ export const accountSummary = (accounts: Account[]) => {
   return { assets, liabilities, liquid, investment, netWorth: assets - liabilities };
 };
 
-export const budgetSpent = (transactions: Transaction[], category: string, month = "2026-07") =>
-  transactions
-    .filter((item) => item.date.startsWith(month) && item.category === category && item.status === "completed")
+export const budgetSpent = (
+  transactions: Transaction[],
+  category: string,
+  selector?: MonthSelector,
+) => {
+  const { month, includePending } = resolveMonthOptions(selector);
+  return transactions
+    .filter((item) =>
+      item.date.startsWith(month)
+      && item.category === category
+      && isActiveTransaction(item, includePending))
     .reduce((sum, item) => {
       if (item.type === "expense") return sum + item.amount;
       if (item.type === "refund") return sum - item.amount;
       return sum;
     }, 0);
+};
 
 export const investmentValue = (investment: Investment) => investment.units * investment.marketPrice;
 export const investmentCost = (investment: Investment) => investment.units * investment.avgPrice;
@@ -189,8 +238,9 @@ export const calculateHealthScore = (
   transactions: Transaction[],
   accounts: Account[],
   budgets: Budget[],
+  selector?: MonthSelector,
 ) => {
-  const monthly = monthlySummary(transactions);
+  const monthly = monthlySummary(transactions, selector);
   const account = accountSummary(accounts);
   const savingsPoints = Math.min(25, Math.max(0, (monthly.savingsRate / 30) * 25));
   const emergencyMonths = monthly.expense > 0 ? account.liquid / monthly.expense : 6;
@@ -198,38 +248,174 @@ export const calculateHealthScore = (
   const debtRatio = account.assets > 0 ? account.liabilities / account.assets : 0;
   const debtPoints = Math.max(0, 20 * (1 - debtRatio * 2));
   const budgetAverage = budgets.reduce((sum, budget) => {
-    const ratio = budgetSpent(transactions, budget.category) / budget.limit;
+    const ratio = budget.limit > 0
+      ? budgetSpent(transactions, budget.category, selector) / budget.limit
+      : 0;
     return sum + Math.min(ratio, 1.5);
   }, 0) / Math.max(budgets.length, 1);
   const budgetPoints = Math.max(0, 15 * (1 - Math.max(0, budgetAverage - 0.75)));
   return Math.round(Math.min(100, savingsPoints + emergencyPoints + debtPoints + budgetPoints + 18));
 };
 
-export const applyTransaction = (accounts: Account[], transaction: Transaction) => {
-  return accounts.map((account) => {
-    if (transaction.type === "income" && account.id === transaction.accountId) {
-      return { ...account, balance: account.balance + transaction.amount };
+export type LedgerErrorCode =
+  | "INVALID_AMOUNT"
+  | "ACCOUNT_NOT_FOUND"
+  | "DUPLICATE_ACCOUNT"
+  | "TRANSFER_DESTINATION_REQUIRED"
+  | "TRANSFER_SAME_ACCOUNT"
+  | "TRANSACTION_NOT_FOUND"
+  | "DUPLICATE_TRANSACTION";
+
+export class LedgerError extends Error {
+  constructor(public readonly code: LedgerErrorCode, message: string) {
+    super(message);
+    this.name = "LedgerError";
+  }
+}
+
+const accountIndex = (accounts: Account[]) => {
+  const index = new Map<string, Account>();
+  accounts.forEach((account) => {
+    if (index.has(account.id)) {
+      throw new LedgerError("DUPLICATE_ACCOUNT", `ID akun duplikat: ${account.id}`);
     }
-    if (transaction.type === "expense" && account.id === transaction.accountId) {
-      return account.liability
-        ? { ...account, balance: account.balance + transaction.amount }
-        : { ...account, balance: account.balance - transaction.amount };
-    }
-    if (transaction.type === "refund" && account.id === transaction.accountId) {
-      return account.liability
-        ? { ...account, balance: Math.max(0, account.balance - transaction.amount) }
-        : { ...account, balance: account.balance + transaction.amount };
-    }
-    if ((transaction.type === "transfer" || transaction.type === "investment_buy") && account.id === transaction.accountId) {
-      return account.liability
-        ? { ...account, balance: account.balance + transaction.amount }
-        : { ...account, balance: account.balance - transaction.amount };
-    }
-    if ((transaction.type === "transfer" || transaction.type === "investment_buy") && account.id === transaction.destinationAccountId) {
-      return account.liability
-        ? { ...account, balance: Math.max(0, account.balance - transaction.amount) }
-        : { ...account, balance: account.balance + transaction.amount };
-    }
-    return account;
+    index.set(account.id, account);
   });
+  return index;
+};
+
+/** Delta positif berarti nilai ekonomi akun bertambah; kewajiban memakai tanda terbalik. */
+const transactionDeltas = (accounts: Account[], transaction: Transaction) => {
+  if (!Number.isFinite(transaction.amount) || transaction.amount <= 0) {
+    throw new LedgerError("INVALID_AMOUNT", "Nominal transaksi harus lebih besar dari nol.");
+  }
+
+  const index = accountIndex(accounts);
+  const source = index.get(transaction.accountId);
+  if (!source) {
+    throw new LedgerError("ACCOUNT_NOT_FOUND", `Akun sumber tidak ditemukan: ${transaction.accountId}`);
+  }
+
+  const deltas = new Map<string, number>();
+  const addDelta = (account: Account, economicDelta: number) => {
+    const storedDelta = account.liability ? -economicDelta : economicDelta;
+    deltas.set(account.id, (deltas.get(account.id) ?? 0) + storedDelta);
+  };
+
+  if (transaction.type === "transfer" || transaction.type === "investment_buy") {
+    if (!transaction.destinationAccountId) {
+      throw new LedgerError(
+        "TRANSFER_DESTINATION_REQUIRED",
+        "Transfer harus memiliki akun tujuan.",
+      );
+    }
+    if (transaction.destinationAccountId === transaction.accountId) {
+      throw new LedgerError(
+        "TRANSFER_SAME_ACCOUNT",
+        "Akun sumber dan tujuan transfer tidak boleh sama.",
+      );
+    }
+    const destination = index.get(transaction.destinationAccountId);
+    if (!destination) {
+      throw new LedgerError(
+        "ACCOUNT_NOT_FOUND",
+        `Akun tujuan tidak ditemukan: ${transaction.destinationAccountId}`,
+      );
+    }
+    // Validasi kedua sisi selesai sebelum satu pun saldo diubah (atomik).
+    addDelta(source, -transaction.amount);
+    addDelta(destination, transaction.amount);
+    return deltas;
+  }
+
+  if (transaction.type === "expense") addDelta(source, -transaction.amount);
+  else addDelta(source, transaction.amount); // income dan refund
+  return deltas;
+};
+
+const applyTransactionDirection = (
+  accounts: Account[],
+  transaction: Transaction,
+  direction: 1 | -1,
+) => {
+  if (!isActiveTransaction(transaction)) return accounts;
+  const deltas = transactionDeltas(accounts, transaction);
+  return accounts.map((account) => {
+    const delta = deltas.get(account.id);
+    return delta === undefined
+      ? account
+      : { ...account, balance: account.balance + delta * direction };
+  });
+};
+
+/** Menerapkan transaksi completed sebagai satu operasi immutable. */
+export const applyTransaction = (accounts: Account[], transaction: Transaction) =>
+  applyTransactionDirection(accounts, transaction, 1);
+
+/** Invers tepat untuk undo/delete; tidak melakukan clamp yang dapat menimbulkan selisih. */
+export const reverseTransaction = (accounts: Account[], transaction: Transaction) =>
+  applyTransactionDirection(accounts, transaction, -1);
+
+/**
+ * Merekonstruksi cache saldo dari openingBalance + seluruh ledger aktif.
+ * Untuk data lama tanpa openingBalance, balance saat ini dipakai sebagai fallback.
+ */
+export const recomputeAccountBalances = (
+  accounts: Account[],
+  transactions: Transaction[],
+) => {
+  const seen = new Set<string>();
+  transactions.forEach((transaction) => {
+    if (seen.has(transaction.id)) {
+      throw new LedgerError(
+        "DUPLICATE_TRANSACTION",
+        `ID transaksi duplikat: ${transaction.id}`,
+      );
+    }
+    seen.add(transaction.id);
+  });
+
+  const openingAccounts = accounts.map((account) => ({
+    ...account,
+    balance: account.openingBalance ?? account.balance,
+  }));
+  return transactions.reduce(applyTransaction, openingAccounts);
+};
+
+export interface SoftDeleteResult {
+  accounts: Account[];
+  transactions: Transaction[];
+  deletedTransaction: Transaction;
+  changed: boolean;
+}
+
+/** Soft-delete dan pembalikan saldo dilakukan bersama agar tidak ada saldo setengah berubah. */
+export const softDeleteTransaction = (
+  accounts: Account[],
+  transactions: Transaction[],
+  transactionId: string,
+  deletedAt = new Date().toISOString(),
+): SoftDeleteResult => {
+  const matches = transactions.filter((transaction) => transaction.id === transactionId);
+  if (matches.length === 0) {
+    throw new LedgerError("TRANSACTION_NOT_FOUND", `Transaksi tidak ditemukan: ${transactionId}`);
+  }
+  if (matches.length > 1) {
+    throw new LedgerError("DUPLICATE_TRANSACTION", `ID transaksi duplikat: ${transactionId}`);
+  }
+
+  const deletedTransaction = matches[0];
+  if (deletedTransaction.deletedAt) {
+    return { accounts, transactions, deletedTransaction, changed: false };
+  }
+
+  const nextAccounts = reverseTransaction(accounts, deletedTransaction);
+  const nextTransactions = transactions.map((transaction) =>
+    transaction.id === transactionId ? { ...transaction, deletedAt } : transaction);
+  return {
+    accounts: nextAccounts,
+    transactions: nextTransactions,
+    deletedTransaction: { ...deletedTransaction, deletedAt },
+    changed: true,
+  };
 };

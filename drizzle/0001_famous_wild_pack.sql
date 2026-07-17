@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `profile_name` text DEFAULT 'Vinn' NOT NULL;

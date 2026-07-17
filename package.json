@@ -12,6 +12,7 @@
     "test": "npm run test:unit && npm run build",
     "test:unit": "node --import tsx --test tests/*.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "build:gas": "node scripts/build-gas-frontend.mjs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

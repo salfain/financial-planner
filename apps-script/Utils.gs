@@ -11,6 +11,13 @@ function id_(prefix) {
   return prefix + '-' + Utilities.getUuid();
 }
 
+function invalidateDashboard_(period) {
+  const month = period && /^\d{4}-\d{2}$/.test(String(period))
+    ? String(period)
+    : Utilities.formatDate(new Date(), VINN_CONFIG.TIMEZONE, 'yyyy-MM');
+  CacheService.getDocumentCache().remove('dashboard:' + month);
+}
+
 function createError_(code, message, details) {
   const error = new Error(message);
   error.code = code;

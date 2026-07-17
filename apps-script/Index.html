@@ -3,22 +3,19 @@
   <head>
     <base target="_top">
     <meta charset="utf-8">
-    <style>
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; color: #173029; background: #f3f6f4; font: 14px/1.6 system-ui, sans-serif; }
-      main { width: min(560px, calc(100% - 40px)); padding: 32px; border: 1px solid #dfe7e2; border-radius: 18px; background: #fff; box-shadow: 0 18px 50px rgba(18,60,48,.08); }
-      b { color: #126b59; } code { padding: 2px 6px; border-radius: 6px; background: #edf4f1; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f6f4">
+    <title>VINN STORE — Financial OS</title>
+    <?!= include('Styles'); ?>
   </head>
   <body>
-    <main>
-      <h1>VINN STORE</h1>
-      <p>Backend Google Apps Script sudah aktif. Jalankan <code>setupVinnStore()</code> satu kali dari editor atau menu spreadsheet, lalu gunakan frontend VINN STORE untuk mengakses dashboard.</p>
-      <p><b>Status koneksi:</b> <span id="status">memeriksa…</span></p>
-    </main>
-    <script>
-      google.script.run.withSuccessHandler(function(result) {
-        document.getElementById('status').textContent = result.ok ? 'siap digunakan' : result.error.message;
-      }).apiHealthCheck();
-    </script>
+    <div id="root">
+      <div class="gas-bridge-status gas-bridge-status--connecting" role="status">
+        <span aria-hidden="true"></span>
+        Menyiapkan VINN STORE…
+      </div>
+    </div>
+    <noscript>VINN STORE memerlukan JavaScript untuk menjalankan dashboard.</noscript>
+    <?!= include('Frontend'); ?>
   </body>
 </html>
