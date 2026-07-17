@@ -18,13 +18,13 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       title: "VINN STORE — Financial OS",
       description,
-      images: [{ url: `${baseUrl}/og.png`, width: 1200, height: 630, alt: "VINN STORE Financial OS" }],
+      images: [{ url: `${baseUrl}/og-investment.png`, width: 1200, height: 630, alt: "VINN STORE Financial OS — Core Finance dan Investment" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "VINN STORE — Financial OS",
       description,
-      images: [`${baseUrl}/og.png`],
+      images: [`${baseUrl}/og-investment.png`],
     },
   };
 }

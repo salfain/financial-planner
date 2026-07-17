@@ -14,6 +14,7 @@ const combinedSource = sources.join("\n");
 for (const action of [
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
   "updateTransaction", "reconcileAccount", "listAuditLogs",
+  "createInvestmentAsset", "updateInvestmentAsset", "createInvestmentTrade",
 ]) {
   assert.match(combinedSource, new RegExp(`\\b${action}\\s*:`), `Router action ${action} is missing`);
 }
@@ -111,6 +112,8 @@ for (const [id, liability] of [
 ]) {
   add("Accounts", { id, name: id, opening_balance: 1000, is_liability: liability, is_active: true });
 }
+add("Accounts", { id: "inv-cash", name: "Kas Investasi", type: "Bank", opening_balance: 100000, is_liability: false, is_active: true });
+add("Accounts", { id: "inv-book", name: "Portofolio", type: "Investment", opening_balance: 0, is_liability: false, is_active: true });
 add("Categories", {
   id: "cat-food", name: "Makanan", type: "expense", parent_id: "", color: "#16876f",
   icon: "tag", is_active: true, is_default: true, request_id: "",
@@ -200,6 +203,40 @@ result = invoke(`apiReconcileAccount({ requestId: "reconcile-negative", accountI
 assert.equal(result.ok, false);
 assert.equal(result.error.code, "INVALID_BALANCE");
 
+result = invoke(`apiCreateInvestmentAsset({ requestId: "asset-create", accountId: "inv-book", ticker: "BBCA", name: "Bank Central Asia", assetClass: "Saham", exchange: "IDX", currency: "IDR", manualPrice: 1500 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.duplicate, false);
+const investmentAssetId = result.data.asset.id;
+result = invoke(`apiCreateInvestmentAsset({ requestId: "asset-create", accountId: "inv-book", ticker: "REPLAY", name: "Replay", assetClass: "Saham" })`);
+assert.equal(result.data.duplicate, true);
+assert.equal(sheets.Assets.length, 1);
+
+result = invoke(`apiCreateInvestmentTrade({ requestId: "investment-buy-1", type: "buy", assetId: "${investmentAssetId}", accountId: "inv-cash", date: "2026-07-18", units: 10, pricePerUnit: 1000, fee: 100, tax: 0 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.transaction.remainingUnitsAfter, 10);
+assert.equal(result.data.transaction.averageCostAfter, 1010);
+result = invoke(`apiCreateInvestmentTrade({ requestId: "investment-buy-2", type: "buy", assetId: "${investmentAssetId}", accountId: "inv-cash", date: "2026-07-18", units: 5, pricePerUnit: 1300, fee: 100, tax: 50 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.transaction.remainingUnitsAfter, 15);
+assert.equal(result.data.transaction.averageCostAfter, 1117);
+const tradeCountBeforeReplay = sheets.InvestmentTransactions.length;
+result = invoke(`apiCreateInvestmentTrade({ requestId: "investment-buy-2", type: "buy", assetId: "${investmentAssetId}", accountId: "inv-cash", date: "2026-07-18", units: 99, pricePerUnit: 1 })`);
+assert.equal(result.data.duplicate, true);
+assert.equal(sheets.InvestmentTransactions.length, tradeCountBeforeReplay);
+
+result = invoke(`apiCreateInvestmentTrade({ requestId: "investment-sell-1", type: "sell", assetId: "${investmentAssetId}", accountId: "inv-cash", date: "2026-07-18", units: 6, pricePerUnit: 1500, fee: 100, tax: 50 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.transaction.remainingUnitsAfter, 9);
+assert.equal(result.data.transaction.realizedPl, 2150);
+assert.equal(invoke(`investmentPosition_("${investmentAssetId}").costBasis`), 10050);
+assert.equal(invoke(`accountCurrentBalance_(findById_("Accounts", "inv-book"), rowsAsObjects_("Transactions"))`), 10050);
+assert.equal(invoke(`accountCurrentBalance_(findById_("Accounts", "inv-cash"), rowsAsObjects_("Transactions"))`), 92100);
+const investmentRowsBeforeOversell = sheets.InvestmentTransactions.length;
+result = invoke(`apiCreateInvestmentTrade({ requestId: "investment-oversell", type: "sell", assetId: "${investmentAssetId}", accountId: "inv-cash", date: "2026-07-18", units: 10, pricePerUnit: 1500 })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "INSUFFICIENT_UNITS");
+assert.equal(sheets.InvestmentTransactions.length, investmentRowsBeforeOversell);
+
 add("Transactions", {
   ...transactionBase, id: "partial-adjustment", request_id: "reconcile-recovery",
   date: "2026-07-18", type: "adjustment_in", account_id: "recovery", amount: 100,
@@ -224,6 +261,9 @@ assert.equal(result.data.summary.income, 0);
 assert.equal(result.data.summary.expense, 50);
 assert.equal(result.data.categories.length, 2);
 assert.ok(result.data.auditLogs.length >= 7);
+assert.equal(result.data.investmentAssets.length, 1);
+assert.equal(result.data.investmentTransactions.length, 3);
+assert.equal(result.data.investmentAssets[0].units, 9);
 for (const [accountId, target] of [["asset-up", 1200], ["asset-down", 800], ["debt-up", 1200], ["debt-down", 800]]) {
   assert.equal(result.data.accounts.find((account) => account.id === accountId).current_balance, target);
 }

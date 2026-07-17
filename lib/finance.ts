@@ -93,15 +93,64 @@ export interface AuditLog {
   createdAt: string;
 }
 
-export interface Investment {
+export type InvestmentAssetClass =
+  | "Saham"
+  | "ETF"
+  | "Reksadana"
+  | "Kripto"
+  | "Deposito"
+  | "Emas"
+  | "Obligasi"
+  | "Properti"
+  | "Custom";
+
+export interface InvestmentAsset {
   id: string;
+  accountId: string;
   ticker: string;
   name: string;
-  className: string;
+  assetClass: InvestmentAssetClass;
+  exchange: string;
+  currency: string;
   units: number;
-  avgPrice: number;
+  costBasis: number;
+  averageCost: number;
   marketPrice: number;
-  color: string;
+  marketValue: number;
+  unrealizedPl: number;
+  realizedPl: number;
+  priceSource: "manual" | "last_trade" | "unavailable";
+  priceStatus: "manual" | "delayed" | "unavailable";
+  priceUpdatedAt?: string;
+  active: boolean;
+  updatedAt?: string;
+}
+
+export interface InvestmentTransaction {
+  id: string;
+  assetId: string;
+  accountId: string;
+  date: string;
+  type: "buy" | "sell";
+  units: number;
+  pricePerUnit: number;
+  grossAmount: number;
+  fee: number;
+  tax: number;
+  netAmount: number;
+  averageCostAfter: number;
+  remainingUnitsAfter: number;
+  realizedPl: number;
+  note?: string;
+  createdAt?: string;
+}
+
+export interface InvestmentSummary {
+  marketValue: number;
+  costBasis: number;
+  unrealizedPl: number;
+  realizedPl: number;
+  assetCount: number;
 }
 
 export const INDONESIAN_LOCALE = "id-ID";
@@ -216,13 +265,18 @@ export const monthlySummary = (transactions: Transaction[], selector?: MonthSele
   };
 };
 
-export const accountSummary = (accounts: Account[]) => {
-  const assets = accounts.filter((account) => !account.liability).reduce((sum, account) => sum + account.balance, 0);
+export const accountSummary = (accounts: Account[], investmentMarketValue?: number) => {
+  const nonInvestmentAssets = accounts
+    .filter((account) => !account.liability && account.type !== "Investment")
+    .reduce((sum, account) => sum + account.balance, 0);
+  const investment = investmentMarketValue ?? accounts
+    .filter((account) => account.type === "Investment")
+    .reduce((sum, account) => sum + account.balance, 0);
+  const assets = nonInvestmentAssets + investment;
   const liabilities = accounts.filter((account) => account.liability).reduce((sum, account) => sum + account.balance, 0);
   const liquid = accounts
     .filter((account) => ["Bank", "E-Wallet", "Cash"].includes(account.type))
     .reduce((sum, account) => sum + account.balance, 0);
-  const investment = accounts.filter((account) => account.type === "Investment").reduce((sum, account) => sum + account.balance, 0);
   return { assets, liabilities, liquid, investment, netWorth: assets - liabilities };
 };
 
@@ -244,8 +298,8 @@ export const budgetSpent = (
     }, 0);
 };
 
-export const investmentValue = (investment: Investment) => investment.units * investment.marketPrice;
-export const investmentCost = (investment: Investment) => investment.units * investment.avgPrice;
+export const investmentValue = (investment: InvestmentAsset) => investment.marketValue;
+export const investmentCost = (investment: InvestmentAsset) => investment.costBasis;
 
 export const weightedAverageCost = (
   currentUnits: number,

@@ -13,7 +13,7 @@ test("shell menggunakan identitas VINN STORE dan locale Indonesia", async () => 
   assert.match(page, /<FinanceApp\s*\/>/);
   assert.match(layout, /VINN STORE — Financial OS/);
   assert.match(layout, /<html lang="id"/);
-  assert.match(layout, /\/og\.png/);
+  assert.match(layout, /\/og-investment\.png/);
   assert.doesNotMatch(layout, /Starter Project|Your site is taking shape/);
 });
 
@@ -33,4 +33,14 @@ test("UI Core Finance mengekspos fitur nyata tanpa data transaksi dummy", async 
   assert.match(css, /\.transaction-actions/);
   assert.match(css, /\.reconcile-preview/);
   assert.doesNotMatch(app, /const\s+demo(?:Accounts|Transactions|Budgets|Goals|Bills)/);
+});
+
+test("UI Investment mengekspos asset master, buy/sell, dan P/L tanpa placeholder", async () => {
+  const app = await source("../app/FinanceApp.tsx");
+  assert.match(app, /Aset investasi baru/);
+  assert.match(app, /Transaksi investasi/);
+  assert.match(app, /onTrade\("buy"/);
+  assert.match(app, /realized P\/L/i);
+  assert.match(app, /Weighted average cost/);
+  assert.doesNotMatch(app, /Modul investasi belum diaktifkan/);
 });

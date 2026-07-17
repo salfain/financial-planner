@@ -1,4 +1,5 @@
 import { getD1 } from "@/db";
+import { fromUnitMicro, INVESTMENT_UNIT_SCALE } from "@/lib/investment";
 import { ApiError } from "./api";
 
 type WorkspaceRow = {
@@ -93,6 +94,51 @@ export type AuditLogRow = {
   createdAt: string;
 };
 
+export type InvestmentAssetRow = {
+  id: string;
+  accountId: string;
+  ticker: string;
+  name: string;
+  assetClass: string;
+  exchange: string;
+  currency: string;
+  manualPrice: number | null;
+  latestPriceCache: number;
+  priceSource: string;
+  priceStatus: string;
+  priceUpdatedAt: string | null;
+  active: number;
+  requestId: string;
+  updatedAt: string;
+  unitsMicro: number;
+  costBasis: number;
+  realizedPl: number;
+  positionUpdatedAt: string;
+};
+
+export type InvestmentTransactionRow = {
+  id: string;
+  assetId: string;
+  accountId: string;
+  date: string;
+  type: string;
+  unitsMicro: number;
+  pricePerUnit: number;
+  grossAmount: number;
+  fee: number;
+  tax: number;
+  netAmount: number;
+  averageCostAfter: number;
+  remainingUnitsMicro: number;
+  realizedPl: number;
+  linkedCashTransactionId: string;
+  linkedAdjustmentTransactionId: string | null;
+  note: string | null;
+  requestId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export const accountSelect = `
   SELECT id, name, type, institution, balance, opening_balance AS openingBalance,
          mask, color, liability
@@ -127,6 +173,29 @@ export const auditLogSelect = `
          actor, request_id AS requestId, before_json AS beforeJson,
          after_json AS afterJson, details, created_at AS createdAt
   FROM audit_logs
+`;
+export const investmentAssetSelect = `
+  SELECT a.id, a.account_id AS accountId, a.ticker, a.name,
+         a.asset_class AS assetClass, a.exchange, a.currency,
+         a.manual_price AS manualPrice, a.latest_price_cache AS latestPriceCache,
+         a.price_source AS priceSource, a.price_status AS priceStatus,
+         a.price_updated_at AS priceUpdatedAt, a.active, a.request_id AS requestId,
+         a.updated_at AS updatedAt, p.units_micro AS unitsMicro,
+         p.cost_basis AS costBasis, p.realized_pl AS realizedPl,
+         p.updated_at AS positionUpdatedAt
+  FROM investment_assets a
+  JOIN investment_positions p ON p.asset_id = a.id AND p.workspace_id = a.workspace_id
+`;
+export const investmentTransactionSelect = `
+  SELECT id, asset_id AS assetId, account_id AS accountId, date, type,
+         units_micro AS unitsMicro, price_per_unit AS pricePerUnit,
+         gross_amount AS grossAmount, fee, tax, net_amount AS netAmount,
+         average_cost_after AS averageCostAfter,
+         remaining_units_micro AS remainingUnitsMicro, realized_pl AS realizedPl,
+         linked_cash_transaction_id AS linkedCashTransactionId,
+         linked_adjustment_transaction_id AS linkedAdjustmentTransactionId,
+         note, request_id AS requestId, created_at AS createdAt, updated_at AS updatedAt
+  FROM investment_transactions
 `;
 
 export function serializeWorkspace(row: WorkspaceRow | null, workspaceId: string) {
@@ -216,6 +285,57 @@ export const serializeAuditLog = (row: AuditLogRow) => {
   };
 };
 
+export const serializeInvestmentAsset = (row: InvestmentAssetRow) => {
+  const units = fromUnitMicro(row.unitsMicro);
+  const marketValue = Math.round((row.unitsMicro * row.latestPriceCache) / INVESTMENT_UNIT_SCALE);
+  return {
+    id: row.id,
+    accountId: row.accountId,
+    ticker: row.ticker,
+    name: row.name,
+    assetClass: row.assetClass,
+    exchange: row.exchange,
+    currency: row.currency,
+    units,
+    costBasis: row.costBasis,
+    averageCost: row.unitsMicro > 0
+      ? Math.round((row.costBasis * INVESTMENT_UNIT_SCALE) / row.unitsMicro)
+      : 0,
+    marketPrice: row.latestPriceCache,
+    marketValue,
+    unrealizedPl: marketValue - row.costBasis,
+    realizedPl: row.realizedPl,
+    priceSource: row.priceSource,
+    priceStatus: row.priceStatus,
+    priceUpdatedAt: row.priceUpdatedAt,
+    active: Boolean(row.active),
+    updatedAt: row.updatedAt,
+  };
+};
+
+export const serializeInvestmentTransaction = (row: InvestmentTransactionRow) => ({
+  id: row.id,
+  assetId: row.assetId,
+  accountId: row.accountId,
+  date: row.date,
+  type: row.type,
+  units: fromUnitMicro(row.unitsMicro),
+  pricePerUnit: row.pricePerUnit,
+  grossAmount: row.grossAmount,
+  fee: row.fee,
+  tax: row.tax,
+  netAmount: row.netAmount,
+  averageCostAfter: row.averageCostAfter,
+  remainingUnitsAfter: fromUnitMicro(row.remainingUnitsMicro),
+  realizedPl: row.realizedPl,
+  linkedCashTransactionId: row.linkedCashTransactionId,
+  linkedAdjustmentTransactionId: row.linkedAdjustmentTransactionId,
+  note: row.note,
+  requestId: row.requestId,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
 export async function getWorkspace(workspaceId: string): Promise<WorkspaceRow | null> {
   return getD1()
     .prepare(
@@ -254,6 +374,12 @@ export async function getBootstrap(workspaceId: string, period?: string) {
   const auditLogsStatement = d1
     .prepare(`${auditLogSelect} WHERE workspace_id = ? ORDER BY created_at DESC, id DESC LIMIT 20`)
     .bind(workspaceId);
+  const investmentAssetsStatement = d1
+    .prepare(`${investmentAssetSelect} WHERE a.workspace_id = ? AND a.active = 1 ORDER BY a.name, a.id`)
+    .bind(workspaceId);
+  const investmentTransactionsStatement = d1
+    .prepare(`${investmentTransactionSelect} WHERE workspace_id = ? ORDER BY date DESC, created_at DESC, id DESC LIMIT 200`)
+    .bind(workspaceId);
   const results = await d1.batch([
     d1
       .prepare(
@@ -273,6 +399,8 @@ export async function getBootstrap(workspaceId: string, period?: string) {
     d1.prepare(`${billSelect} WHERE workspace_id = ? ORDER BY due_date, created_at, id`).bind(workspaceId),
     categoriesStatement,
     auditLogsStatement,
+    investmentAssetsStatement,
+    investmentTransactionsStatement,
   ]);
 
   const workspace = (results[0].results[0] as WorkspaceRow | undefined) ?? null;
@@ -286,6 +414,8 @@ export async function getBootstrap(workspaceId: string, period?: string) {
     bills: (results[5].results as BillRow[]).map((bill) => serializeBill(bill, period)),
     categories: (results[6].results as CategoryRow[]).map(serializeCategory),
     auditLogs: (results[7].results as AuditLogRow[]).map(serializeAuditLog),
+    investmentAssets: (results[8].results as InvestmentAssetRow[]).map(serializeInvestmentAsset),
+    investmentTransactions: (results[9].results as InvestmentTransactionRow[]).map(serializeInvestmentTransaction),
   };
 }
 
@@ -338,4 +468,34 @@ export async function getCategoryRow(
     .prepare(`${categorySelect} WHERE workspace_id = ? AND id = ? LIMIT 1`)
     .bind(workspaceId, id)
     .first<CategoryRow>();
+}
+
+export async function getInvestmentAssetRow(
+  workspaceId: string,
+  id: string,
+): Promise<InvestmentAssetRow | null> {
+  return getD1()
+    .prepare(`${investmentAssetSelect} WHERE a.workspace_id = ? AND a.id = ? LIMIT 1`)
+    .bind(workspaceId, id)
+    .first<InvestmentAssetRow>();
+}
+
+export async function getInvestmentAssetByRequest(
+  workspaceId: string,
+  requestId: string,
+): Promise<InvestmentAssetRow | null> {
+  return getD1()
+    .prepare(`${investmentAssetSelect} WHERE a.workspace_id = ? AND a.request_id = ? LIMIT 1`)
+    .bind(workspaceId, requestId)
+    .first<InvestmentAssetRow>();
+}
+
+export async function getInvestmentTransactionByRequest(
+  workspaceId: string,
+  requestId: string,
+): Promise<InvestmentTransactionRow | null> {
+  return getD1()
+    .prepare(`${investmentTransactionSelect} WHERE workspace_id = ? AND request_id = ? LIMIT 1`)
+    .bind(workspaceId, requestId)
+    .first<InvestmentTransactionRow>();
 }

@@ -73,6 +73,70 @@ export function auditStatementWhenTransactionExists(
     );
 }
 
+export function auditStatementWhenInvestmentTransactionExists(
+  d1: D1Database,
+  entry: AuditEntry,
+  investmentTransactionId: string,
+): D1PreparedStatement {
+  return d1
+    .prepare(
+      `INSERT INTO audit_logs
+         (id, workspace_id, action, entity_type, entity_id, actor, request_id,
+          before_json, after_json, details, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       FROM investment_transactions
+       WHERE workspace_id = ? AND id = ?`,
+    )
+    .bind(
+      makeId("audit"),
+      entry.workspaceId,
+      entry.action,
+      entry.entityType,
+      entry.entityId ?? null,
+      entry.actor ?? "system",
+      entry.requestId ?? null,
+      entry.before === undefined ? null : JSON.stringify(entry.before),
+      entry.after === undefined ? null : JSON.stringify(entry.after),
+      JSON.stringify(entry.details ?? {}),
+      entry.createdAt ?? nowIso(),
+      entry.workspaceId,
+      investmentTransactionId,
+    );
+}
+
+export function auditStatementWhenInvestmentAssetVersion(
+  d1: D1Database,
+  entry: AuditEntry,
+  assetId: string,
+  updatedAt: string,
+): D1PreparedStatement {
+  return d1
+    .prepare(
+      `INSERT INTO audit_logs
+         (id, workspace_id, action, entity_type, entity_id, actor, request_id,
+          before_json, after_json, details, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       FROM investment_assets
+       WHERE workspace_id = ? AND id = ? AND updated_at = ?`,
+    )
+    .bind(
+      makeId("audit"),
+      entry.workspaceId,
+      entry.action,
+      entry.entityType,
+      entry.entityId ?? null,
+      entry.actor ?? "system",
+      entry.requestId ?? null,
+      entry.before === undefined ? null : JSON.stringify(entry.before),
+      entry.after === undefined ? null : JSON.stringify(entry.after),
+      JSON.stringify(entry.details ?? {}),
+      entry.createdAt ?? nowIso(),
+      entry.workspaceId,
+      assetId,
+      updatedAt,
+    );
+}
+
 export function auditStatementWhenCategoryExists(
   d1: D1Database,
   entry: AuditEntry,

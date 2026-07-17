@@ -17,7 +17,7 @@ function apiGetBootstrap(month) {
     const income = transactions.filter(function(row) { return row.type === 'income'; }).reduce(function(sum, row) { return sum + Number(row.amount || 0); }, 0);
     const expense = transactions.filter(function(row) { return row.type === 'expense'; }).reduce(function(sum, row) { return sum + Number(row.amount || 0); }, 0);
     const clientTransactions = allTransactions.filter(function(row) {
-      return String(row.type) !== 'transfer' || String(row.direction) !== 'in';
+      return ['transfer', 'investment_buy'].indexOf(String(row.type)) === -1 || String(row.direction) !== 'in';
     });
     const data = {
       configured: accounts.length > 0,
@@ -33,6 +33,8 @@ function apiGetBootstrap(month) {
       goals: rowsAsObjects_(VINN_CONFIG.SHEETS.GOALS), bills: rowsAsObjects_(VINN_CONFIG.SHEETS.BILLS),
       categories: categoryRows_().filter(function(category) { return !category.archived; }),
       auditLogs: recentAuditLogs_(20),
+      investmentAssets: investmentAssetClientRows_(),
+      investmentTransactions: rowsAsObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX).map(investmentTransactionClientRow_),
       transactions: clientTransactions.sort(function(a, b) {
         return String(b.date).localeCompare(String(a.date)) || String(b.created_at).localeCompare(String(a.created_at));
       })

@@ -21,6 +21,9 @@ function api(action, payload) {
     contributeGoal: function() { return apiContributeGoal(payload || {}); },
     createBill: function() { return apiCreateBill(payload || {}); },
     markBillPaid: function() { return apiMarkBillPaid(payload || {}); },
+    createInvestmentAsset: function() { return apiCreateInvestmentAsset(payload || {}); },
+    updateInvestmentAsset: function() { return apiUpdateInvestmentAsset(payload || {}); },
+    createInvestmentTrade: function() { return apiCreateInvestmentTrade(payload || {}); },
     backup: function() { return apiCreateBackup(); },
     saveAiKey: function() { return apiSaveAiKey(payload.provider, payload.apiKey); },
     aiKeyStatus: function() { return apiAiKeyStatus(payload && payload.provider); }

@@ -31,9 +31,12 @@ npm test
 - Realisasi budget; refund mengurangi realisasi.
 - Kontribusi target finansial.
 - Pembayaran tagihan dan pencatatan transaksi terkait.
+- Portofolio investasi persisten: asset master, buy/sell, unit pecahan, weighted average cost, fee, pajak, realized/unrealized P/L, serta harga manual dengan fallback harga transaksi terakhir.
+- Setiap buy/sell terhubung ke ledger akun secara logis sehingga saldo kas, cost basis, dan histori dapat direkonstruksi tanpa masuk ke arus kas operasional.
 - Laporan operasional dan backup JSON.
 - Dark mode, privacy mode, UI responsif, reduced-motion, dan label aksesibilitas.
-- Halaman investasi, integrasi harga pasar, CSV, OCR, dan AI masih merupakan tahap lanjutan; UI tidak mengklaim data simulasi sebagai data nyata.
+- Harga investasi menampilkan sumber dan timestamp; harga manual maupun fallback transaksi terakhir tidak diklaim sebagai harga real-time.
+- OCR dan AI masih merupakan tahap lanjutan; UI tidak mengklaim data simulasi sebagai data nyata.
 
 ## Menyiapkan Google Sheets + Apps Script
 
@@ -59,4 +62,4 @@ public/og.png         social preview VINN STORE
 
 ## Status tahap berikutnya
 
-Core Finance sudah tersambung ke UI dan backend. Tahap berikutnya adalah modul investasi (aset, buy/sell, average cost, dan harga pasar), kemudian impor/ekspor lanjutan serta AI/OCR setelah alur finansial inti stabil.
+Core Finance dan Investment sudah tersambung ke UI, D1, serta backend Google Sheets. Tahap berikutnya adalah AI/OCR, kemudian laporan, backup, dan migrasi lanjutan.

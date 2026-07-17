@@ -51,6 +51,8 @@ import {
   Budget,
   FinanceCategory,
   Goal,
+  InvestmentAsset,
+  InvestmentTransaction,
   Transaction,
   TransactionType,
   accountSummary,
@@ -71,6 +73,8 @@ import {
   createFinanceBill,
   createFinanceCategory,
   createFinanceGoal,
+  createFinanceInvestmentAsset,
+  createFinanceInvestmentTrade,
   createFinanceTransaction,
   deleteFinanceTransaction,
   financeBackendLabel,
@@ -79,6 +83,7 @@ import {
   reconcileFinanceAccount,
   setupFinanceWorkspace,
   updateFinanceCategory,
+  updateFinanceInvestmentAsset,
   updateFinanceTransaction,
   upsertFinanceBudget,
 } from "../lib/finance-client";
@@ -103,6 +108,8 @@ type StoredData = {
   bills: Bill[];
   categories: FinanceCategory[];
   auditLogs: AuditLog[];
+  investmentAssets: InvestmentAsset[];
+  investmentTransactions: InvestmentTransaction[];
 };
 
 const currentMonth = () => getCurrentMonth();
@@ -149,7 +156,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   budgets: { eyebrow: "Rencana Juli", title: "Anggaran bulanan", subtitle: "Kendalikan pengeluaran sebelum melewati batas yang kamu tentukan." },
   goals: { eyebrow: "3 target aktif", title: "Target finansial", subtitle: "Lihat kemajuan dan kebutuhan kontribusi bulanan untuk setiap tujuan." },
   bills: { eyebrow: "3 menunggu", title: "Tagihan rutin", subtitle: "Jangan lewatkan jatuh tempo dan hindari pencatatan ganda." },
-  investments: { eyebrow: "Modul lanjutan", title: "Portofolio investasi", subtitle: "Modul investasi belum diaktifkan dan tidak berisi data contoh." },
+  investments: { eyebrow: "Portofolio", title: "Portofolio investasi", subtitle: "Pantau unit, cost basis, harga, dan profit/loss tanpa mengubah arus kas operasional." },
   reports: { eyebrow: "Laporan bulanan", title: "Laporan keuangan", subtitle: "Ringkasan siap cetak dengan data yang dapat ditelusuri kembali." },
   assistant: { eyebrow: "Analisis lokal · read-only", title: "VINN Insight", subtitle: "Baca indikator keuangan tanpa mengubah data apa pun." },
   settings: { eyebrow: "Workspace personal", title: "Pengaturan", subtitle: "Kelola preferensi, keamanan data, backup, dan koneksi Google." },
@@ -199,6 +206,8 @@ export function FinanceApp() {
   const [bills, setBills] = useState<Bill[]>([]);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [investmentAssets, setInvestmentAssets] = useState<InvestmentAsset[]>([]);
+  const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentTransaction[]>([]);
   const [profile, setProfile] = useState<FinanceProfile>({ name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" });
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -216,6 +225,8 @@ export function FinanceApp() {
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
+  const [investmentAssetModal, setInvestmentAssetModal] = useState<{ asset?: InvestmentAsset } | null>(null);
+  const [investmentTradeModal, setInvestmentTradeModal] = useState<{ type: "buy" | "sell"; asset?: InvestmentAsset } | null>(null);
   const [transactionQuery, setTransactionQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -231,6 +242,8 @@ export function FinanceApp() {
     setBills(snapshot.bills);
     setCategories(snapshot.categories);
     setAuditLogs(snapshot.auditLogs);
+    setInvestmentAssets(snapshot.investmentAssets);
+    setInvestmentTransactions(snapshot.investmentTransactions);
   };
 
   const refreshData = async () => {
@@ -271,7 +284,8 @@ export function FinanceApp() {
   }, []);
 
   const monthly = useMemo(() => monthlySummary(transactions, month), [transactions, month]);
-  const accountTotals = useMemo(() => accountSummary(accounts), [accounts]);
+  const investmentMarketValue = useMemo(() => investmentAssets.reduce((sum, asset) => sum + asset.marketValue, 0), [investmentAssets]);
+  const accountTotals = useMemo(() => accountSummary(accounts, investmentMarketValue), [accounts, investmentMarketValue]);
   const healthScore = useMemo(() => calculateHealthScore(transactions, accounts, budgets, month), [transactions, accounts, budgets, month]);
 
   const showToast = (message: string) => {
@@ -360,15 +374,28 @@ export function FinanceApp() {
     await runMutation(() => archiveFinanceCategory(categoryId), "Kategori berhasil diarsipkan.");
   };
 
+  const saveInvestmentAsset = async (payload: Record<string, unknown>, asset?: InvestmentAsset, requestId?: string) => runMutation(
+    () => asset
+      ? updateFinanceInvestmentAsset(asset.id, { ...payload, expectedUpdatedAt: asset.updatedAt }, requestId)
+      : createFinanceInvestmentAsset(payload, requestId),
+    asset ? "Aset dan harga investasi berhasil diperbarui." : "Aset investasi berhasil dibuat.",
+  );
+
+  const saveInvestmentTrade = async (payload: Record<string, unknown>, requestId?: string) => runMutation(
+    () => createFinanceInvestmentTrade(payload, requestId),
+    payload.type === "sell" ? "Penjualan dan realized P/L berhasil dicatat." : "Pembelian dan cost basis berhasil dicatat.",
+  );
+
   const openCreateForPage = () => {
     if (activePage === "accounts") return setAccountOpen(true);
     if (activePage === "budgets") return setBudgetOpen(true);
     if (activePage === "goals") return setGoalOpen(true);
     if (activePage === "bills") return setBillOpen(true);
+    if (activePage === "investments") return setInvestmentAssetModal({});
     setTransactionOpen(true);
   };
 
-  const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "bills" ? "Tambah tagihan" : "Tambah transaksi";
+  const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
   const pendingBills = [...bills].filter((bill) => !bill.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   const title = { ...pageTitles[activePage] };
@@ -377,6 +404,7 @@ export function FinanceApp() {
   if (activePage === "budgets") title.eyebrow = `Rencana ${monthLabel(month)}`;
   if (activePage === "goals") title.eyebrow = `${goals.length} target aktif`;
   if (activePage === "bills") title.eyebrow = `${bills.filter((bill) => !bill.paid).length} menunggu`;
+  if (activePage === "investments") title.eyebrow = `${investmentAssets.length} aset aktif`;
   if (activePage === "reports") title.eyebrow = `Laporan ${monthLabel(month)}`;
   if (activePage === "settings") title.eyebrow = `Workspace ${profile.storeName}`;
 
@@ -472,10 +500,10 @@ export function FinanceApp() {
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} />}
           {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onContribute={contributeGoal} onAdd={() => setGoalOpen(true)} />}
           {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onAdd={() => setBillOpen(true)} />}
-          {activePage === "investments" && <InvestmentsPage privacy={privacy} />}
+          {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
           {activePage === "reports" && <ReportsPage transactions={transactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} />}
           {activePage === "assistant" && <AssistantPage monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} privacy={privacy} />}
-          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} data={{ accounts, transactions, budgets, goals, bills, categories, auditLogs }} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} />}
+          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} data={{ accounts, transactions, budgets, goals, bills, categories, auditLogs, investmentAssets, investmentTransactions }} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} />}
         </div>
       </main>
 
@@ -491,6 +519,8 @@ export function FinanceApp() {
       {billOpen && <BillModal accounts={accounts} categories={categories} saving={saving} onClose={() => setBillOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceBill(payload), "Tagihan rutin berhasil ditambahkan."); if (ok) setBillOpen(false); }} />}
       {reconcileTarget && <ReconcileModal account={reconcileTarget} privacy={privacy} saving={saving} onClose={() => setReconcileTarget(null)} onSubmit={async (actualBalance, date, note, requestId) => { const ok = await reconcileAccount(reconcileTarget, actualBalance, date, note, requestId); if (ok) setReconcileTarget(null); }} />}
       {categoryModal && <CategoryModal category={categoryModal.category} saving={saving} onClose={() => setCategoryModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveCategory(payload, categoryModal.category, requestId); if (ok) setCategoryModal(null); }} />}
+      {investmentAssetModal && <InvestmentAssetModal asset={investmentAssetModal.asset} accounts={accounts} saving={saving} onClose={() => setInvestmentAssetModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveInvestmentAsset(payload, investmentAssetModal.asset, requestId); if (ok) setInvestmentAssetModal(null); }} />}
+      {investmentTradeModal && <InvestmentTradeModal type={investmentTradeModal.type} initialAsset={investmentTradeModal.asset} assets={investmentAssets} accounts={accounts} privacy={privacy} saving={saving} onClose={() => setInvestmentTradeModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveInvestmentTrade(payload, requestId); if (ok) setInvestmentTradeModal(null); }} />}
       {toast && <div className="toast"><span><Check size={16} /></span>{toast}</div>}
     </div>
   );
@@ -666,7 +696,7 @@ function TransactionTable({ transactions, accounts, privacy, compact = false, on
       const isAdjustment = transaction.type === "adjustment_in" || transaction.type === "adjustment_out";
       const isPositive = transaction.type === "income" || transaction.type === "refund";
       const isTransfer = transaction.type === "transfer" || transaction.type === "investment_buy";
-      const editable = transaction.type !== "adjustment_in" && transaction.type !== "adjustment_out" && transaction.type !== "investment_buy";
+      const editable = transaction.type !== "adjustment_in" && transaction.type !== "adjustment_out" && transaction.type !== "investment_buy" && transaction.category !== "Investasi";
       const adjustmentLabel = account?.liability
         ? transaction.type === "adjustment_in" ? "Rekonsiliasi · utang turun" : "Rekonsiliasi · utang naik"
         : transaction.type === "adjustment_in" ? "Rekonsiliasi · saldo naik" : "Rekonsiliasi · saldo turun";
@@ -768,14 +798,46 @@ function BillsPage({ bills, accounts, privacy, onPay, onAdd }: { bills: Bill[]; 
   </div>;
 }
 
-function InvestmentsPage({ privacy }: { privacy: boolean }) {
+const formatUnits = (value: number) => new Intl.NumberFormat("id-ID", { maximumFractionDigits: 8 }).format(value);
+
+function InvestmentsPage({ assets, transactions, accounts, privacy, onAddAsset, onEditAsset, onTrade }: {
+  assets: InvestmentAsset[];
+  transactions: InvestmentTransaction[];
+  accounts: Account[];
+  privacy: boolean;
+  onAddAsset: () => void;
+  onEditAsset: (asset: InvestmentAsset) => void;
+  onTrade: (type: "buy" | "sell", asset?: InvestmentAsset) => void;
+}) {
+  const marketValue = assets.reduce((sum, asset) => sum + asset.marketValue, 0);
+  const costBasis = assets.reduce((sum, asset) => sum + asset.costBasis, 0);
+  const unrealized = marketValue - costBasis;
+  const realized = assets.reduce((sum, asset) => sum + asset.realizedPl, 0);
+  const hasInvestmentAccount = accounts.some((account) => account.type === "Investment" && !account.liability);
   return <div className="content-stack">
     <div className="investment-hero">
-      <div><span className="card-kicker light">Modul investasi</span><span className="investment-value">Belum diaktifkan</span><p>Data contoh sudah dihapus agar tidak tercampur dengan data finansialmu.</p></div>
-      <div className="investment-stats"><span><small>Nilai portofolio</small><Amount value={0} privacy={privacy} /></span><span><small>Aset aktif</small><strong>0</strong></span></div>
+      <div><span className="card-kicker light">Nilai portofolio</span><span className="investment-value"><Amount value={marketValue} privacy={privacy} /></span><p><span>{assets.length} aset aktif</span> Harga manual atau transaksi terakhir; bukan harga real-time.</p></div>
+      <div className="investment-stats"><span><small>Cost basis</small><Amount value={costBasis} privacy={privacy} /></span><span><small>Unrealized P/L</small><Amount value={unrealized} privacy={privacy} className={unrealized >= 0 ? "positive-light" : "negative-light"} /></span><span><small>Realized P/L</small><Amount value={realized} privacy={privacy} className={realized >= 0 ? "positive-light" : "negative-light"} /></span></div>
     </div>
     <section className="panel investment-panel">
-      <div className="empty-state"><TrendingUp size={30} /><h3>Belum ada aset investasi</h3><p>CRUD aset, buy/sell, average cost, dan harga pasar akan menjadi tahap berikutnya setelah ledger inti stabil.</p></div>
+      <div className="card-title-row"><div><span className="card-kicker">Holdings</span><h2>Aset investasi</h2></div><div className="investment-actions"><button className="secondary-button" onClick={() => onTrade("sell")} disabled={!assets.some((asset) => asset.units > 0)}><ArrowDownLeft size={16} /> Jual</button><button className="primary-button" onClick={() => onTrade("buy")} disabled={!assets.length}><ArrowUpRight size={16} /> Beli</button></div></div>
+      <div className="price-status"><CircleDollarSign size={14} /><span>Harga menyertakan sumber dan waktu pembaruan. Gunakan edit aset untuk memperbarui harga manual.</span></div>
+      {assets.length ? <div className="asset-table">
+        <div className="asset-head"><span>Aset</span><span>Unit</span><span>Harga rata-rata</span><span>Harga pasar</span><span>Nilai</span><span>P/L</span></div>
+        {assets.map((asset, index) => <div className="asset-row" key={asset.id}>
+          <span className="asset-logo" style={{ background: ["#126b59", "#5574b8", "#b17a34", "#865ab2"][index % 4] }}>{asset.ticker.slice(0, 3)}</span>
+          <span className="asset-name"><strong>{asset.ticker} · {asset.name}</strong><small>{asset.assetClass}{asset.exchange ? ` · ${asset.exchange}` : ""} · {asset.priceStatus === "manual" ? "manual" : asset.priceStatus === "delayed" ? "harga transaksi terakhir" : "harga belum tersedia"}</small></span>
+          <span>{formatUnits(asset.units)}</span>
+          <Amount value={asset.averageCost} privacy={privacy} />
+          <Amount value={asset.marketPrice} privacy={privacy} />
+          <Amount value={asset.marketValue} privacy={privacy} />
+          <span className={asset.unrealizedPl >= 0 ? "investment-profit" : "investment-loss"}><Amount value={asset.unrealizedPl} privacy={privacy} /><small><button className="asset-link" onClick={() => onTrade("buy", asset)}>Beli</button> · <button className="asset-link" onClick={() => onTrade("sell", asset)} disabled={asset.units <= 0}>Jual</button> · <button className="asset-link" onClick={() => onEditAsset(asset)}>Edit</button></small></span>
+        </div>)}
+      </div> : <div className="empty-state"><TrendingUp size={30} /><h3>Belum ada aset investasi</h3><p>{hasInvestmentAccount ? "Tambahkan saham, reksadana, kripto, emas, atau aset lainnya untuk mulai menghitung cost basis." : "Tambahkan akun bertipe Investment terlebih dahulu, lalu buat aset portofolio."}</p><button className="primary-button" onClick={onAddAsset}><Plus size={16} /> Tambah aset</button></div>}
+    </section>
+    <section className="panel investment-history">
+      <div className="card-title-row"><div><span className="card-kicker">Riwayat</span><h2>Transaksi investasi</h2></div><span className="price-status">Weighted average cost</span></div>
+      <div className="investment-history-list">{transactions.slice(0, 12).map((transaction) => { const asset = assets.find((item) => item.id === transaction.assetId); return <div key={transaction.id}><span className={transaction.type === "buy" ? "notice-icon good" : "notice-icon info"}>{transaction.type === "buy" ? <ArrowUpRight size={15} /> : <ArrowDownLeft size={15} />}</span><span><strong>{transaction.type === "buy" ? "Beli" : "Jual"} {asset?.ticker ?? "Aset"}</strong><small>{shortDate(transaction.date)} · {formatUnits(transaction.units)} unit @ {formatIDR(transaction.pricePerUnit)}</small></span><span><Amount value={transaction.netAmount} privacy={privacy} /><small>{transaction.type === "sell" ? `P/L ${privacy ? "disembunyikan" : formatIDR(transaction.realizedPl)}` : `Avg ${privacy ? "disembunyikan" : formatIDR(transaction.averageCostAfter)}`}</small></span></div>; })}{!transactions.length && <div className="settings-empty">Belum ada transaksi buy atau sell.</div>}</div>
     </section>
   </div>;
 }
@@ -1032,6 +1094,83 @@ function BillModal({ accounts, categories, saving, onClose, onSubmit }: { accoun
     <div className="form-grid"><label><span>Nama tagihan</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Jatuh tempo</span><input type="date" min={today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label></div>
     {!paymentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bank, e-wallet, atau cash untuk membayar tagihan.</div>}
     {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
+  </SimpleModal>;
+}
+
+const investmentAssetClasses: InvestmentAsset["assetClass"][] = ["Saham", "ETF", "Reksadana", "Kripto", "Deposito", "Emas", "Obligasi", "Properti", "Custom"];
+
+function InvestmentAssetModal({ asset, accounts, saving, onClose, onSubmit }: {
+  asset?: InvestmentAsset;
+  accounts: Account[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (payload: Record<string, unknown>, requestId: string) => Promise<void>;
+}) {
+  const investmentAccounts = accounts.filter((account) => account.type === "Investment" && !account.liability);
+  const [accountId, setAccountId] = useState(asset?.accountId ?? investmentAccounts[0]?.id ?? "");
+  const [ticker, setTicker] = useState(asset?.ticker ?? "");
+  const [name, setName] = useState(asset?.name ?? "");
+  const [assetClass, setAssetClass] = useState<InvestmentAsset["assetClass"]>(asset?.assetClass ?? "Saham");
+  const [exchange, setExchange] = useState(asset?.exchange ?? "");
+  const [manualPrice, setManualPrice] = useState(asset?.marketPrice ? String(asset.marketPrice) : "");
+  const [active, setActive] = useState(asset?.active ?? true);
+  const [requestId] = useState(() => `investment-asset-${asset ? "update" : "create"}:${asset?.id ?? "new"}:${crypto.randomUUID()}`);
+  return <SimpleModal title={asset ? "Edit aset investasi" : "Aset investasi baru"} kicker="Asset master" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (!investmentAccounts.length) return; return onSubmit({ accountId, ticker: ticker.trim().toUpperCase(), name: name.trim(), assetClass, exchange: exchange.trim(), currency: "IDR", manualPrice: manualPrice ? Number(manualPrice) : null, active }, requestId); }}>
+    <div className="form-grid"><label><span>Kode / ticker</span><input value={ticker} onChange={(event) => setTicker(event.target.value.replace(/[^a-zA-Z0-9._-]/g, "").toUpperCase())} placeholder="BBCA" maxLength={24} required autoFocus /></label><label><span>Nama aset</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Bank Central Asia" required /></label><label><span>Kelas aset</span><select value={assetClass} onChange={(event) => setAssetClass(event.target.value as InvestmentAsset["assetClass"])}>{investmentAssetClasses.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Bursa / sumber</span><input value={exchange} onChange={(event) => setExchange(event.target.value)} placeholder="IDX, Binance, Bibit…" /></label><label><span>Akun investasi</span><select value={accountId} disabled={Boolean(asset && asset.units > 0)} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun Investment</option>{investmentAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Harga manual (IDR)</span><input value={manualPrice} onChange={(event) => setManualPrice(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="Opsional" /></label>{asset && <label><span>Status aset</span><select value={active ? "active" : "archived"} onChange={(event) => setActive(event.target.value === "active")}><option value="active">Aktif</option><option value="archived" disabled={asset.units > 0}>Arsipkan</option></select><ChevronDown size={15} /></label>}</div>
+    {!investmentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bertipe Investment pada halaman Akun sebelum membuat aset.</div>}
+    <div className="ocr-message"><CircleDollarSign size={15} />Harga manual tidak mengubah cashflow atau histori transaksi. Jika kosong, harga transaksi terakhir dipakai sebagai fallback delayed.</div>
+  </SimpleModal>;
+}
+
+function InvestmentTradeModal({ type, initialAsset, assets, accounts, privacy, saving, onClose, onSubmit }: {
+  type: "buy" | "sell";
+  initialAsset?: InvestmentAsset;
+  assets: InvestmentAsset[];
+  accounts: Account[];
+  privacy: boolean;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (payload: Record<string, unknown>, requestId: string) => Promise<void>;
+}) {
+  const tradableAssets = type === "sell" ? assets.filter((asset) => asset.units > 0) : assets;
+  const cashAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
+  const firstAsset = initialAsset ?? tradableAssets[0];
+  const [assetId, setAssetId] = useState(firstAsset?.id ?? "");
+  const [accountId, setAccountId] = useState(cashAccounts[0]?.id ?? "");
+  const [mode, setMode] = useState<"units" | "nominal" | "all">("units");
+  const [unitsInput, setUnitsInput] = useState("");
+  const [nominalInput, setNominalInput] = useState("");
+  const [priceInput, setPriceInput] = useState(String(firstAsset?.marketPrice || firstAsset?.averageCost || ""));
+  const [feeInput, setFeeInput] = useState("0");
+  const [taxInput, setTaxInput] = useState("0");
+  const [date, setDate] = useState(today());
+  const [note, setNote] = useState("");
+  const [requestId] = useState(() => `investment-${type}:${crypto.randomUUID()}`);
+  const selected = assets.find((asset) => asset.id === assetId);
+  const price = Number(priceInput || 0);
+  const fee = Number(feeInput || 0);
+  const tax = Number(taxInput || 0);
+  const normalizedUnits = Number(unitsInput.replace(",", ".") || 0);
+  const nominal = Number(nominalInput || 0);
+  const units = mode === "all" && selected
+    ? selected.units
+    : mode === "nominal" && price > 0
+      ? Math.max(0, (type === "buy" ? nominal - fee - tax : nominal + fee + tax) / price)
+      : normalizedUnits;
+  const safeUnits = Number(units.toFixed(8));
+  const gross = Math.round(safeUnits * price);
+  const net = type === "buy" ? gross + fee + tax : gross - fee - tax;
+  const costBasisSold = type === "sell" && selected?.units
+    ? (safeUnits >= selected.units ? selected.costBasis : Math.round(selected.costBasis * safeUnits / selected.units))
+    : 0;
+  const realized = type === "sell" ? net - costBasisSold : 0;
+  const invalidUnits = !selected || safeUnits <= 0 || (type === "sell" && safeUnits > selected.units + 0.000000001);
+  return <SimpleModal title={`${type === "buy" ? "Beli" : "Jual"} investasi`} kicker="Transaksi investasi" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (invalidUnits || net <= 0 || price <= 0 || !accountId) return; return onSubmit({ type, assetId, accountId, date, units: safeUnits, pricePerUnit: price, fee, tax, note: note.trim() }, requestId); }}>
+    <div className="transaction-type-tabs investment-mode-tabs"><button type="button" className={mode === "units" ? "active" : ""} onClick={() => setMode("units")}>Berdasarkan unit</button><button type="button" className={mode === "nominal" ? "active" : ""} onClick={() => setMode("nominal")}>{type === "buy" ? "Budget nominal" : "Target pencairan"}</button>{type === "sell" && <button type="button" className={mode === "all" ? "active" : ""} onClick={() => setMode("all")}>Jual semua</button>}</div>
+    <div className="form-grid investment-form-grid"><label><span>Aset</span><select value={assetId} onChange={(event) => { const next = assets.find((asset) => asset.id === event.target.value); setAssetId(event.target.value); setPriceInput(String(next?.marketPrice || next?.averageCost || "")); }} required><option value="" disabled>Pilih aset</option>{tradableAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.ticker} · {asset.name}</option>)}</select><ChevronDown size={15} /></label><label><span>{type === "buy" ? "Akun pembayaran" : "Akun penerima"}</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun kas</option>{cashAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {privacy ? "saldo disembunyikan" : formatIDR(account.balance)}</option>)}</select><ChevronDown size={15} /></label><label><span>Harga per unit</span><input value={priceInput} onChange={(event) => setPriceInput(event.target.value.replace(/\D/g, ""))} inputMode="numeric" required /></label><label><span>Tanggal</span><input type="date" value={date} max={today()} onChange={(event) => setDate(event.target.value)} required /></label>{mode === "units" && <label><span>Jumlah unit</span><input value={unitsInput} onChange={(event) => setUnitsInput(event.target.value.replace(/[^\d.,]/g, ""))} inputMode="decimal" placeholder="0,00000000" required /></label>}{mode === "nominal" && <label><span>{type === "buy" ? "Total budget" : "Target bersih"}</span><input value={nominalInput} onChange={(event) => setNominalInput(event.target.value.replace(/\D/g, ""))} inputMode="numeric" required /></label>}{mode === "all" && <label><span>Unit dijual</span><input value={selected ? formatUnits(selected.units) : "0"} readOnly /></label>}<label><span>Fee</span><input value={feeInput} onChange={(event) => setFeeInput(event.target.value.replace(/\D/g, ""))} inputMode="numeric" /></label><label><span>Pajak</span><input value={taxInput} onChange={(event) => setTaxInput(event.target.value.replace(/\D/g, ""))} inputMode="numeric" /></label><label className="full-field"><span>Catatan</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional" /></label></div>
+    <div className={`investment-preview ${type === "sell" && realized < 0 ? "loss" : ""}`}><span><small>Unit</small><strong>{formatUnits(safeUnits || 0)}</strong></span><span><small>{type === "buy" ? "Total pembelian" : "Hasil bersih"}</small><Amount value={Math.max(0, net)} privacy={privacy} /></span>{type === "sell" && <span><small>Estimasi realized P/L</small><Amount value={realized} privacy={privacy} /></span>}</div>
+    {invalidUnits && safeUnits > 0 && <div className="ocr-message"><Scale size={15} />Unit penjualan melebihi unit tersedia.</div>}
+    {!cashAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun Bank, E-Wallet, atau Cash terlebih dahulu.</div>}
   </SimpleModal>;
 }
 

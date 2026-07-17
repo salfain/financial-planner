@@ -1,4 +1,4 @@
-import type { Account, AuditLog, Bill, Budget, FinanceCategory, Goal, Transaction } from "./finance";
+import type { Account, AuditLog, Bill, Budget, FinanceCategory, Goal, InvestmentAsset, InvestmentTransaction, Transaction } from "./finance";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -18,6 +18,8 @@ export type FinanceSnapshot = {
   bills: Bill[];
   categories: FinanceCategory[];
   auditLogs: AuditLog[];
+  investmentAssets: InvestmentAsset[];
+  investmentTransactions: InvestmentTransaction[];
 };
 
 export type SetupWorkspaceInput = {
@@ -158,6 +160,51 @@ function normalizeBill(row: Record<string, unknown>, month: string): Bill {
   };
 }
 
+function normalizeInvestmentAsset(row: Record<string, unknown>): InvestmentAsset {
+  return {
+    id: text(row.id),
+    accountId: text(row.accountId ?? row.account_id),
+    ticker: text(row.ticker).toUpperCase(),
+    name: text(row.name, "Aset investasi"),
+    assetClass: text(row.assetClass ?? row.asset_class, "Custom") as InvestmentAsset["assetClass"],
+    exchange: text(row.exchange),
+    currency: text(row.currency, "IDR"),
+    units: number(row.units),
+    costBasis: number(row.costBasis ?? row.cost_basis),
+    averageCost: number(row.averageCost ?? row.average_cost),
+    marketPrice: number(row.marketPrice ?? row.market_price ?? row.latestPriceCache ?? row.latest_price_cache),
+    marketValue: number(row.marketValue ?? row.market_value),
+    unrealizedPl: number(row.unrealizedPl ?? row.unrealized_pl),
+    realizedPl: number(row.realizedPl ?? row.realized_pl),
+    priceSource: text(row.priceSource ?? row.price_source, "unavailable") as InvestmentAsset["priceSource"],
+    priceStatus: text(row.priceStatus ?? row.price_status, "unavailable") as InvestmentAsset["priceStatus"],
+    priceUpdatedAt: text(row.priceUpdatedAt ?? row.price_updated_at) || undefined,
+    active: row.active === undefined ? true : bool(row.active),
+    updatedAt: text(row.updatedAt ?? row.updated_at) || undefined,
+  };
+}
+
+function normalizeInvestmentTransaction(row: Record<string, unknown>): InvestmentTransaction {
+  return {
+    id: text(row.id),
+    assetId: text(row.assetId ?? row.asset_id),
+    accountId: text(row.accountId ?? row.account_id),
+    date: text(row.date).slice(0, 10),
+    type: text(row.type, "buy") as InvestmentTransaction["type"],
+    units: number(row.units),
+    pricePerUnit: number(row.pricePerUnit ?? row.price_per_unit ?? row.price),
+    grossAmount: number(row.grossAmount ?? row.gross_amount),
+    fee: number(row.fee),
+    tax: number(row.tax),
+    netAmount: number(row.netAmount ?? row.net_amount ?? row.totalAmount ?? row.total_amount),
+    averageCostAfter: number(row.averageCostAfter ?? row.average_cost_after),
+    remainingUnitsAfter: number(row.remainingUnitsAfter ?? row.remaining_units_after),
+    realizedPl: number(row.realizedPl ?? row.realized_pl),
+    note: text(row.note ?? row.notes) || undefined,
+    createdAt: text(row.createdAt ?? row.created_at) || undefined,
+  };
+}
+
 function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
   const source = (raw ?? {}) as Record<string, unknown>;
   const profile = (source.profile ?? {}) as Record<string, unknown>;
@@ -177,6 +224,8 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
     bills: ((source.bills ?? []) as Record<string, unknown>[]).map((row) => normalizeBill(row, month)),
     categories: ((source.categories ?? []) as Record<string, unknown>[]).map(normalizeCategory),
     auditLogs: ((source.auditLogs ?? source.audit_logs ?? []) as Record<string, unknown>[]).map(normalizeAuditLog),
+    investmentAssets: ((source.investmentAssets ?? source.investment_assets ?? source.assets ?? []) as Record<string, unknown>[]).map(normalizeInvestmentAsset),
+    investmentTransactions: ((source.investmentTransactions ?? source.investment_transactions ?? []) as Record<string, unknown>[]).map(normalizeInvestmentTransaction),
   };
 }
 
@@ -279,5 +328,14 @@ export const reconcileFinanceAccount = (accountId: string, actualBalance: number
     notes: note,
     requestId,
   });
+
+export const createFinanceInvestmentAsset = (payload: Record<string, unknown>, requestId = `investment-asset-create:${crypto.randomUUID()}`) =>
+  mutation("createInvestmentAsset", "/api/finance/investments/assets", { ...payload, requestId });
+
+export const updateFinanceInvestmentAsset = (assetId: string, payload: Record<string, unknown>, requestId = `investment-asset-update:${crypto.randomUUID()}`) =>
+  mutation("updateInvestmentAsset", `/api/finance/investments/assets/${encodeURIComponent(assetId)}`, { ...payload, assetId, requestId }, "PATCH");
+
+export const createFinanceInvestmentTrade = (payload: Record<string, unknown>, requestId = `investment-trade:${crypto.randomUUID()}`) =>
+  mutation("createInvestmentTrade", "/api/finance/investments/transactions", { ...payload, requestId });
 
 export const financeBackendLabel = () => hasAppsScriptBridge() ? "Google Sheets" : "Cloud database";

@@ -17,6 +17,11 @@ import {
   softDeleteTransaction,
   weightedAverageCost,
 } from "../lib/finance";
+import {
+  calculateInvestmentBuy,
+  calculateInvestmentSell,
+  toUnitMicro,
+} from "../lib/investment";
 
 const accounts: Account[] = [
   { id: "bank", name: "Bank", type: "Bank", institution: "Bank", balance: 10_000_000, mask: "01", color: "#000" },
@@ -115,6 +120,48 @@ test("soft delete penyesuaian mengembalikan saldo tepat satu kali", () => {
 test("weighted average cost memasukkan fee", () => {
   const average = weightedAverageCost(10, 1_000, 5, 1_300, 150);
   assert.equal(average, 1_110);
+});
+
+test("investment buy menambah unit dan cost basis termasuk fee serta pajak", () => {
+  const result = calculateInvestmentBuy(
+    { unitsMicro: toUnitMicro(10), costBasis: 10_000, realizedPl: 0 },
+    { units: 5, pricePerUnit: 1_300, fee: 100, tax: 50 },
+  );
+  assert.equal(result.grossAmount, 6_500);
+  assert.equal(result.netAmount, 6_650);
+  assert.equal(result.remainingUnitsMicro, toUnitMicro(15));
+  assert.equal(result.costBasis, 16_650);
+  assert.equal(result.averageCostAfter, 1_110);
+});
+
+test("investment sell memakai weighted average dan memisahkan realized P/L", () => {
+  const result = calculateInvestmentSell(
+    { unitsMicro: toUnitMicro(15), costBasis: 16_650, realizedPl: 400 },
+    { units: 6, pricePerUnit: 1_500, fee: 100, tax: 50 },
+  );
+  assert.equal(result.netAmount, 8_850);
+  assert.equal(result.costBasisSold, 6_660);
+  assert.equal(result.realizedPl, 2_190);
+  assert.equal(result.realizedPlTotal, 2_590);
+  assert.equal(result.remainingUnitsMicro, toUnitMicro(9));
+  assert.equal(result.costBasis, 9_990);
+});
+
+test("investment sell menolak oversell dan sell all menutup cost basis", () => {
+  assert.throws(
+    () => calculateInvestmentSell(
+      { unitsMicro: toUnitMicro(2.5), costBasis: 5_000, realizedPl: 0 },
+      { units: 3, pricePerUnit: 2_500 },
+    ),
+    /melebihi unit tersedia/,
+  );
+  const closed = calculateInvestmentSell(
+    { unitsMicro: toUnitMicro(2.5), costBasis: 5_000, realizedPl: 0 },
+    { units: 2.5, pricePerUnit: 2_200 },
+  );
+  assert.equal(closed.remainingUnitsMicro, 0);
+  assert.equal(closed.costBasis, 0);
+  assert.equal(closed.realizedPl, 500);
 });
 
 test("bulan berjalan memakai zona waktu Jakarta dan label Indonesia", () => {
