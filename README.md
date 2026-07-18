@@ -1,6 +1,6 @@
 # VINN STORE — Financial OS
 
-Implementasi bertahap berdasarkan `PRD_Keuangan_Finora.md`, dengan nama toko **VINN STORE**. Core Finance sudah memakai ledger persisten; aplikasi tidak mengisi akun atau transaksi dummy.
+**VINN STORE Financial OS** adalah aplikasi pengelolaan keuangan terpadu dengan ledger persisten untuk transaksi, anggaran, investasi, laporan, backup, migrasi, reminder, dan analisis berbasis AI.
 
 ## Menjalankan aplikasi
 
@@ -67,6 +67,6 @@ tests/               unit test untuk aturan ledger
 public/               favicon dan social preview VINN STORE
 ```
 
-## Status tahap berikutnya
+## Cakupan produk
 
-Core Finance, transaksi lanjutan, Investment, AI Assistant, OCR, Reports, Backup, Migration, dan in-app Reminder sudah tersambung ke UI, D1/R2, serta backend Google Sheets/Drive. Tahap berikutnya adalah rekalkulasi/repair ledger, penyempurnaan QA lintas perangkat, dan release packaging. Pengiriman reminder melalui email/push tetap tahap lanjutan; reminder saat ini tampil di dalam aplikasi.
+Core Finance, transaksi lanjutan, Investment, AI Assistant, OCR, Reports, Backup, Migration, dan in-app Reminder terhubung ke UI, D1/R2, serta backend Google Sheets/Drive. Reminder tersedia langsung di dalam aplikasi, sedangkan pembayaran tagihan tetap menggunakan konfirmasi manual agar setiap perubahan saldo berada dalam kendali pengguna.

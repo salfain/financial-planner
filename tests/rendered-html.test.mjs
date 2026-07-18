@@ -17,7 +17,14 @@ test("shell menggunakan identitas VINN STORE dan locale Indonesia", async () => 
   assert.doesNotMatch(layout, /Starter Project|Your site is taking shape/);
 });
 
-test("UI Core Finance mengekspos fitur nyata tanpa data transaksi dummy", async () => {
+test("copy produk tidak menampilkan bahasa dokumen pengembangan", async () => {
+  const app = await source("../app/FinanceApp.tsx");
+  assert.doesNotMatch(app, /tahap integrasi berikutnya|Impor CSV · segera|transaksi contoh/i);
+  assert.match(app, /Pencatatan tagihan/);
+  assert.match(app, /Konfirmasi manual/);
+});
+
+test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () => {
   const [app, client, css] = await Promise.all([
     source("../app/FinanceApp.tsx"),
     source("../lib/finance-client.ts"),

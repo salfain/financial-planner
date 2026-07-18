@@ -22,7 +22,7 @@
   --shadow-lg: 0 24px 64px rgba(15, 47, 37, 0.16);
 }
 
-/* AI Assistant + OCR milestone */
+/* AI Assistant + OCR */
 .online.offline { color: var(--text-faint); }
 .online.offline i { background: var(--text-faint); }
 .ai-setup-callout { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 11px; margin: 14px 20px 0; padding: 13px; color: var(--primary); border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border)); border-radius: 11px; background: var(--primary-soft); }

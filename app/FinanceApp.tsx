@@ -819,38 +819,6 @@ function TransactionsPage({ transactions, accounts, categories, privacy, month, 
   </div>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function TransactionsPageLegacy({ transactions, accounts, privacy, month, query, onQueryChange, onEdit, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; month: string; query: string; onQueryChange: (value: string) => void; onEdit: (transaction: Transaction) => void; onDelete: (transaction: Transaction) => void }) {
-  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer" | "adjustment">("all");
-  const monthTransactions = transactions.filter((item) => item.date.startsWith(month));
-  const filtered = transactions.filter((item) => {
-    const account = accounts.find((candidate) => candidate.id === item.accountId);
-    const matchesQuery = `${item.title} ${item.merchant ?? ""} ${item.category} ${account?.name ?? ""}`.toLowerCase().includes(query.toLowerCase());
-    const matchesType = filter === "all" || item.type === filter || (filter === "adjustment" && (item.type === "adjustment_in" || item.type === "adjustment_out"));
-    return matchesQuery && matchesType;
-  }).sort((a, b) => b.date.localeCompare(a.date));
-  return (
-    <div className="content-stack">
-      <div className="summary-strip">
-        <div><span>Total transaksi</span><strong>{monthTransactions.length}</strong><small>{monthLabel(month)}</small></div>
-        <div><span>Pemasukan</span><Amount value={monthlySummary(monthTransactions, month).income} privacy={privacy} /><small className="positive-text">Bulan aktif</small></div>
-        <div><span>Pengeluaran</span><Amount value={monthlySummary(monthTransactions, month).expense} privacy={privacy} /><small>Di luar transfer</small></div>
-        <div><span>Transfer internal</span><Amount value={monthTransactions.filter((item) => item.type === "transfer").reduce((sum, item) => sum + item.amount, 0)} privacy={privacy} /><small>Tidak masuk cashflow</small></div>
-      </div>
-      <section className="panel table-panel">
-        <div className="filter-row">
-          <label className="table-search"><Search size={17} /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Cari merchant, akun, atau kategori" /></label>
-          <div className="filter-tabs">
-            {(["all", "income", "expense", "transfer", "adjustment"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item === "all" ? "Semua" : item === "income" ? "Masuk" : item === "expense" ? "Keluar" : item === "transfer" ? "Transfer" : "Penyesuaian"}</button>)}
-          </div>
-          <button className="secondary-button" disabled title="Impor CSV akan tersedia pada tahap integrasi berikutnya"><Upload size={16} /> Impor CSV · segera</button>
-        </div>
-        {filtered.length > 0 ? <TransactionTable transactions={filtered} accounts={accounts} privacy={privacy} onEdit={onEdit} onDelete={onDelete} /> : <div className="empty-state"><Search size={28} /><h3>Transaksi tidak ditemukan</h3><p>Coba gunakan kata kunci atau filter yang berbeda.</p></div>}
-      </section>
-    </div>
-  );
-}
-
 function TransactionTable({ transactions, accounts, privacy, compact = false, onEdit, onDuplicate, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; compact?: boolean; onEdit?: (transaction: Transaction) => void; onDuplicate?: (transaction: Transaction) => void; onDelete?: (transaction: Transaction) => void }) {
   return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
     {!compact && <div className="transaction-head"><span>Transaksi</span><span>Tanggal</span><span>Akun</span><span>Status</span><span>Nominal</span></div>}
@@ -943,7 +911,7 @@ function BillsPage({ bills, accounts, privacy, onPay, onAdd }: { bills: Bill[]; 
       <div><span>Belum dibayar</span><strong>{pending.length} tagihan</strong><small>{monthLabel(currentMonth())}</small></div>
       <div><span>Total mendatang</span><Amount value={pending.reduce((sum, bill) => sum + bill.amount, 0)} privacy={privacy} /><small>Menurut jatuh tempo</small></div>
       <div><span>Sudah dibayar</span><strong>{bills.filter((bill) => bill.paid).length} tagihan</strong><small className="positive-text">Tepat waktu</small></div>
-      <div><span>Autopost</span><strong>Nonaktif</strong><small>Sesuai rekomendasi PRD</small></div>
+      <div><span>Pencatatan tagihan</span><strong>Konfirmasi manual</strong><small>Setiap pembayaran tetap kamu kendalikan</small></div>
     </div>
     <section className="panel bills-full-panel">
       <div className="card-title-row"><div><span className="card-kicker">Jadwal</span><h2>Tagihan {monthLabel(currentMonth())}</h2></div><button className="secondary-button" onClick={onAdd}><Plus size={16} /> Tambah tagihan</button></div>
@@ -1797,7 +1765,7 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
       <div className="brand setup-brand"><BrandMark /><span className="brand-copy"><strong>VINN STORE</strong><small>Financial OS</small></span></div>
       <span className="setup-kicker"><ShieldCheck size={15} /> Setup aman dan dapat dijalankan ulang</span>
       <h1>Mulai dari data keuanganmu sendiri.</h1>
-      <p>Tidak ada transaksi dummy yang dimasukkan. Buat akun pertama, lalu seluruh dashboard akan dihitung dari ledger yang kamu catat.</p>
+      <p>Tambahkan akun utama untuk memulai. Seluruh dashboard akan dihitung otomatis dari transaksi yang kamu catat.</p>
       <div className="setup-benefits"><span><Check size={16} /> Rupiah dan zona waktu Jakarta</span><span><Check size={16} /> Transfer tidak dihitung sebagai pemasukan</span><span><Check size={16} /> Data tersimpan permanen di {financeBackendLabel()}</span></div>
     </section>
     <section className="setup-card">
