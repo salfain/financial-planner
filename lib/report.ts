@@ -106,20 +106,26 @@ export function buildFinanceCsv(input: Pick<FinanceReportInput, "period" | "tran
     const protectedText = /^[=+\-@]/.test(text) ? `'${text}` : text;
     return `"${protectedText.replaceAll('"', '""')}"`;
   };
-  const rows: unknown[][] = [["Tanggal", "Tipe", "Deskripsi", "Merchant", "Kategori", "Akun", "Akun tujuan", "Nominal", "Status"]];
+  const rows: unknown[][] = [["Tanggal", "Waktu", "Tipe", "Deskripsi", "Merchant", "Kategori", "Split kategori", "Akun", "Akun tujuan", "Nominal", "Status", "Catatan", "Tag", "Lokasi", "Lampiran"]];
   input.transactions
     .filter((item) => item.date.startsWith(input.period) && !item.deletedAt)
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
     .forEach((item) => rows.push([
       item.date,
+      item.time ?? "",
       item.type,
       item.title,
       item.merchant ?? "",
       item.category,
+      item.splits?.map((split) => `${split.category}:${split.amount}`).join("|") ?? "",
       item.accountId,
       item.destinationAccountId ?? "",
       item.amount,
       item.status,
+      item.notes ?? "",
+      item.tags?.join("|") ?? "",
+      item.location ?? "",
+      item.receipt?.filename ?? "",
     ]));
   return `\uFEFF${rows.map((row) => row.map(escape).join(",")).join("\r\n")}`;
 }
@@ -141,11 +147,13 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
   const investmentValue = input.investmentAssets.reduce((sum, asset) => sum + asset.marketValue, 0);
   const totals = accountSummary(input.accounts, investmentValue);
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
-    result[item.category] = (result[item.category] ?? 0) + item.amount;
+    const allocations = item.splits?.length ? item.splits : [{ category: item.category, amount: item.amount }];
+    allocations.forEach((split) => { result[split.category] = (result[split.category] ?? 0) + split.amount; });
     return result;
   }, {});
   const incomeByCategory = monthTransactions.filter((item) => item.type === "income").reduce<Record<string, number>>((result, item) => {
-    result[item.category] = (result[item.category] ?? 0) + item.amount;
+    const allocations = item.splits?.length ? item.splits : [{ category: item.category, amount: item.amount }];
+    allocations.forEach((split) => { result[split.category] = (result[split.category] ?? 0) + split.amount; });
     return result;
   }, {});
   let y = 0;
@@ -339,7 +347,7 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
       monthTransactions.slice().sort((a, b) => a.date.localeCompare(b.date)).map((item) => [
         displayDate(item.date),
         item.title,
-        item.category,
+        item.splits?.length ? item.splits.map((split) => split.category).join(", ") : item.category,
         item.type,
         money(item.amount, input.privacy),
       ]),

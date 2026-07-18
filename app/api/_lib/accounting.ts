@@ -100,6 +100,37 @@ export function netDeltas(
   return result;
 }
 
+export function aggregateTransactionDeltas(
+  accounts: Map<string, BalanceAccount>,
+  transactions: TransactionInput[],
+): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const transaction of transactions) {
+    for (const [id, delta] of transactionDeltas(transaction, accounts)) {
+      result.set(id, (result.get(id) ?? 0) + delta);
+    }
+  }
+  for (const [id, delta] of [...result]) {
+    if (delta === 0) result.delete(id);
+  }
+  return result;
+}
+
+export function aggregateMutationDeltas(
+  accounts: Map<string, BalanceAccount>,
+  previous: TransactionInput[],
+  next: TransactionInput[],
+): Map<string, number> {
+  const result = aggregateTransactionDeltas(accounts, next);
+  for (const [id, delta] of aggregateTransactionDeltas(accounts, previous)) {
+    result.set(id, (result.get(id) ?? 0) - delta);
+  }
+  for (const [id, delta] of [...result]) {
+    if (delta === 0) result.delete(id);
+  }
+  return result;
+}
+
 export function validateDeltas(
   accounts: Map<string, BalanceAccount>,
   deltas: Map<string, number>,

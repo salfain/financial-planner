@@ -79,9 +79,14 @@ export const transactions = sqliteTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     type: text("type").notNull(),
     date: text("date").notNull(),
+    time: text("time").notNull().default(""),
     title: text("title").notNull(),
     merchant: text("merchant"),
     category: text("category").notNull(),
+    notes: text("notes").notNull().default(""),
+    tagsJson: text("tags_json").notNull().default("[]"),
+    location: text("location").notNull().default(""),
+    splitsJson: text("splits_json").notNull().default("[]"),
     accountId: text("account_id").notNull(),
     destinationAccountId: text("destination_account_id"),
     transferGroupId: text("transfer_group_id"),
@@ -100,6 +105,29 @@ export const transactions = sqliteTable(
       table.idempotencyKey,
     ),
     check("transactions_amount_positive", sql`${table.amount} > 0`),
+  ],
+);
+
+export const transactionAttachments = sqliteTable(
+  "transaction_attachments",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    transactionId: text("transaction_id")
+      .notNull()
+      .references(() => transactions.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull(),
+    objectKey: text("object_key").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("transaction_attachments_object_key_uidx").on(table.objectKey),
+    index("transaction_attachments_transaction_idx").on(table.workspaceId, table.transactionId),
+    check("transaction_attachments_size_positive", sql`${table.sizeBytes} > 0`),
   ],
 );
 
@@ -438,5 +466,25 @@ export const auditLogs = sqliteTable(
       table.action,
       table.entityId,
     ),
+  ],
+);
+
+export const transactionUndoEvents = sqliteTable(
+  "transaction_undo_events",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    targetAuditId: text("target_audit_id")
+      .notNull()
+      .references(() => auditLogs.id, { onDelete: "cascade" }),
+    requestId: text("request_id").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("transaction_undo_events_target_uidx").on(table.workspaceId, table.targetAuditId),
+    uniqueIndex("transaction_undo_events_request_uidx").on(table.workspaceId, table.requestId),
+    index("transaction_undo_events_workspace_created_idx").on(table.workspaceId, table.createdAt),
   ],
 );

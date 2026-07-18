@@ -329,7 +329,8 @@ function validateCategoryCandidate_(candidate, rows) {
 
 function categoryReferenceCounts_(categoryName) {
   const transactions = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(row) {
-    return String(row.category) === String(categoryName);
+    const splits = parseJsonObject_(row.splits_json);
+    return String(row.category) === String(categoryName) || (Array.isArray(splits) && splits.some(function(split) { return String(split.category) === String(categoryName); }));
   }).length;
   const budgets = rowsAsObjects_(VINN_CONFIG.SHEETS.BUDGETS).filter(function(row) {
     return String(row.category) === String(categoryName);
@@ -348,9 +349,12 @@ function cascadeCategoryName_(oldName, newName) {
     { sheet: VINN_CONFIG.SHEETS.BILLS, key: 'bills' }
   ].forEach(function(target) {
     rowsAsObjects_(target.sheet).forEach(function(row) {
-      if (String(row.category) !== String(oldName)) return;
+      const splits = target.sheet === VINN_CONFIG.SHEETS.TRANSACTIONS ? parseJsonObject_(row.splits_json) : [];
+      const splitMatch = Array.isArray(splits) && splits.some(function(split) { return String(split.category) === String(oldName); });
+      if (String(row.category) !== String(oldName) && !splitMatch) return;
       const rowNumber = row._row;
-      row.category = newName;
+      if (String(row.category) === String(oldName)) row.category = newName;
+      if (splitMatch) row.splits_json = JSON.stringify(splits.map(function(split) { return String(split.category) === String(oldName) ? Object.assign({}, split, { category: newName }) : split; }));
       if (hasOwn_(row, 'updated_at')) row.updated_at = nowIso_();
       delete row._row;
       updateObjectRow_(target.sheet, rowNumber, row);
@@ -454,18 +458,33 @@ function parseJsonObject_(value) {
 }
 
 function transactionClientRow_(row) {
+  const tags = parseJsonObject_(row.tags_json);
+  const splits = parseJsonObject_(row.splits_json);
+  const receiptId = String(row.receipt_file_id || '');
   return {
     id: String(row.id || ''),
     type: String(row.type || ''),
     date: String(row.date || ''),
+    time: String(row.time || ''),
     title: String(row.merchant || row.notes || 'Transaksi'),
     merchant: String(row.merchant || ''),
     category: String(row.category || ''),
+    notes: String(row.notes || ''),
+    tags: Array.isArray(tags) ? tags : [],
+    location: String(row.location || ''),
+    splits: Array.isArray(splits) ? splits : [],
     accountId: String(row.account_id || ''),
     destinationAccountId: String(row.destination_account_id || '') || null,
     amount: Number(row.amount || 0),
     status: String(row.status || 'completed'),
     transferGroupId: String(row.transfer_group_id || '') || null,
-    updatedAt: String(row.updated_at || '') || null
+    updatedAt: String(row.updated_at || '') || null,
+    receipt: receiptId ? {
+      id: receiptId,
+      filename: String(row.receipt_filename || 'lampiran-struk'),
+      contentType: String(row.receipt_content_type || 'application/octet-stream'),
+      sizeBytes: Number(row.receipt_size_bytes || 0),
+      url: 'https://drive.google.com/open?id=' + encodeURIComponent(receiptId)
+    } : null
   };
 }

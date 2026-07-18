@@ -80,7 +80,11 @@ function financeNotificationsGs_(period, today, settings) {
     return !row.deleted_at && String(row.status || 'completed') === 'completed' && String(row.date || '').slice(0, 7) === period;
   });
   rowsAsObjects_(VINN_CONFIG.SHEETS.BUDGETS).filter(function(row) { return String(row.month || '') === period; }).forEach(function(budget) {
-    const spent = transactions.filter(function(row) { return String(row.type) === 'expense' && String(row.category) === String(budget.category); }).reduce(function(sum, row) { return sum + Number(row.amount || 0); }, 0);
+    const spent = transactions.filter(function(row) { return String(row.type) === 'expense'; }).reduce(function(sum, row) {
+      const splits = parseJsonObject_(row.splits_json);
+      if (Array.isArray(splits) && splits.length) return sum + splits.filter(function(split) { return String(split.category) === String(budget.category); }).reduce(function(splitSum, split) { return splitSum + Number(split.amount || 0); }, 0);
+      return String(row.category) === String(budget.category) ? sum + Number(row.amount || 0) : sum;
+    }, 0);
     const limit = Number(budget.limit_amount || 0);
     const percent = limit > 0 ? spent / limit * 100 : 0;
     if (percent < settings.budgetWarningPercent) return;

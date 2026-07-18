@@ -30,9 +30,14 @@ type TransactionRow = {
   id: string;
   type: string;
   date: string;
+  time: string;
   title: string;
   merchant: string | null;
   category: string;
+  notes: string;
+  tagsJson: string;
+  location: string;
+  splitsJson: string;
   accountId: string;
   destinationAccountId: string | null;
   transferGroupId: string | null;
@@ -40,6 +45,11 @@ type TransactionRow = {
   status: string;
   idempotencyKey?: string;
   updatedAt: string;
+  deletedAt: string | null;
+  receiptId: string | null;
+  receiptFilename: string | null;
+  receiptContentType: string | null;
+  receiptSizeBytes: number | null;
 };
 
 type BudgetRow = {
@@ -147,11 +157,18 @@ export const accountSelect = `
   FROM accounts
 `;
 export const transactionSelect = `
-  SELECT id, type, date, title, merchant, category, account_id AS accountId,
+  SELECT id, type, date, time, title, merchant, category, notes,
+         tags_json AS tagsJson, location, splits_json AS splitsJson,
+         account_id AS accountId,
          destination_account_id AS destinationAccountId,
          transfer_group_id AS transferGroupId, amount, status,
-         idempotency_key AS idempotencyKey, updated_at AS updatedAt
-  FROM transactions
+         idempotency_key AS idempotencyKey, updated_at AS updatedAt,
+         deleted_at AS deletedAt,
+         (SELECT a.id FROM transaction_attachments a WHERE a.workspace_id = t.workspace_id AND a.transaction_id = t.id ORDER BY a.created_at DESC LIMIT 1) AS receiptId,
+         (SELECT a.filename FROM transaction_attachments a WHERE a.workspace_id = t.workspace_id AND a.transaction_id = t.id ORDER BY a.created_at DESC LIMIT 1) AS receiptFilename,
+         (SELECT a.content_type FROM transaction_attachments a WHERE a.workspace_id = t.workspace_id AND a.transaction_id = t.id ORDER BY a.created_at DESC LIMIT 1) AS receiptContentType,
+         (SELECT a.size_bytes FROM transaction_attachments a WHERE a.workspace_id = t.workspace_id AND a.transaction_id = t.id ORDER BY a.created_at DESC LIMIT 1) AS receiptSizeBytes
+  FROM transactions t
 `;
 export const budgetSelect = `
   SELECT id, category, amount_limit AS amountLimit, period, color
@@ -223,19 +240,39 @@ export const serializeAccount = (row: AccountRow) => ({
   liability: Boolean(row.liability),
 });
 export const serializeTransaction = (row: TransactionRow) => {
+  const parseArray = <T>(value: string, fallback: T[]): T[] => {
+    try {
+      const parsed = JSON.parse(value || "[]");
+      return Array.isArray(parsed) ? parsed as T[] : fallback;
+    } catch {
+      return fallback;
+    }
+  };
   return {
     id: row.id,
     type: row.type,
     date: row.date,
+    time: row.time || "",
     title: row.title,
     merchant: row.merchant,
     category: row.category,
+    notes: row.notes || "",
+    tags: parseArray<string>(row.tagsJson, []),
+    location: row.location || "",
+    splits: parseArray<{ id: string; category: string; amount: number; note?: string }>(row.splitsJson, []),
     accountId: row.accountId,
     destinationAccountId: row.destinationAccountId,
     transferGroupId: row.transferGroupId,
     amount: row.amount,
     status: row.status,
     updatedAt: row.updatedAt,
+    deletedAt: row.deletedAt ?? undefined,
+    receipt: row.receiptId ? {
+      id: row.receiptId,
+      filename: row.receiptFilename || "lampiran-struk",
+      contentType: row.receiptContentType || "application/octet-stream",
+      sizeBytes: Number(row.receiptSizeBytes || 0),
+    } : undefined,
   };
 };
 export const serializeBudget = (row: BudgetRow) => ({
@@ -440,6 +477,16 @@ export async function getTransactionRow(
 ): Promise<TransactionRow | null> {
   return getD1()
     .prepare(`${transactionSelect} WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL LIMIT 1`)
+    .bind(workspaceId, id)
+    .first<TransactionRow>();
+}
+
+export async function getTransactionRowIncludingDeleted(
+  workspaceId: string,
+  id: string,
+): Promise<TransactionRow | null> {
+  return getD1()
+    .prepare(`${transactionSelect} WHERE workspace_id = ? AND id = ? LIMIT 1`)
     .bind(workspaceId, id)
     .first<TransactionRow>();
 }

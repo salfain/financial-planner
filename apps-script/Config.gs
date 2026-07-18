@@ -1,6 +1,6 @@
 const VINN_CONFIG = Object.freeze({
   APP_NAME: 'VINN STORE',
-  SCHEMA_VERSION: '1.5.0',
+  SCHEMA_VERSION: '1.6.0',
   TIMEZONE: 'Asia/Jakarta',
   CURRENCY: 'IDR',
   CACHE_SECONDS: 300,
@@ -23,7 +23,7 @@ const VINN_CONFIG = Object.freeze({
     Settings: ['key', 'value', 'updated_at'],
     Accounts: ['id', 'name', 'type', 'institution', 'mask', 'currency', 'opening_balance', 'color', 'is_liability', 'is_active', 'created_at', 'updated_at'],
     Categories: ['id', 'name', 'type', 'parent_id', 'color', 'icon', 'is_active', 'is_default', 'request_id', 'created_at', 'updated_at'],
-    Transactions: ['id', 'transfer_group_id', 'request_id', 'date', 'time', 'type', 'account_id', 'destination_account_id', 'amount', 'category', 'merchant', 'notes', 'status', 'direction', 'created_at', 'updated_at', 'deleted_at'],
+    Transactions: ['id', 'transfer_group_id', 'request_id', 'date', 'time', 'type', 'account_id', 'destination_account_id', 'amount', 'category', 'merchant', 'notes', 'status', 'direction', 'created_at', 'updated_at', 'deleted_at', 'tags_json', 'location', 'splits_json', 'receipt_file_id', 'receipt_filename', 'receipt_content_type', 'receipt_size_bytes'],
     Budgets: ['id', 'month', 'category', 'limit_amount', 'rollover', 'created_at', 'updated_at'],
     Goals: ['id', 'name', 'target_amount', 'current_amount', 'deadline', 'account_id', 'color', 'icon', 'status', 'created_at', 'updated_at'],
     Bills: ['id', 'name', 'amount', 'category', 'account_id', 'frequency', 'due_date', 'reminder_days', 'status', 'last_paid_period', 'created_at', 'updated_at'],

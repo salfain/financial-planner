@@ -91,9 +91,14 @@ export async function PATCH(request: Request, context: Context) {
       mergePayload(serializeTransaction(currentRow), payload, [
         "type",
         "date",
+        "time",
         "title",
         "merchant",
         "category",
+        "notes",
+        "tags",
+        "location",
+        "splits",
         "accountId",
         "destinationAccountId",
         "amount",
@@ -110,7 +115,7 @@ export async function PATCH(request: Request, context: Context) {
     const transferGroupId =
       next.type === "transfer" || next.type === "investment_buy" ? id : null;
     const after = {
-      ...serializeTransaction(next as never),
+      ...next,
       transferGroupId,
       updatedAt: now,
     };
@@ -118,17 +123,23 @@ export async function PATCH(request: Request, context: Context) {
       d1
         .prepare(
           `UPDATE transactions
-           SET type = ?, date = ?, title = ?, merchant = ?, category = ?, account_id = ?,
-               destination_account_id = ?, transfer_group_id = ?, amount = ?, status = ?,
+           SET type = ?, date = ?, time = ?, title = ?, merchant = ?, category = ?, notes = ?,
+               tags_json = ?, location = ?, splits_json = ?, account_id = ?, destination_account_id = ?,
+               transfer_group_id = ?, amount = ?, status = ?,
                updated_at = ?
            WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL AND updated_at = ?`,
         )
         .bind(
           next.type,
           next.date,
+          next.time,
           next.title,
           next.merchant,
           next.category,
+          next.notes,
+          JSON.stringify(next.tags),
+          next.location,
+          JSON.stringify(next.splits),
           next.accountId,
           next.destinationAccountId,
           transferGroupId,

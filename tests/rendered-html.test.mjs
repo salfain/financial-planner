@@ -13,7 +13,7 @@ test("shell menggunakan identitas VINN STORE dan locale Indonesia", async () => 
   assert.match(page, /<FinanceApp\s*\/>/);
   assert.match(layout, /VINN STORE — Financial OS/);
   assert.match(layout, /<html lang="id"/);
-  assert.match(layout, /\/og-smart-reminders\.png/);
+  assert.match(layout, /\/og-advanced-transactions\.png/);
   assert.doesNotMatch(layout, /Starter Project|Your site is taking shape/);
 });
 
@@ -32,6 +32,13 @@ test("UI Core Finance mengekspos fitur nyata tanpa data transaksi dummy", async 
   assert.match(client, /\/api\/finance\/categories/);
   assert.match(css, /\.transaction-actions/);
   assert.match(css, /\.reconcile-preview/);
+  assert.match(app, /Duplikasi transaksi/);
+  assert.match(app, /Split kategori/);
+  assert.match(app, /Impor transaksi CSV/);
+  assert.match(app, /Undo terakhir/);
+  assert.match(client, /\/api\/finance\/transactions\/import/);
+  assert.match(client, /\/api\/finance\/transactions\/undo/);
+  assert.match(css, /\.advanced-filter-row/);
   assert.doesNotMatch(app, /const\s+demo(?:Accounts|Transactions|Budgets|Goals|Bills)/);
 });
 

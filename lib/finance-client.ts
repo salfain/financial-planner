@@ -81,13 +81,29 @@ function normalizeAccount(row: Record<string, unknown>): Account {
 }
 
 function normalizeTransaction(row: Record<string, unknown>): Transaction {
+  const rawTags = row.tags ?? row.tags_json ?? [];
+  const rawSplits = row.splits ?? row.splits_json ?? [];
+  const parseArray = (value: unknown) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== "string" || !value) return [];
+    try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return value.split(",").map((item) => item.trim()).filter(Boolean); }
+  };
+  const receipt = (row.receipt ?? null) as Record<string, unknown> | null;
   return {
     id: text(row.id),
     type: text(row.type, "expense") as Transaction["type"],
     date: text(row.date).slice(0, 10),
+    time: text(row.time),
     title: text(row.title ?? row.description ?? row.merchant, "Transaksi"),
     merchant: text(row.merchant),
     category: text(row.category, "Lainnya"),
+    notes: text(row.notes),
+    tags: parseArray(rawTags).map(String),
+    location: text(row.location),
+    splits: parseArray(rawSplits).map((split, index) => {
+      const value = split as Record<string, unknown>;
+      return { id: text(value.id, `split-${index}`), category: text(value.category), amount: number(value.amount), note: text(value.note) || undefined };
+    }),
     accountId: text(row.accountId ?? row.account_id),
     destinationAccountId: text(row.destinationAccountId ?? row.destination_account_id) || undefined,
     amount: number(row.amount),
@@ -95,6 +111,13 @@ function normalizeTransaction(row: Record<string, unknown>): Transaction {
     transferGroupId: text(row.transferGroupId ?? row.transfer_group_id) || undefined,
     updatedAt: text(row.updatedAt ?? row.updated_at) || undefined,
     deletedAt: text(row.deletedAt ?? row.deleted_at) || undefined,
+    receipt: receipt ? {
+      id: text(receipt.id),
+      filename: text(receipt.filename, "lampiran-struk"),
+      contentType: text(receipt.contentType ?? receipt.content_type, "application/octet-stream"),
+      sizeBytes: number(receipt.sizeBytes ?? receipt.size_bytes),
+      url: text(receipt.url) || undefined,
+    } : undefined,
   };
 }
 
@@ -264,10 +287,15 @@ export const createFinanceTransaction = (transaction: Transaction) =>
     requestId: transaction.id,
     type: transaction.type,
     date: transaction.date,
+    time: transaction.time,
     accountId: transaction.accountId,
     destinationAccountId: transaction.destinationAccountId,
     amount: transaction.amount,
     category: transaction.category,
+    notes: transaction.notes,
+    tags: transaction.tags,
+    location: transaction.location,
+    splits: transaction.splits,
     merchant: transaction.merchant || transaction.title,
     title: transaction.title,
     status: transaction.status,
@@ -279,10 +307,15 @@ export const updateFinanceTransaction = (transaction: Transaction, requestId = `
     transactionId: transaction.id,
     type: transaction.type,
     date: transaction.date,
+    time: transaction.time,
     accountId: transaction.accountId,
     destinationAccountId: transaction.destinationAccountId,
     amount: transaction.amount,
     category: transaction.category,
+    notes: transaction.notes,
+    tags: transaction.tags,
+    location: transaction.location,
+    splits: transaction.splits,
     merchant: transaction.merchant || transaction.title,
     title: transaction.title,
     status: transaction.status,
@@ -291,6 +324,71 @@ export const updateFinanceTransaction = (transaction: Transaction, requestId = `
 
 export const deleteFinanceTransaction = (transactionId: string, expectedUpdatedAt?: string) =>
   mutation("deleteTransaction", `/api/finance/transactions/${encodeURIComponent(transactionId)}/delete`, { transactionId, expectedUpdatedAt, requestId: `transaction-delete:${transactionId}` });
+
+export type TransactionListFilters = {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  type?: string;
+  category?: string;
+  accountId?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export type TransactionListResult = {
+  transactions: Transaction[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
+export async function loadFinanceTransactions(filters: TransactionListFilters): Promise<TransactionListResult> {
+  if (hasAppsScriptBridge()) {
+    const raw = await callAppsScript<{ items?: Record<string, unknown>[]; transactions?: Record<string, unknown>[]; page?: number; pageSize?: number; total?: number; totalPages?: number }>("listTransactions", filters);
+    const rows = raw.items ?? raw.transactions ?? [];
+    const pageSize = number(raw.pageSize) || filters.pageSize || 25;
+    const total = number(raw.total) || rows.length;
+    return { transactions: rows.map(normalizeTransaction), page: number(raw.page) || 1, pageSize, total, totalPages: number(raw.totalPages) || Math.max(1, Math.ceil(total / pageSize)) };
+  }
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => value !== undefined && value !== "" && params.set(key, String(value)));
+  const raw = await webRequest<{ transactions: Record<string, unknown>[]; page: number; pageSize: number; total: number; totalPages: number }>(`/api/finance/transactions?${params}`);
+  return { ...raw, transactions: raw.transactions.map(normalizeTransaction) };
+}
+
+export const importFinanceTransactions = (transactions: Transaction[], requestId = `transaction-import:${crypto.randomUUID()}`) =>
+  mutation<{ imported: number }>("importTransactions", "/api/finance/transactions/import", { transactions, requestId });
+
+export const undoLastFinanceTransactionAction = (requestId = `transaction-undo:${crypto.randomUUID()}`) =>
+  mutation<{ undone: boolean; action: string; transactionId: string }>("undoTransaction", "/api/finance/transactions/undo", { requestId });
+
+const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+  reader.onerror = () => reject(new Error("Lampiran tidak dapat dibaca."));
+  reader.readAsDataURL(file);
+});
+
+export async function uploadFinanceTransactionReceipt(transactionId: string, file: File) {
+  if (hasAppsScriptBridge()) {
+    return callAppsScript("attachTransactionReceipt", { transactionId, filename: file.name, contentType: file.type, contentBase64: await fileToBase64(file) });
+  }
+  const form = new FormData();
+  form.set("file", file);
+  const response = await fetch(`/api/finance/transactions/${encodeURIComponent(transactionId)}/attachments`, { method: "POST", body: form });
+  const body = await response.json() as { error?: string | { message?: string } };
+  if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : body.error?.message || "Lampiran tidak dapat disimpan.");
+  return body;
+}
+
+export const deleteFinanceTransactionReceipt = (transactionId: string, receiptId: string) =>
+  mutation("deleteTransactionReceipt", `/api/finance/transactions/${encodeURIComponent(transactionId)}/attachments/${encodeURIComponent(receiptId)}`, { transactionId, receiptId }, "DELETE");
+
+export const financeTransactionReceiptUrl = (transactionId: string, receiptId: string, directUrl?: string) =>
+  directUrl || `/api/finance/transactions/${encodeURIComponent(transactionId)}/attachments/${encodeURIComponent(receiptId)}`;
 
 export const upsertFinanceBudget = (payload: Record<string, unknown>) =>
   mutation("upsertBudget", "/api/finance/budgets", payload);

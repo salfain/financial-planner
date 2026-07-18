@@ -85,7 +85,7 @@ export async function PATCH(request: Request, context: Context) {
         .prepare(
           `SELECT
              (SELECT COUNT(*) FROM transactions
-              WHERE workspace_id = ? AND category = ? AND deleted_at IS NULL) AS transactionCount,
+              WHERE workspace_id = ? AND (category = ? OR lower(splits_json) LIKE ?) AND deleted_at IS NULL) AS transactionCount,
              (SELECT COUNT(*) FROM budgets
               WHERE workspace_id = ? AND category = ?) AS budgetCount,
              (SELECT COUNT(*) FROM bills
@@ -94,6 +94,7 @@ export async function PATCH(request: Request, context: Context) {
         .bind(
           workspaceId,
           current.name,
+          `%\"category\":\"${current.name.toLowerCase()}\"%`,
           workspaceId,
           current.name,
           workspaceId,
@@ -124,6 +125,13 @@ export async function PATCH(request: Request, context: Context) {
                  WHERE workspace_id = ? AND category = ? AND deleted_at IS NULL`,
               )
               .bind(category.name, now, workspaceId, before.name),
+            d1
+              .prepare(
+                `UPDATE transactions
+                 SET splits_json = replace(replace(splits_json, ?, ?), ?, ?), updated_at = ?
+                 WHERE workspace_id = ? AND lower(splits_json) LIKE ? AND deleted_at IS NULL`,
+              )
+              .bind(`\"category\":\"${before.name}\"`, `\"category\":\"${category.name}\"`, `\"category\": \"${before.name}\"`, `\"category\": \"${category.name}\"`, now, workspaceId, `%\"category\":%${before.name.toLowerCase()}%`),
             d1
               .prepare(
                 `UPDATE budgets SET category = ?, updated_at = ?

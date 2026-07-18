@@ -67,13 +67,25 @@ export type TransactionInput = {
   id: string;
   type: (typeof TRANSACTION_TYPES)[number];
   date: string;
+  time: string;
   title: string;
   merchant: string | null;
   category: string;
+  notes: string;
+  tags: string[];
+  location: string;
+  splits: TransactionSplitInput[];
   accountId: string;
   destinationAccountId: string | null;
   amount: number;
   status: (typeof TRANSACTION_STATUSES)[number];
+};
+
+export type TransactionSplitInput = {
+  id: string;
+  category: string;
+  amount: number;
+  note: string;
 };
 
 export type BudgetInput = {
@@ -134,6 +146,7 @@ export function parseTransaction(
   fallbackId?: string,
 ): TransactionInput {
   const type = enumValue(input, "type", TRANSACTION_TYPES);
+  const amount = positiveInteger(input, "amount");
   const destination = optionalString(input, "destinationAccountId", 80);
   const destinationAccountId = destination ? validateId(destination, "destinationAccountId") : null;
   const accountId = validateId(input.accountId, "accountId");
@@ -155,16 +168,59 @@ export function parseTransaction(
     );
   }
 
+  const time = optionalString(input, "time", 5) ?? "";
+  if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+    throw new ApiError(400, "INVALID_TIME", "Waktu transaksi harus berformat HH:mm.");
+  }
+  const tags = input.tags === undefined
+    ? []
+    : Array.isArray(input.tags)
+      ? [...new Set(input.tags.map((value) => String(value).trim()).filter(Boolean))]
+      : [];
+  if (tags.length > 10 || tags.some((tag) => tag.length > 30)) {
+    throw new ApiError(400, "INVALID_TAGS", "Maksimal 10 tag, masing-masing 30 karakter.");
+  }
+  const rawSplits = input.splits === undefined ? [] : input.splits;
+  if (!Array.isArray(rawSplits)) {
+    throw new ApiError(400, "INVALID_SPLITS", "Rincian split transaksi tidak valid.");
+  }
+  if (rawSplits.length && !["income", "expense", "refund"].includes(type)) {
+    throw new ApiError(400, "SPLIT_NOT_ALLOWED", "Split kategori hanya tersedia untuk pemasukan, pengeluaran, dan refund.");
+  }
+  if (rawSplits.length === 1 || rawSplits.length > 20) {
+    throw new ApiError(400, "INVALID_SPLITS", "Split harus berisi 2 sampai 20 rincian.");
+  }
+  const splits = rawSplits.map((value, index): TransactionSplitInput => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new ApiError(400, "INVALID_SPLITS", `Rincian split ke-${index + 1} tidak valid.`);
+    }
+    const row = value as Record<string, unknown>;
+    return {
+      id: row.id === undefined ? makeId("split") : validateId(row.id, `splits[${index}].id`),
+      category: requiredString(row, "category", 100),
+      amount: positiveInteger(row, "amount"),
+      note: optionalString(row, "note", 160) ?? "",
+    };
+  });
+  if (splits.length && splits.reduce((sum, split) => sum + split.amount, 0) !== amount) {
+    throw new ApiError(400, "SPLIT_TOTAL_MISMATCH", "Total rincian split harus sama dengan nominal transaksi.");
+  }
+
   return {
     id: fallbackId ?? (input.id === undefined ? makeId("tx") : validateId(input.id)),
     type,
     date: isoDate(input, "date"),
+    time,
     title: requiredString(input, "title", 160),
     merchant: optionalString(input, "merchant", 160) ?? null,
     category: requiredString(input, "category", 100),
+    notes: optionalString(input, "notes", 1000) ?? "",
+    tags,
+    location: optionalString(input, "location", 160) ?? "",
+    splits,
     accountId,
     destinationAccountId,
-    amount: positiveInteger(input, "amount"),
+    amount,
     status:
       input.status === undefined
         ? "completed"

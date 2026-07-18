@@ -14,12 +14,14 @@ import {
   ChevronDown,
   CircleDollarSign,
   Clock3,
+  Copy,
   CreditCard,
   Database,
   Download,
   Eye,
   EyeOff,
   FileText,
+  FileUp,
   History,
   HardDrive,
   Landmark,
@@ -28,6 +30,7 @@ import {
   Menu,
   Moon,
   MoreHorizontal,
+  Paperclip,
   Pencil,
   Plus,
   ReceiptText,
@@ -43,6 +46,7 @@ import {
   Tags,
   Trash2,
   TrendingUp,
+  Undo2,
   Upload,
   WalletCards,
   X,
@@ -51,6 +55,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import type { ReportSection } from "../lib/report";
+import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
 import { DEFAULT_NOTIFICATION_SETTINGS, type FinanceNotification, type NotificationOverview, type NotificationSettings } from "../lib/notifications";
 import {
@@ -89,6 +94,7 @@ import {
   createFinanceInvestmentTrade,
   createFinanceTransaction,
   deleteFinanceTransaction,
+  deleteFinanceTransactionReceipt,
   financeBackendLabel,
   getFinanceAiSettings,
   loadFinanceBackups,
@@ -96,8 +102,10 @@ import {
   loadFinanceNotifications,
   loadFinanceReports,
   loadFinanceSnapshot,
+  loadFinanceTransactions,
   loadFinanceAiMessages,
   markFinanceBillPaid,
+  importFinanceTransactions,
   reconcileFinanceAccount,
   setupFinanceWorkspace,
   scanFinanceReceipt,
@@ -109,6 +117,9 @@ import {
   updateFinanceNotificationSettings,
   updateFinanceNotificationStates,
   updateFinanceTransaction,
+  undoLastFinanceTransactionAction,
+  uploadFinanceTransactionReceipt,
+  financeTransactionReceiptUrl,
   upsertFinanceBudget,
   previewFinanceMigration,
   applyFinanceMigration,
@@ -243,6 +254,8 @@ export function FinanceApp() {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [transactionOpen, setTransactionOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
+  const [transactionImportOpen, setTransactionImportOpen] = useState(false);
   const [reconcileTarget, setReconcileTarget] = useState<Account | null>(null);
   const [categoryModal, setCategoryModal] = useState<{ category?: FinanceCategory } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -354,14 +367,31 @@ export function FinanceApp() {
     }
   };
 
-  const addTransaction = async (transaction: Transaction) => runMutation(
-    () => createFinanceTransaction(transaction),
+  const addTransaction = async (transaction: Transaction, _requestId?: string, receiptFile?: File) => runMutation(
+    async () => {
+      await createFinanceTransaction(transaction);
+      if (receiptFile) await uploadFinanceTransactionReceipt(transaction.id, receiptFile);
+    },
     transaction.type === "transfer" ? "Transfer berhasil dicatat secara utuh." : "Transaksi berhasil disimpan.",
   );
 
-  const editTransaction = async (transaction: Transaction, requestId?: string) => runMutation(
-    () => updateFinanceTransaction(transaction, requestId),
+  const editTransaction = async (transaction: Transaction, requestId?: string, receiptFile?: File, removeReceipt?: boolean) => runMutation(
+    async () => {
+      await updateFinanceTransaction(transaction, requestId);
+      if (receiptFile) await uploadFinanceTransactionReceipt(transaction.id, receiptFile);
+      else if (removeReceipt && transaction.receipt) await deleteFinanceTransactionReceipt(transaction.id, transaction.receipt.id);
+    },
     "Transaksi dan saldo terkait berhasil diperbarui.",
+  );
+
+  const importTransactions = async (items: Transaction[]) => runMutation(
+    () => importFinanceTransactions(items),
+    `${items.length} transaksi CSV berhasil diimpor.`,
+  );
+
+  const undoLastTransaction = async () => runMutation(
+    () => undoLastFinanceTransactionAction(),
+    "Aksi transaksi terakhir berhasil dibatalkan.",
   );
 
   const payBill = async (bill: Bill) => {
@@ -562,7 +592,7 @@ export function FinanceApp() {
           </section>
 
           {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setTransactionOpen(true)} />}
-          {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDelete={deleteTransaction} />}
+          {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
           {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} />}
           {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onContribute={contributeGoal} onAdd={() => setGoalOpen(true)} />}
@@ -579,7 +609,8 @@ export function FinanceApp() {
         <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={23} /></button>
       </nav>
 
-      {(transactionOpen || editingTransaction) && <TransactionModal accounts={accounts} categories={categories} initial={editingTransaction ?? undefined} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
+      {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
+      {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
       {accountOpen && <AccountModal saving={saving} onClose={() => setAccountOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceAccount(payload), "Akun baru berhasil ditambahkan."); if (ok) setAccountOpen(false); }} />}
       {budgetOpen && <BudgetModal month={month} categories={categories} saving={saving} onClose={() => setBudgetOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => upsertFinanceBudget(payload), "Anggaran berhasil disimpan."); if (ok) setBudgetOpen(false); }} />}
       {goalOpen && <GoalModal saving={saving} onClose={() => setGoalOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceGoal(payload), "Target finansial berhasil dibuat."); if (ok) setGoalOpen(false); }} />}
@@ -724,7 +755,72 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   );
 }
 
-function TransactionsPage({ transactions, accounts, privacy, month, query, onQueryChange, onEdit, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; month: string; query: string; onQueryChange: (value: string) => void; onEdit: (transaction: Transaction) => void; onDelete: (transaction: Transaction) => void }) {
+function TransactionsPage({ transactions, accounts, categories, privacy, month, query, onQueryChange, onEdit, onDuplicate, onDelete, onImport, onUndo, saving }: {
+  transactions: Transaction[];
+  accounts: Account[];
+  categories: FinanceCategory[];
+  privacy: boolean;
+  month: string;
+  query: string;
+  onQueryChange: (value: string) => void;
+  onEdit: (transaction: Transaction) => void;
+  onDuplicate: (transaction: Transaction) => void;
+  onDelete: (transaction: Transaction) => void;
+  onImport: () => void;
+  onUndo: () => Promise<boolean>;
+  saving: boolean;
+}) {
+  const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer" | "adjustment">("all");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [accountFilter, setAccountFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
+  const [listing, setListing] = useState({ transactions: transactions.slice(0, 20), page: 1, pageSize: 20, total: transactions.length, totalPages: Math.max(1, Math.ceil(transactions.length / 20)) });
+  const [listingLoading, setListingLoading] = useState(false);
+  const [listingError, setListingError] = useState("");
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) setListingLoading(true); });
+    loadFinanceTransactions({ page, pageSize: 20, query, type: filter === "all" ? "" : filter, category: categoryFilter, accountId: accountFilter, status: statusFilter, dateFrom, dateTo })
+      .then((result) => { if (active) { if (page > result.totalPages) setPage(result.totalPages); else setListing(result); setListingError(""); } })
+      .catch((reason) => { if (active) setListingError(reason instanceof Error ? reason.message : "Daftar transaksi tidak dapat dimuat."); })
+      .finally(() => { if (active) setListingLoading(false); });
+    return () => { active = false; };
+  }, [page, query, filter, categoryFilter, accountFilter, statusFilter, dateFrom, dateTo, transactions]);
+  const monthTransactions = transactions.filter((item) => item.date.startsWith(month));
+  const monthlyTotals = monthlySummary(monthTransactions, month);
+  const updateFilter = (setter: (value: string) => void, value: string) => { setter(value); setPage(1); };
+  return <div className="content-stack">
+    <div className="summary-strip">
+      <div><span>Total transaksi</span><strong>{monthTransactions.length}</strong><small>{monthLabel(month)}</small></div>
+      <div><span>Pemasukan</span><Amount value={monthlyTotals.income} privacy={privacy} /><small className="positive-text">Bulan aktif</small></div>
+      <div><span>Pengeluaran</span><Amount value={monthlyTotals.expense} privacy={privacy} /><small>Di luar transfer</small></div>
+      <div><span>Transfer internal</span><Amount value={monthTransactions.filter((item) => item.type === "transfer").reduce((sum, item) => sum + item.amount, 0)} privacy={privacy} /><small>Tidak masuk cashflow</small></div>
+    </div>
+    <section className="panel table-panel">
+      <div className="filter-row">
+        <label className="table-search"><Search size={17} /><input value={query} onChange={(event) => { setPage(1); onQueryChange(event.target.value); }} placeholder="Cari merchant, catatan, tag, atau lokasi" /></label>
+        <div className="filter-tabs">{(["all", "income", "expense", "transfer", "adjustment"] as const).map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => { setFilter(item); setPage(1); }}>{item === "all" ? "Semua" : item === "income" ? "Masuk" : item === "expense" ? "Keluar" : item === "transfer" ? "Transfer" : "Penyesuaian"}</button>)}</div>
+        <div className="transaction-toolbar-actions"><button className="secondary-button" onClick={() => void onUndo()} disabled={saving}><Undo2 size={16} /> Undo terakhir</button><button className="secondary-button" onClick={onImport}><FileUp size={16} /> Impor CSV</button></div>
+      </div>
+      <div className="advanced-filter-row">
+        <label><span>Kategori</span><select value={categoryFilter} onChange={(event) => updateFilter(setCategoryFilter, event.target.value)}><option value="">Semua kategori</option>{categories.filter((item) => item.active && ["income", "expense"].includes(item.type)).map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>
+        <label><span>Akun</span><select value={accountFilter} onChange={(event) => updateFilter(setAccountFilter, event.target.value)}><option value="">Semua akun</option>{accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label><span>Status</span><select value={statusFilter} onChange={(event) => updateFilter(setStatusFilter, event.target.value)}><option value="">Semua status</option><option value="completed">Selesai</option><option value="pending">Menunggu</option></select></label>
+        <label><span>Dari</span><input type="date" value={dateFrom} onChange={(event) => updateFilter(setDateFrom, event.target.value)} /></label>
+        <label><span>Sampai</span><input type="date" min={dateFrom || undefined} value={dateTo} onChange={(event) => updateFilter(setDateTo, event.target.value)} /></label>
+      </div>
+      {listingError && <div className="ocr-message"><Database size={15} />{listingError}</div>}
+      {listing.transactions.length > 0 ? <TransactionTable transactions={listing.transactions} accounts={accounts} privacy={privacy} onEdit={onEdit} onDuplicate={onDuplicate} onDelete={onDelete} /> : !listingLoading && <div className="empty-state"><Search size={28} /><h3>Transaksi tidak ditemukan</h3><p>Coba gunakan kata kunci atau filter yang berbeda.</p></div>}
+      <div className="transaction-pagination"><span>{listingLoading ? "Memuat..." : `${listing.total} transaksi · halaman ${listing.page} dari ${listing.totalPages}`}</span><div><button className="secondary-button" disabled={listingLoading || listing.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Sebelumnya</button><button className="secondary-button" disabled={listingLoading || listing.page >= listing.totalPages} onClick={() => setPage((value) => value + 1)}>Berikutnya</button></div></div>
+    </section>
+  </div>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function TransactionsPageLegacy({ transactions, accounts, privacy, month, query, onQueryChange, onEdit, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; month: string; query: string; onQueryChange: (value: string) => void; onEdit: (transaction: Transaction) => void; onDelete: (transaction: Transaction) => void }) {
   const [filter, setFilter] = useState<"all" | "income" | "expense" | "transfer" | "adjustment">("all");
   const monthTransactions = transactions.filter((item) => item.date.startsWith(month));
   const filtered = transactions.filter((item) => {
@@ -755,7 +851,7 @@ function TransactionsPage({ transactions, accounts, privacy, month, query, onQue
   );
 }
 
-function TransactionTable({ transactions, accounts, privacy, compact = false, onEdit, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; compact?: boolean; onEdit?: (transaction: Transaction) => void; onDelete?: (transaction: Transaction) => void }) {
+function TransactionTable({ transactions, accounts, privacy, compact = false, onEdit, onDuplicate, onDelete }: { transactions: Transaction[]; accounts: Account[]; privacy: boolean; compact?: boolean; onEdit?: (transaction: Transaction) => void; onDuplicate?: (transaction: Transaction) => void; onDelete?: (transaction: Transaction) => void }) {
   return <div className={`transaction-table ${compact ? "compact-table" : ""}`}>
     {!compact && <div className="transaction-head"><span>Transaksi</span><span>Tanggal</span><span>Akun</span><span>Status</span><span>Nominal</span></div>}
     {transactions.map((transaction) => {
@@ -769,12 +865,12 @@ function TransactionTable({ transactions, accounts, privacy, compact = false, on
         : transaction.type === "adjustment_in" ? "Rekonsiliasi · saldo naik" : "Rekonsiliasi · saldo turun";
       return <div className="transaction-row" key={transaction.id}>
         <span className={`transaction-icon ${isAdjustment || isTransfer ? "neutral" : isPositive ? "positive" : "negative"}`}>{isAdjustment ? <Scale size={17} /> : isPositive ? <ArrowDownLeft size={17} /> : isTransfer ? <ArrowRight size={17} /> : <ArrowUpRight size={17} />}</span>
-        <span className="transaction-main"><strong>{transaction.title}</strong><small>{isAdjustment ? adjustmentLabel : transaction.merchant ?? transaction.category}</small></span>
+        <span className="transaction-main"><strong>{transaction.title}</strong><small>{isAdjustment ? adjustmentLabel : transaction.splits?.length ? `${transaction.splits.length} kategori · ${transaction.splits.map((split) => split.category).join(", ")}` : transaction.merchant ?? transaction.category}{transaction.tags?.length ? ` · #${transaction.tags.join(" #")}` : ""}</small>{transaction.receipt && <a className="transaction-receipt" href={financeTransactionReceiptUrl(transaction.id, transaction.receipt.id, transaction.receipt.url)} target="_blank" rel="noreferrer"><Paperclip size={12} /> {transaction.receipt.filename}</a>}</span>
         <span className="transaction-date">{shortDate(transaction.date)}</span>
         <span className="transaction-account">{account?.name ?? "Alokasi virtual"}</span>
         <span className={`transaction-status ${transaction.status === "pending" ? "pending" : ""}`}><i /> {transaction.status === "pending" ? "Menunggu" : "Selesai"}</span>
         <Amount value={transaction.amount} privacy={privacy} className={`transaction-amount ${isAdjustment || isTransfer ? "" : isPositive ? "positive-text" : "negative-text"}`} />
-        {(onEdit || onDelete) && <span className="transaction-actions">{onEdit && editable && <button className="transaction-edit" onClick={() => onEdit(transaction)} aria-label={`Edit ${transaction.title}`}><Pencil size={14} /></button>}{onDelete && <button className="transaction-delete" onClick={() => window.confirm("Pindahkan transaksi ini ke Trash?") && onDelete(transaction)} aria-label={`Hapus ${transaction.title}`}><Trash2 size={14} /></button>}</span>}
+        {(onEdit || onDuplicate || onDelete) && <span className="transaction-actions">{onDuplicate && editable && <button className="transaction-edit" onClick={() => onDuplicate(transaction)} aria-label={`Duplikasi ${transaction.title}`} title="Duplikasi"><Copy size={14} /></button>}{onEdit && editable && <button className="transaction-edit" onClick={() => onEdit(transaction)} aria-label={`Edit ${transaction.title}`} title="Edit"><Pencil size={14} /></button>}{onDelete && <button className="transaction-delete" onClick={() => window.confirm("Pindahkan transaksi ini ke Trash?") && onDelete(transaction)} aria-label={`Hapus ${transaction.title}`}><Trash2 size={14} /></button>}</span>}
       </div>;
     })}
   </div>;
@@ -1399,7 +1495,153 @@ async function compressReceiptImage(file: File) {
   }
 }
 
-function TransactionModal({ accounts, categories, initial, saving, onClose, onSubmit }: { accounts: Account[]; categories: FinanceCategory[]; initial?: Transaction; saving: boolean; onClose: () => void; onSubmit: (transaction: Transaction, requestId?: string) => Promise<boolean> }) {
+type TransactionModalMode = "create" | "edit" | "duplicate";
+
+function TransactionModal({ accounts, categories, initial, mode, saving, onClose, onSubmit }: {
+  accounts: Account[];
+  categories: FinanceCategory[];
+  initial?: Transaction;
+  mode: TransactionModalMode;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (transaction: Transaction, requestId?: string, receiptFile?: File, removeReceipt?: boolean) => Promise<boolean>;
+}) {
+  const isEdit = mode === "edit";
+  const isDuplicate = mode === "duplicate";
+  const sourceAccounts = accounts.filter((account) => account.type !== "Investment");
+  const initialAccountId = initial?.accountId ?? sourceAccounts[0]?.id ?? "";
+  const [draftId] = useState(() => isEdit && initial ? initial.id : `tx-${crypto.randomUUID()}`);
+  const [mutationRequestId] = useState(() => isEdit && initial ? `transaction-update:${initial.id}:${crypto.randomUUID()}` : draftId);
+  const [type, setType] = useState<TransactionType>(initial?.type ?? "expense");
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : "");
+  const [accountId, setAccountId] = useState(initialAccountId);
+  const [destinationAccountId, setDestinationAccountId] = useState(initial?.destinationAccountId ?? accounts.find((account) => account.id !== initialAccountId)?.id ?? "");
+  const [title, setTitle] = useState(isDuplicate && initial ? `${initial.title} (salinan)` : initial?.title ?? "");
+  const [category, setCategory] = useState(initial?.category ?? categories.find((item) => item.active && item.type === "expense")?.name ?? "");
+  const [date, setDate] = useState(isDuplicate ? today() : initial?.date ?? today());
+  const [time, setTime] = useState(initial?.time ?? "");
+  const [status, setStatus] = useState<Transaction["status"]>(initial?.status ?? "completed");
+  const [notes, setNotes] = useState(initial?.notes ?? "");
+  const [tagsInput, setTagsInput] = useState(initial?.tags?.join(", ") ?? "");
+  const [location, setLocation] = useState(initial?.location ?? "");
+  const [splits, setSplits] = useState(() => (initial?.splits ?? []).map((split) => ({ ...split, id: isDuplicate ? `split-${crypto.randomUUID()}` : split.id })));
+  const [splitEnabled, setSplitEnabled] = useState(Boolean(initial?.splits?.length));
+  const [receiptFile, setReceiptFile] = useState<File | undefined>();
+  const [removeReceipt, setRemoveReceipt] = useState(false);
+  const [validationMessage, setValidationMessage] = useState("");
+  const [ocrMessage, setOcrMessage] = useState("");
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrPreview, setOcrPreview] = useState("");
+  const [ocrReceipt, setOcrReceipt] = useState<OcrReceipt | null>(null);
+  const categoryType = type === "income" ? "income" : "expense";
+  const availableCategories = categories.filter((item) => item.active && item.type === categoryType);
+  const categoryOptions = availableCategories.some((item) => item.name === category)
+    ? availableCategories
+    : category ? [{ id: `legacy-${category}`, name: category, type: categoryType, color: categoryColors[category] ?? "#89918d", active: true } as FinanceCategory, ...availableCategories] : availableCategories;
+  const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0);
+  const numericAmount = Number(amount.replace(/\D/g, "") || 0);
+  const changeType = (nextType: TransactionType) => {
+    setType(nextType);
+    setValidationMessage("");
+    if (nextType === "income") setCategory(categories.find((item) => item.active && item.type === "income")?.name ?? "");
+    if (nextType === "expense") setCategory(categories.find((item) => item.active && item.type === "expense")?.name ?? "");
+    if (!["income", "expense", "refund"].includes(nextType)) { setSplitEnabled(false); setSplits([]); }
+  };
+  const addSplit = () => setSplits((current) => [...current, { id: `split-${crypto.randomUUID()}`, category: availableCategories[0]?.name ?? "", amount: 0, note: "" }]);
+  const updateSplit = (id: string, patchValue: Partial<NonNullable<Transaction["splits"]>[number]>) => setSplits((current) => current.map((split) => split.id === id ? { ...split, ...patchValue } : split));
+  const toggleSplit = () => {
+    const next = !splitEnabled;
+    setSplitEnabled(next);
+    if (next && splits.length < 2) setSplits([
+      { id: `split-${crypto.randomUUID()}`, category: availableCategories[0]?.name ?? "", amount: 0, note: "" },
+      { id: `split-${crypto.randomUUID()}`, category: availableCategories[1]?.name ?? availableCategories[0]?.name ?? "", amount: 0, note: "" },
+    ]);
+  };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setValidationMessage("");
+    if (!numericAmount || !title.trim() || !sourceAccounts.some((account) => account.id === accountId)) return;
+    if ((type === "transfer" || type === "investment_buy") && (!destinationAccountId || accountId === destinationAccountId)) return;
+    const activeSplits = splitEnabled ? splits : [];
+    if (splitEnabled && (activeSplits.length < 2 || activeSplits.some((split) => !split.category || split.amount <= 0) || splitTotal !== numericAmount)) {
+      setValidationMessage("Split harus memiliki minimal dua kategori dan totalnya tepat sama dengan nominal transaksi.");
+      return;
+    }
+    if (type !== "transfer" && type !== "investment_buy" && !category && !activeSplits.length) return;
+    const tags = [...new Set(tagsInput.split(/[,|]/).map((tag) => tag.trim()).filter(Boolean))].slice(0, 10);
+    const saved = await onSubmit({
+      id: draftId,
+      type,
+      date,
+      time,
+      title: title.trim(),
+      merchant: title.trim(),
+      category: type === "transfer" ? "Transfer" : type === "investment_buy" ? "Investasi" : activeSplits[0]?.category ?? category,
+      notes: notes.trim(),
+      tags,
+      location: location.trim(),
+      splits: activeSplits,
+      accountId,
+      destinationAccountId: type === "transfer" || type === "investment_buy" ? destinationAccountId : undefined,
+      amount: numericAmount,
+      status,
+      transferGroupId: isEdit ? initial?.transferGroupId : undefined,
+      updatedAt: isEdit ? initial?.updatedAt : undefined,
+      receipt: isEdit ? initial?.receipt : undefined,
+    }, mutationRequestId, receiptFile, removeReceipt);
+    if (saved) onClose();
+  };
+  const selectReceipt = async (file?: File) => {
+    if (!file) return;
+    setOcrLoading(true); setOcrMessage(""); setOcrReceipt(null);
+    try {
+      const prepared = await compressReceiptImage(file);
+      setOcrPreview(prepared.previewUrl);
+      const result = await scanFinanceReceipt({ imageBase64: prepared.imageBase64, mimeType: prepared.mimeType, fileName: file.name });
+      setOcrReceipt(result.receipt);
+      setOcrMessage("Hasil OCR siap diperiksa. Belum ada transaksi yang disimpan.");
+    } catch (reason) { setOcrMessage(reason instanceof Error ? reason.message : "Foto struk tidak dapat diproses."); }
+    finally { setOcrLoading(false); }
+  };
+  const applyReceipt = () => {
+    if (!ocrReceipt) return;
+    changeType("expense"); setAmount(String(ocrReceipt.total)); setTitle(ocrReceipt.merchant || "Belanja dari struk"); setDate(ocrReceipt.date); setCategory(ocrReceipt.suggestedCategory);
+    setOcrMessage("Form sudah diisi. Periksa nominal dan akun sebelum menyimpan.");
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="modal transaction-advanced-modal" role="dialog" aria-modal="true" aria-labelledby="transaction-title">
+      <div className="modal-head"><div><span className="card-kicker">{isEdit ? "Edit ledger" : isDuplicate ? "Duplikasi aman" : "Quick add"}</span><h2 id="transaction-title">{isEdit ? "Edit transaksi" : isDuplicate ? "Duplikasi transaksi" : "Transaksi baru"}</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
+      <form onSubmit={submit}>
+        <div className="transaction-type-tabs">{[{ key: "expense", label: "Pengeluaran", icon: ArrowUpRight }, { key: "income", label: "Pemasukan", icon: ArrowDownLeft }, { key: "transfer", label: "Transfer", icon: ArrowRight }].map((item) => { const Icon = item.icon; const locked = Boolean(isEdit && initial && (initial.type === "transfer" ? item.key !== "transfer" : item.key === "transfer")); return <button type="button" key={item.key} className={type === item.key ? "active" : ""} disabled={locked} onClick={() => changeType(item.key as TransactionType)}><Icon size={16} />{item.label}</button>; })}</div>
+        <label className="amount-field"><span>Nominal</span><div><small>Rp</small><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" placeholder="0" required autoFocus /></div></label>
+        <div className="form-grid">
+          <label><span>Deskripsi / merchant</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Contoh: Belanja mingguan" required /></label>
+          <label><span>Tanggal & waktu</span><span className="date-time-fields"><input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /><input type="time" value={time} onChange={(event) => setTime(event.target.value)} aria-label="Waktu transaksi" /></span></label>
+          <label><span>Akun {type === "transfer" ? "sumber" : ""}</span><select value={accountId} required onChange={(event) => { const nextId = event.target.value; setAccountId(nextId); if (nextId === destinationAccountId) setDestinationAccountId(accounts.find((account) => account.id !== nextId)?.id ?? ""); }}><option value="" disabled>Pilih akun</option>{sourceAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label>
+          {(type === "transfer" || type === "investment_buy") ? <label><span>Akun tujuan</span><select value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)}>{accounts.filter((item) => item.id !== accountId).map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label> : <label><span>Kategori utama</span><select value={category} required={!splitEnabled} onChange={(event) => setCategory(event.target.value)} disabled={splitEnabled}><option value="" disabled>Pilih kategori</option>{categoryOptions.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label>}
+          <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value as Transaction["status"])}><option value="completed">Selesai</option><option value="pending">Menunggu</option></select><ChevronDown size={15} /></label>
+          <label><span>Lokasi</span><input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Opsional" maxLength={160} /></label>
+          <label className="full-field"><span>Tag</span><input value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="operasional, stok, reimbursement" /><small>Pisahkan dengan koma, maksimal 10 tag.</small></label>
+          <label className="full-field"><span>Catatan</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Catatan tambahan transaksi" rows={3} maxLength={1000} /></label>
+        </div>
+        {["income", "expense", "refund"].includes(type) && <section className="transaction-split-box"><div><span><strong>Split kategori</strong><small>Bagi satu transaksi ke beberapa kategori.</small></span><button type="button" className={`split-toggle ${splitEnabled ? "active" : ""}`} onClick={toggleSplit}>{splitEnabled ? "Aktif" : "Gunakan split"}</button></div>{splitEnabled && <><div className="split-list">{splits.map((split, index) => <div className="split-row" key={split.id}><span>{index + 1}</span><select value={split.category} onChange={(event) => updateSplit(split.id, { category: event.target.value })}><option value="" disabled>Kategori</option>{availableCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><input value={split.amount || ""} onChange={(event) => updateSplit(split.id, { amount: Number(event.target.value.replace(/\D/g, "") || 0) })} inputMode="numeric" placeholder="Nominal" /><input value={split.note ?? ""} onChange={(event) => updateSplit(split.id, { note: event.target.value })} placeholder="Catatan opsional" /><button type="button" className="icon-button small" onClick={() => setSplits((current) => current.filter((item) => item.id !== split.id))} disabled={splits.length <= 2}><X size={15} /></button></div>)}</div><div className={`split-total ${splitTotal === numericAmount ? "matched" : ""}`}><span>Total split <strong>{formatIDR(splitTotal)}</strong></span><span>Nominal <strong>{formatIDR(numericAmount)}</strong></span><button type="button" className="text-button" onClick={addSplit}><Plus size={14} /> Tambah rincian</button></div></>}</section>}
+        <section className="transaction-attachment-box"><div><Paperclip size={17} /><span><strong>Lampiran struk</strong><small>JPG, PNG, WebP, atau PDF. Maksimal 5 MB dan disimpan privat.</small></span></div>{isEdit && initial?.receipt && !removeReceipt && !receiptFile && <div className="existing-receipt"><a href={financeTransactionReceiptUrl(initial.id, initial.receipt.id, initial.receipt.url)} target="_blank" rel="noreferrer">{initial.receipt.filename}</a><button type="button" onClick={() => setRemoveReceipt(true)}>Hapus lampiran</button></div>}<label className="secondary-button receipt-picker"><Upload size={15} /> {receiptFile ? receiptFile.name : initial?.receipt && !removeReceipt ? "Ganti lampiran" : "Pilih lampiran"}<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => { const file = event.target.files?.[0]; if (file) { setReceiptFile(file); setRemoveReceipt(false); } }} /></label>{removeReceipt && <small>Lampiran lama akan dihapus saat transaksi disimpan.</small>}</section>
+        {!isEdit && !isDuplicate && <label className={`ocr-button ${ocrLoading ? "loading" : ""}`}><Upload size={17} /><span><strong>{ocrLoading ? "Gemini sedang membaca struk..." : "Isi form dari foto struk"}</strong><small>OCR tidak menyimpan gambar. Gunakan bagian Lampiran jika ingin menyimpannya.</small></span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={ocrLoading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; void selectReceipt(file); }} /></label>}
+        {!isEdit && !isDuplicate && ocrPreview && <div className="ocr-review">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={ocrPreview} alt="Preview foto struk" />
+          {ocrLoading ? <div className="ocr-review-loading"><ScanLine size={21} /><strong>Mengekstrak data...</strong></div> : ocrReceipt ? <div className="ocr-result"><div><span>Merchant</span><strong>{ocrReceipt.merchant || "Tidak terbaca"}</strong></div><div><span>Total</span><strong>{formatIDR(ocrReceipt.total)}</strong></div><div><span>Tanggal</span><strong>{ocrReceipt.date}</strong></div><div><span>Kategori</span><strong>{ocrReceipt.suggestedCategory}</strong></div><button type="button" className="secondary-button" onClick={applyReceipt}><Check size={16} /> Gunakan hasil OCR</button></div> : null}
+        </div>}
+        {(validationMessage || ocrMessage) && <div className="ocr-message"><Sparkles size={15} />{validationMessage || ocrMessage}</div>}
+        {!sourceAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun pembayaran sebelum mencatat transaksi.</div>}
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" type="submit" disabled={saving || !sourceAccounts.length || (type === "transfer" && accounts.length < 2)}><Check size={17} /> {saving ? "Menyimpan..." : isEdit ? "Simpan perubahan" : isDuplicate ? "Simpan duplikat" : "Simpan transaksi"}</button></div>
+      </form>
+    </section>
+  </div>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function TransactionModalLegacy({ accounts, categories, initial, saving, onClose, onSubmit }: { accounts: Account[]; categories: FinanceCategory[]; initial?: Transaction; saving: boolean; onClose: () => void; onSubmit: (transaction: Transaction, requestId?: string) => Promise<boolean> }) {
   const sourceAccounts = accounts.filter((account) => account.type !== "Investment");
   const initialAccountId = initial?.accountId ?? sourceAccounts[0]?.id ?? "";
   const [draftId] = useState(() => initial?.id ?? `tx-${crypto.randomUUID()}`);
@@ -1485,6 +1727,46 @@ function TransactionModal({ accounts, categories, initial, saving, onClose, onSu
         {!availableCategories.length && type !== "transfer" && type !== "investment_buy" && !initial && <div className="ocr-message"><Tags size={15} />Tambahkan kategori {categoryType === "income" ? "pemasukan" : "pengeluaran"} di Pengaturan.</div>}
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" type="submit" disabled={saving || !sourceAccounts.length || (type === "transfer" && accounts.length < 2) || (type !== "transfer" && type !== "investment_buy" && !category)}><Check size={17} /> {saving ? "Menyimpan…" : initial ? "Simpan perubahan" : "Simpan transaksi"}</button></div>
       </form>
+    </section>
+  </div>;
+}
+
+function TransactionImportModal({ accounts, categories, saving, onClose, onSubmit }: {
+  accounts: Account[];
+  categories: FinanceCategory[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (transactions: Transaction[]) => Promise<boolean>;
+}) {
+  const [preview, setPreview] = useState<TransactionImportPreview | null>(null);
+  const [filename, setFilename] = useState("");
+  const [error, setError] = useState("");
+  const selectFile = async (file?: File) => {
+    if (!file) return;
+    setError(""); setFilename(file.name);
+    if (file.size > 1024 * 1024) { setPreview(null); setError("Ukuran CSV maksimal 1 MB."); return; }
+    try {
+      const result = previewTransactionCsv(await file.text(), accounts, categories);
+      if (!result.rows.length) throw new Error("CSV kosong atau hanya berisi header.");
+      setPreview(result);
+    } catch (reason) { setPreview(null); setError(reason instanceof Error ? reason.message : "CSV tidak dapat dibaca."); }
+  };
+  const downloadTemplate = () => {
+    const url = URL.createObjectURL(new Blob([transactionCsvTemplate], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "template-transaksi-vinn-store.csv"; anchor.click(); URL.revokeObjectURL(url);
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
+      <div className="modal-head"><div><span className="card-kicker">Bulk import</span><h2 id="import-title">Impor transaksi CSV</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
+      <div className="import-guide"><FileUp size={22} /><div><strong>Preview dulu, simpan setelah semua baris valid.</strong><p>Kolom wajib: tanggal, jenis, deskripsi, kategori, akun, dan nominal. Nama akun harus sama dengan akun di VINN STORE.</p><button type="button" className="text-button" onClick={downloadTemplate}><Download size={14} /> Unduh template CSV</button></div></div>
+      <label className="csv-dropzone"><Upload size={20} /><span><strong>{filename || "Pilih file CSV"}</strong><small>Maksimal 100 transaksi atau 1 MB</small></span><input type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
+      {error && <div className="ocr-message"><X size={15} />{error}</div>}
+      {preview && <>
+        <div className="import-summary"><span><small>Baris valid</small><strong>{preview.validCount}</strong></span><span className={preview.errorCount ? "negative-text" : "positive-text"}><small>Perlu diperbaiki</small><strong>{preview.errorCount}</strong></span><span><small>Pemasukan</small><strong>{formatIDR(preview.income)}</strong></span><span><small>Pengeluaran</small><strong>{formatIDR(preview.expense)}</strong></span></div>
+        <div className="import-preview-table"><div className="import-preview-head"><span>Baris</span><span>Transaksi</span><span>Akun / kategori</span><span>Nominal</span><span>Status</span></div>{preview.rows.slice(0, 30).map((row) => <div className={row.errors.length ? "invalid" : ""} key={row.rowNumber}><span>{row.rowNumber}</span><span><strong>{row.transaction?.title || row.raw.title || "-"}</strong><small>{row.transaction?.date || row.raw.date || "-"}</small></span><span>{row.transaction ? `${accounts.find((item) => item.id === row.transaction?.accountId)?.name} · ${row.transaction.category}` : "-"}</span><span>{row.transaction ? formatIDR(row.transaction.amount) : row.raw.amount || "-"}</span><span>{row.errors.length ? row.errors.join(" ") : "Siap"}</span></div>)}</div>
+        {preview.rows.length > 30 && <small className="import-more">Menampilkan 30 dari {preview.rows.length} baris.</small>}
+      </>}
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button type="button" className="primary-button" disabled={saving || !preview?.validCount || Boolean(preview.errorCount)} onClick={() => preview && void onSubmit(preview.valid)}><FileUp size={17} /> {saving ? "Mengimpor..." : `Impor ${preview?.validCount || 0} transaksi`}</button></div>
     </section>
   </div>;
 }

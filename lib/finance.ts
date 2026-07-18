@@ -31,9 +31,15 @@ export interface Transaction {
   id: string;
   type: TransactionType;
   date: string;
+  time?: string;
   title: string;
   merchant?: string;
   category: string;
+  notes?: string;
+  tags?: string[];
+  location?: string;
+  splits?: TransactionSplit[];
+  receipt?: TransactionReceipt;
   accountId: string;
   destinationAccountId?: string;
   transferGroupId?: string;
@@ -43,6 +49,21 @@ export interface Transaction {
   updatedAt?: string;
   /** Soft-delete marker. Transaksi di Trash tidak ikut perhitungan ledger. */
   deletedAt?: string;
+}
+
+export interface TransactionSplit {
+  id: string;
+  category: string;
+  amount: number;
+  note?: string;
+}
+
+export interface TransactionReceipt {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  url?: string;
 }
 
 export interface Budget {
@@ -291,14 +312,16 @@ export const budgetSpent = (
 ) => {
   const { month, includePending } = resolveMonthOptions(selector);
   return transactions
-    .filter((item) =>
-      item.date.startsWith(month)
-      && item.category === category
-      && isActiveTransaction(item, includePending))
+    .filter((item) => item.date.startsWith(month) && isActiveTransaction(item, includePending))
     .reduce((sum, item) => {
-      if (item.type === "expense") return sum + item.amount;
-      if (item.type === "refund") return sum - item.amount;
-      return sum;
+      const direction = item.type === "expense" ? 1 : item.type === "refund" ? -1 : 0;
+      if (!direction) return sum;
+      if (item.splits?.length) {
+        return sum + item.splits
+          .filter((split) => split.category === category)
+          .reduce((splitSum, split) => splitSum + split.amount * direction, 0);
+      }
+      return item.category === category ? sum + item.amount * direction : sum;
     }, 0);
 };
 

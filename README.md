@@ -24,6 +24,7 @@ npm test
 - Dashboard dengan net worth, income, expense, cashflow, savings rate, dan financial health score.
 - Transaksi income, expense, dan transfer. Transfer memperbarui kedua akun tanpa masuk ke income/expense.
 - Edit dan soft-delete transaksi dengan pembalikan serta penerapan ulang saldo secara atomik.
+- Transaksi lanjutan: duplikasi terkonfirmasi, split hingga 20 kategori, waktu/catatan/tag/lokasi, lampiran struk privat, pencarian dan filter server-side, pagination, bulk import CSV dengan preview, serta undo aksi terakhir yang tervalidasi ledger.
 - Rekonsiliasi saldo aset maupun kewajiban melalui transaksi `adjustment_in/out`; penyesuaian tidak masuk cashflow atau anggaran.
 - Kategori pemasukan/pengeluaran dinamis: tambah, ubah, arsipkan, dan gunakan langsung pada form transaksi, anggaran, serta tagihan.
 - Audit trail aktivitas terbaru pada halaman Pengaturan.
@@ -68,4 +69,4 @@ public/               favicon dan social preview VINN STORE
 
 ## Status tahap berikutnya
 
-Core Finance, Investment, AI Assistant, OCR, Reports, Backup, Migration, dan in-app Reminder sudah tersambung ke UI, D1/R2, serta backend Google Sheets/Drive. Tahap berikutnya adalah penyempurnaan transaksi lanjutan, lalu QA dan release packaging. Pengiriman reminder melalui email/push tetap tahap lanjutan; reminder saat ini tampil di dalam aplikasi.
+Core Finance, transaksi lanjutan, Investment, AI Assistant, OCR, Reports, Backup, Migration, dan in-app Reminder sudah tersambung ke UI, D1/R2, serta backend Google Sheets/Drive. Tahap berikutnya adalah rekalkulasi/repair ledger, penyempurnaan QA lintas perangkat, dan release packaging. Pengiriman reminder melalui email/push tetap tahap lanjutan; reminder saat ini tampil di dalam aplikasi.
