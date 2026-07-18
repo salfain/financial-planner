@@ -15,6 +15,8 @@ function api(action, payload) {
     attachTransactionReceipt: function() { return apiAttachTransactionReceipt(payload || {}); },
     deleteTransactionReceipt: function() { return apiDeleteTransactionReceipt(payload || {}); },
     reconcileAccount: function() { return apiReconcileAccount(payload || {}); },
+    inspectLedger: function() { return apiInspectLedger(); },
+    repairLedger: function() { return apiRepairLedger(payload || {}); },
     listCategories: function() { return apiListCategories(payload || {}); },
     createCategory: function() { return apiCreateCategory(payload || {}); },
     updateCategory: function() { return apiUpdateCategory(payload || {}); },

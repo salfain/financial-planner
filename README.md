@@ -26,6 +26,7 @@ npm test
 - Edit dan soft-delete transaksi dengan pembalikan serta penerapan ulang saldo secara atomik.
 - Transaksi lanjutan: duplikasi terkonfirmasi, split hingga 20 kategori, waktu/catatan/tag/lokasi, lampiran struk privat, pencarian dan filter server-side, pagination, bulk import CSV dengan preview, serta undo aksi terakhir yang tervalidasi ledger.
 - Rekonsiliasi saldo aset maupun kewajiban melalui transaksi `adjustment_in/out`; penyesuaian tidak masuk cashflow atau anggaran.
+- Pemeriksaan integritas ledger menyusun ulang saldo dari saldo awal dan seluruh transaksi aktif, menampilkan preview selisih per akun, lalu memperbaiki saldo ringkasan secara aman dengan konfirmasi, proteksi perubahan bersamaan, dan audit log.
 - Kategori pemasukan/pengeluaran dinamis: tambah, ubah, arsipkan, dan gunakan langsung pada form transaksi, anggaran, serta tagihan.
 - Audit trail aktivitas terbaru pada halaman Pengaturan.
 - Perhitungan rekening aset dan kewajiban.

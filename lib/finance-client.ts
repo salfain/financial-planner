@@ -2,6 +2,7 @@ import type { Account, AuditLog, Bill, Budget, FinanceCategory, Goal, Investment
 import type { AiAnswer, AiChatMessage, AiSettingsStatus, OcrReceipt } from "./ai";
 import type { BackupOverview, BackupSchedule, ExportRecord, MigrationPreview } from "./portability";
 import { recurringBillDueDate, type NotificationOverview, type NotificationSettings } from "./notifications";
+import type { LedgerHealthReport } from "./ledger";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -438,6 +439,13 @@ export const reconcileFinanceAccount = (accountId: string, actualBalance: number
     notes: note,
     requestId,
   });
+
+export const loadFinanceLedgerHealth = () => hasAppsScriptBridge()
+  ? callAppsScript<LedgerHealthReport>("inspectLedger", {})
+  : webRequest<LedgerHealthReport>("/api/finance/ledger");
+
+export const repairFinanceLedger = (expectedRevision: string, requestId = `ledger-repair:${crypto.randomUUID()}`) =>
+  mutation<LedgerHealthReport>("repairLedger", "/api/finance/ledger", { expectedRevision, requestId });
 
 export const createFinanceInvestmentAsset = (payload: Record<string, unknown>, requestId = `investment-asset-create:${crypto.randomUUID()}`) =>
   mutation("createInvestmentAsset", "/api/finance/investments/assets", { ...payload, requestId });

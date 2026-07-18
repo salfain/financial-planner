@@ -24,6 +24,20 @@ test("copy produk tidak menampilkan bahasa dokumen pengembangan", async () => {
   assert.match(app, /Konfirmasi manual/);
 });
 
+test("UI pengaturan menyediakan pemeriksaan dan repair ledger terkonfirmasi", async () => {
+  const [app, client, route] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../app/api/finance/ledger/route.ts"),
+  ]);
+  assert.match(app, /Integritas ledger/);
+  assert.match(app, /Terapkan saldo hasil ledger/);
+  assert.match(app, /Konfirmasi & lanjutkan/);
+  assert.match(client, /\/api\/finance\/ledger/);
+  assert.match(route, /ledger\.repair/);
+  assert.match(route, /LEDGER_CHANGED/);
+});
+
 test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () => {
   const [app, client, css] = await Promise.all([
     source("../app/FinanceApp.tsx"),

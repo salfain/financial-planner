@@ -224,6 +224,95 @@ function apiReconcileAccount(payload) {
   } catch (error) { return fail_(error, requestId.value); }
 }
 
+function ledgerRevision_(accounts, transactions) {
+  const source = JSON.stringify({
+    accounts: accounts.map(function(row) {
+      return [row.id, Number(row.opening_balance || 0), truthy_(row.is_liability), row.is_active, row.updated_at || ''];
+    }),
+    transactions: transactions.map(function(row) {
+      return [row.id, row.type, Number(row.amount || 0), row.status || 'completed', row.account_id || '', row.destination_account_id || '', row.direction || '', row.deleted_at || '', row.updated_at || ''];
+    })
+  });
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, source, Utilities.Charset.UTF_8)
+    .map(function(value) { return ('0' + ((value + 256) % 256).toString(16)).slice(-2); })
+    .join('');
+}
+
+function ledgerHealthReport_() {
+  const accounts = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).sort(function(a, b) { return String(a.id).localeCompare(String(b.id)); });
+  const transactions = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).sort(function(a, b) { return String(a.id).localeCompare(String(b.id)); });
+  const accountMap = {};
+  const issues = [];
+  accounts.forEach(function(account) { accountMap[String(account.id)] = account; });
+  let completedTransactionCount = 0;
+  transactions.forEach(function(transaction) {
+    if (transaction.deleted_at || String(transaction.status || 'completed') !== 'completed') return;
+    completedTransactionCount += 1;
+    const transactionId = String(transaction.id || '');
+    const accountId = String(transaction.account_id || '');
+    const amount = Number(transaction.amount || 0);
+    const type = String(transaction.type || '');
+    if (!accountMap[accountId]) {
+      issues.push({ code: 'MISSING_ACCOUNT', transactionId: transactionId, accountId: accountId, message: 'Akun sumber transaksi ' + transactionId + ' tidak ditemukan.' });
+      return;
+    }
+    if (!Number.isSafeInteger(amount) || amount <= 0 || ['income', 'expense', 'refund', 'transfer', 'investment_buy', 'adjustment_in', 'adjustment_out'].indexOf(type) === -1) {
+      issues.push({ code: 'INVALID_TRANSACTION', transactionId: transactionId, message: 'Transaksi ' + transactionId + ' memiliki jenis atau nominal yang tidak valid.' });
+      return;
+    }
+    if (type === 'transfer' || type === 'investment_buy') {
+      const destinationId = String(transaction.destination_account_id || '');
+      if (!accountMap[destinationId] || destinationId === accountId || ['in', 'out'].indexOf(String(transaction.direction || '')) === -1) {
+        issues.push({ code: 'MISSING_DESTINATION', transactionId: transactionId, accountId: destinationId, message: 'Pasangan akun transaksi ' + transactionId + ' tidak lengkap.' });
+      }
+    }
+  });
+  const checks = accounts.map(function(account) {
+    const expectedBalance = accountCurrentBalance_(account, transactions);
+    const valid = Number.isSafeInteger(expectedBalance) && expectedBalance >= 0;
+    if (!valid) issues.push({ code: 'NEGATIVE_EXPECTED_BALANCE', accountId: String(account.id), message: 'Ledger akun ' + String(account.name || account.id) + ' menghasilkan saldo yang tidak valid.' });
+    return {
+      id: String(account.id), name: String(account.name || 'Akun'), liability: truthy_(account.is_liability),
+      active: accountIsActive_(account), openingBalance: Number(account.opening_balance || 0),
+      storedBalance: expectedBalance, expectedBalance: expectedBalance, difference: 0, valid: valid,
+      updatedAt: String(account.updated_at || '')
+    };
+  });
+  const status = issues.length ? 'blocked' : 'healthy';
+  return {
+    status: status, storageMode: 'calculated', revision: ledgerRevision_(accounts, transactions), checkedAt: nowIso_(),
+    canRepair: status === 'healthy', accounts: checks, issues: issues,
+    summary: {
+      accountCount: accounts.length, transactionCount: transactions.length,
+      completedTransactionCount: completedTransactionCount, driftCount: 0,
+      totalAbsoluteDifference: 0, issueCount: issues.length
+    }
+  };
+}
+
+function apiInspectLedger() {
+  try { return ok_(ledgerHealthReport_()); }
+  catch (error) { return fail_(error); }
+}
+
+function apiRepairLedger(payload) {
+  const requestId = requestIdOrFailure_(payload);
+  if (requestId.error) return requestId.error;
+  try {
+    return withDocumentLock_(function() {
+      const existingAudit = assertRequestAudit_(requestId.value, ['LEDGER_RECALCULATE'], 'ledger', 'workspace');
+      if (existingAudit) return ok_(Object.assign({}, ledgerHealthReport_(), { replayed: true, noChange: true, repairedAccounts: 0 }), requestId.value);
+      assertRequestUnusedOutsideAudit_(requestId.value);
+      const report = ledgerHealthReport_();
+      if (String(payload.expectedRevision || '') !== report.revision) throw createError_('LEDGER_CHANGED', 'Ledger berubah setelah preview. Periksa ulang sebelum menghitung ulang.');
+      if (report.status === 'blocked') throw createError_('LEDGER_REPAIR_BLOCKED', 'Ledger memiliki referensi atau saldo yang perlu diperiksa manual.', { issues: report.issues });
+      invalidateDashboard_();
+      audit_('LEDGER_RECALCULATE', 'ledger', 'workspace', requestId.value, { revision: report.revision, accountCount: report.summary.accountCount, transactionCount: report.summary.transactionCount });
+      return ok_(Object.assign({}, ledgerHealthReport_(), { replayed: false, noChange: true, repairedAccounts: 0 }), requestId.value);
+    });
+  } catch (error) { return fail_(error, requestId.value); }
+}
+
 function apiListAuditLogs(params) {
   try {
     params = params || {};

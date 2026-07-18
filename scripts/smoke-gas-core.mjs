@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import vm from "node:vm";
@@ -14,6 +15,7 @@ const combinedSource = sources.join("\n");
 for (const action of [
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
   "updateTransaction", "reconcileAccount", "listAuditLogs",
+  "inspectLedger", "repairLedger",
   "createInvestmentAsset", "updateInvestmentAsset", "createInvestmentTrade",
   "aiSettings", "updateAiSettings", "aiHistory", "askAi", "clearAiHistory", "ocrReceipt",
   "createBackup", "backupOverview", "updateBackupSchedule", "listReports", "saveReportPdf",
@@ -95,6 +97,9 @@ const context = vm.createContext({
     },
     base64Decode: (value) => [...Buffer.from(value, "base64")],
     newBlob: (value, contentType, name) => makeBlob(value, contentType, name),
+    DigestAlgorithm: { SHA_256: "SHA_256" },
+    Charset: { UTF_8: "UTF_8" },
+    computeDigest: (_algorithm, value) => [...createHash("sha256").update(String(value), "utf8").digest()],
   },
   DriveApp: {
     getFileById: (id) => {
@@ -352,6 +357,20 @@ result = invoke(`apiCreateTransaction({ requestId: "debt-overpayment", type: "tr
 assert.equal(result.ok, false);
 assert.equal(result.error.code, "INSUFFICIENT_BALANCE");
 assert.equal(sheets.Transactions.length, beforeRejectedTransfer);
+
+result = invoke(`apiInspectLedger()`);
+assert.equal(result.ok, true);
+assert.equal(result.data.status, "healthy");
+assert.equal(result.data.storageMode, "calculated");
+assert.equal(result.data.summary.issueCount, 0);
+context.ledgerRevision = result.data.revision;
+result = invoke(`apiRepairLedger({ requestId: "ledger-recalculate-1", expectedRevision: ledgerRevision })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.repairedAccounts, 0);
+assert.equal(sheets.AuditLog.filter((row) => row.request_id === "ledger-recalculate-1").length, 1);
+result = invoke(`apiRepairLedger({ requestId: "ledger-recalculate-1", expectedRevision: "stale" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.replayed, true);
 
 result = invoke(`apiGetBootstrap("2026-07")`);
 assert.equal(result.ok, true);

@@ -55,6 +55,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import type { ReportSection } from "../lib/report";
+import type { LedgerHealthReport } from "../lib/ledger";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
 import { DEFAULT_NOTIFICATION_SETTINGS, type FinanceNotification, type NotificationOverview, type NotificationSettings } from "../lib/notifications";
@@ -99,6 +100,7 @@ import {
   getFinanceAiSettings,
   loadFinanceBackups,
   loadFinanceMigrations,
+  loadFinanceLedgerHealth,
   loadFinanceNotifications,
   loadFinanceReports,
   loadFinanceSnapshot,
@@ -107,6 +109,7 @@ import {
   markFinanceBillPaid,
   importFinanceTransactions,
   reconcileFinanceAccount,
+  repairFinanceLedger,
   setupFinanceWorkspace,
   scanFinanceReceipt,
   saveFinanceReport,
@@ -1430,10 +1433,69 @@ function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, 
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
     <NotificationSettingsPanel key={`${notificationSettings.enabled}-${notificationSettings.billReminderDays.join(",")}-${notificationSettings.budgetWarningPercent}-${notificationSettings.backupWarningDays}-${notificationSettings.goalWarningDays}`} settings={notificationSettings} onSave={onSaveNotificationSettings} onToast={onToast} />
     <AiSettingsPanel onToast={onToast} />
+    <LedgerHealthPanel privacy={privacy} onToast={onToast} onRefresh={onRefresh} />
     <DataPortabilityPanel backendLabel={backendLabel} onToast={onToast} onRefresh={onRefresh} />
     <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
     <section className="panel settings-section"><div className="settings-title"><span><History size={20} /></span><div><h2>Audit trail</h2><p>20 aktivitas terbaru yang tercatat di workspace.</p></div></div><div className="audit-list">{auditLogs.slice(0, 20).map((log) => <div key={log.id}><span><strong>{log.action.replaceAll("_", " ")}</strong><small>{log.module}{log.entityId ? ` · ${log.entityId.slice(0, 18)}` : ""}</small></span><time>{log.createdAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(log.createdAt)) : "—"}</time></div>)}{!auditLogs.length && <div className="settings-empty">Belum ada aktivitas yang tercatat.</div>}</div></section>
   </div>;
+}
+
+function LedgerHealthPanel({ privacy, onToast, onRefresh }: { privacy: boolean; onToast: (message: string) => void; onRefresh: () => Promise<void> }) {
+  const [report, setReport] = useState<LedgerHealthReport | null>(null);
+  const [working, setWorking] = useState<"check" | "repair" | "">("check");
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState("");
+
+  const inspect = async () => {
+    setWorking("check"); setError(""); setConfirming(false);
+    try { setReport(await loadFinanceLedgerHealth()); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Ledger tidak dapat diperiksa."); }
+    finally { setWorking(""); }
+  };
+
+  useEffect(() => {
+    let active = true;
+    loadFinanceLedgerHealth()
+      .then((next) => { if (active) setReport(next); })
+      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Ledger tidak dapat diperiksa."); })
+      .finally(() => { if (active) setWorking(""); });
+    return () => { active = false; };
+  }, []);
+
+  const repair = async () => {
+    if (!report) return;
+    setWorking("repair"); setError("");
+    try {
+      const next = await repairFinanceLedger(report.revision);
+      setReport(next); setConfirming(false);
+      await onRefresh();
+      onToast(report.storageMode === "calculated" ? "Ledger dihitung ulang dan cache dashboard diperbarui." : `${next.repairedAccounts ?? report.summary.driftCount} saldo akun berhasil diperbaiki.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Ledger tidak dapat diperbaiki.");
+    } finally { setWorking(""); }
+  };
+
+  const differences = report?.accounts.filter((account) => account.difference !== 0) ?? [];
+  const statusTitle = report?.status === "healthy" ? "Ledger konsisten" : report?.status === "needs_repair" ? "Selisih saldo ditemukan" : report?.status === "blocked" ? "Perlu pemeriksaan manual" : "Memeriksa integritas ledger";
+  const statusDescription = report?.storageMode === "calculated"
+    ? "Saldo Google Sheets dihitung langsung dari saldo awal dan seluruh transaksi aktif."
+    : report?.status === "healthy"
+      ? "Saldo tersimpan cocok dengan hasil perhitungan ulang seluruh transaksi."
+      : report?.status === "needs_repair"
+        ? "Preview di bawah membandingkan saldo tersimpan dengan saldo hasil ledger."
+        : "Perbaiki referensi atau transaksi bermasalah sebelum saldo dihitung ulang.";
+
+  return <section className="panel settings-section settings-wide ledger-health-panel">
+    <div className="settings-title"><span><Scale size={20} /></span><div><h2>Integritas ledger</h2><p>Periksa saldo setiap akun dari saldo awal dan riwayat transaksi lengkap.</p></div><button className="secondary-button settings-title-action" onClick={() => void inspect()} disabled={Boolean(working)}>{working === "check" ? "Memeriksa…" : "Periksa ulang"}</button></div>
+    <div className={`ledger-health-status ${report?.status ?? "loading"}`}><span>{report?.status === "healthy" ? <CheckCircle2 size={20} /> : <ShieldCheck size={20} />}</span><div><strong>{statusTitle}</strong><small>{statusDescription}</small></div>{report?.checkedAt && <time>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(report.checkedAt))}</time>}</div>
+    {report && <>
+      <div className="ledger-health-summary"><span><small>Akun diperiksa</small><strong>{report.summary.accountCount}</strong></span><span><small>Transaksi aktif</small><strong>{report.summary.completedTransactionCount}</strong></span><span><small>Saldo berbeda</small><strong>{report.summary.driftCount}</strong></span><span><small>Total selisih</small><Amount value={report.summary.totalAbsoluteDifference} privacy={privacy} /></span></div>
+      {differences.length > 0 && <div className="ledger-difference-list"><div className="ledger-difference-head"><span>Akun</span><span>Tersimpan</span><span>Hasil ledger</span><span>Selisih</span></div>{differences.map((account) => <div className="ledger-difference-row" key={account.id}><span><strong>{account.name}</strong><small>{account.liability ? "Kewajiban" : "Aset"}{account.active ? "" : " · diarsipkan"}</small></span><Amount value={account.storedBalance} privacy={privacy} compact /><Amount value={account.expectedBalance} privacy={privacy} compact /><Amount value={Math.abs(account.difference)} privacy={privacy} compact className="ledger-difference-value" /></div>)}</div>}
+      {report.issues.length > 0 && <div className="ledger-issue-list" role="alert">{report.issues.slice(0, 8).map((issue, index) => <small key={`${issue.code}-${issue.transactionId ?? issue.accountId ?? index}`}><ShieldCheck size={14} />{issue.message}</small>)}</div>}
+      {report.canRepair && <div className="ledger-repair-actions">{!confirming ? <button className="primary-button" onClick={() => setConfirming(true)} disabled={Boolean(working)}>{report.storageMode === "calculated" ? "Tinjau hitung ulang" : `Tinjau perbaikan ${report.summary.driftCount} akun`}</button> : <div className="ledger-repair-confirm"><ShieldCheck size={18} /><span><strong>{report.storageMode === "calculated" ? "Hitung ulang ledger sekarang?" : "Terapkan saldo hasil ledger?"}</strong><small>{report.storageMode === "calculated" ? "Cache dashboard akan disegarkan tanpa mengubah transaksi." : "Hanya saldo ringkasan akun yang diperbarui. Saldo awal dan transaksi tidak diubah."}</small></span><button className="primary-button" onClick={() => void repair()} disabled={working === "repair"}>{working === "repair" ? "Memproses…" : "Konfirmasi & lanjutkan"}</button><button className="secondary-button" onClick={() => setConfirming(false)} disabled={working === "repair"}>Batal</button></div>}</div>}
+    </>}
+    {error && <div className="ledger-health-error" role="alert">{error}</div>}
+  </section>;
 }
 
 async function compressReceiptImage(file: File) {
