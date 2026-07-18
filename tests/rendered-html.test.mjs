@@ -13,7 +13,7 @@ test("shell menggunakan identitas VINN STORE dan locale Indonesia", async () => 
   assert.match(page, /<FinanceApp\s*\/>/);
   assert.match(layout, /VINN STORE — Financial OS/);
   assert.match(layout, /<html lang="id"/);
-  assert.match(layout, /\/og-reports-backup-migration\.png/);
+  assert.match(layout, /\/og-smart-reminders\.png/);
   assert.doesNotMatch(layout, /Starter Project|Your site is taking shape/);
 });
 
@@ -84,4 +84,22 @@ test("UI laporan, backup, dan migrasi memakai storage serta preview nyata", asyn
   assert.match(migrationRoute, /previewMigration/);
   assert.match(storage, /"r2": "FILES"/);
   assert.doesNotMatch(app, /version: 2, exportedAt/);
+});
+
+test("notification center memakai engine, status persisten, dan pengaturan reminder", async () => {
+  const [app, client, route, engine, schema] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../app/api/finance/notifications/route.ts"),
+    source("../lib/notifications.ts"),
+    source("../db/schema.ts"),
+  ]);
+  assert.match(app, /Notification center & reminder/);
+  assert.match(app, /Tandai semua/);
+  assert.match(app, /Jadwal reminder/);
+  assert.match(client, /\/api\/finance\/notifications/);
+  assert.match(route, /updateNotificationStates/);
+  assert.match(engine, /buildFinanceNotifications/);
+  assert.match(schema, /notification_states/);
+  assert.doesNotMatch(app, /pendingBills\.slice\(0, 1\)/);
 });

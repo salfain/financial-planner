@@ -48,9 +48,9 @@ export async function POST(request: Request) {
     await d1.batch([
       d1.prepare(
         `INSERT INTO bills
-           (id, workspace_id, name, amount, due_date, category, account_id, paid, paid_at,
+           (id, workspace_id, name, amount, due_date, category, account_id, frequency, reminder_days, paid, paid_at,
             last_paid_period, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         bill.id,
@@ -60,6 +60,8 @@ export async function POST(request: Request) {
         bill.dueDate,
         bill.category,
         bill.accountId,
+        bill.frequency,
+        bill.reminderDays.join(","),
         bill.paid ? 1 : 0,
         bill.paid ? now : null,
         bill.paid ? bill.dueDate.slice(0, 7) : null,

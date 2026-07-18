@@ -178,8 +178,12 @@ function apiCreateBill(payload) {
     return withDocumentLock_(function() {
       payload = payload || {};
       const amount = assertPositiveMoney_(payload.amount);
+      const frequency = String(payload.frequency || 'monthly');
+      if (frequency !== 'monthly') throw createError_('INVALID_BILL_FREQUENCY', 'Frekuensi tagihan belum didukung.');
+      const reminderDays = Array.isArray(payload.reminderDays) ? payload.reminderDays.map(Number).filter(function(day, index, values) { return [7, 3, 1, 0].indexOf(day) >= 0 && values.indexOf(day) === index; }).sort(function(a, b) { return b - a; }) : [7, 3, 1, 0];
+      if (!reminderDays.length) throw createError_('INVALID_REMINDER_DAYS', 'Pilih minimal satu jadwal reminder tagihan.');
       const now = nowIso_();
-      const bill = { id: id_('bill'), name: String(payload.name || '').trim().slice(0, 100), amount: amount, category: String(payload.category || 'Tagihan'), account_id: String(payload.accountId || ''), frequency: String(payload.frequency || 'monthly'), due_date: dateIso_(payload.dueDate), reminder_days: String(payload.reminderDays || '7,3,1,0'), status: 'active', last_paid_period: '', created_at: now, updated_at: now };
+      const bill = { id: id_('bill'), name: String(payload.name || '').trim().slice(0, 100), amount: amount, category: String(payload.category || 'Tagihan'), account_id: String(payload.accountId || ''), frequency: frequency, due_date: dateIso_(payload.dueDate), reminder_days: reminderDays.join(','), status: 'active', last_paid_period: '', created_at: now, updated_at: now };
       if (!bill.name || !bill.account_id || !findById_(VINN_CONFIG.SHEETS.ACCOUNTS, bill.account_id)) throw createError_('INVALID_BILL', 'Nama dan akun pembayaran tagihan wajib diisi.');
       appendObjects_(VINN_CONFIG.SHEETS.BILLS, [bill]);
       audit_('CREATE', 'bills', bill.id, requestId, { name: bill.name, amount: amount });

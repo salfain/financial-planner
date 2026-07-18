@@ -102,6 +102,8 @@ export type BillInput = {
   category: string;
   accountId: string;
   paid: boolean;
+  frequency: "monthly";
+  reminderDays: number[];
 };
 
 export type CategoryInput = {
@@ -198,6 +200,12 @@ export function parseGoal(input: Record<string, unknown>, fallbackId?: string): 
 }
 
 export function parseBill(input: Record<string, unknown>, fallbackId?: string): BillInput {
+  const reminderDays = input.reminderDays === undefined
+    ? [7, 3, 1, 0]
+    : Array.isArray(input.reminderDays)
+      ? [...new Set(input.reminderDays.map(Number))].filter((value) => Number.isSafeInteger(value) && value >= 0 && value <= 30).sort((a, b) => b - a)
+      : [];
+  if (!reminderDays.length) throw new ApiError(400, "INVALID_REMINDER_DAYS", "Pilih minimal satu jadwal reminder tagihan.");
   return {
     id: fallbackId ?? (input.id === undefined ? makeId("bill") : validateId(input.id)),
     name: requiredString(input, "name", 120),
@@ -206,6 +214,8 @@ export function parseBill(input: Record<string, unknown>, fallbackId?: string): 
     category: requiredString(input, "category", 100),
     accountId: validateId(input.accountId, "accountId"),
     paid: input.paid === undefined ? false : booleanValue(input, "paid"),
+    frequency: input.frequency === undefined ? "monthly" : enumValue(input, "frequency", ["monthly"] as const),
+    reminderDays,
   };
 }
 

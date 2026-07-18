@@ -48,6 +48,8 @@ export async function PATCH(request: Request, context: Context) {
         "category",
         "accountId",
         "paid",
+        "frequency",
+        "reminderDays",
       ]),
       id,
     );
@@ -61,7 +63,7 @@ export async function PATCH(request: Request, context: Context) {
     await d1.batch([
       d1.prepare(
         `UPDATE bills
-         SET name = ?, amount = ?, due_date = ?, category = ?, account_id = ?, paid = ?,
+         SET name = ?, amount = ?, due_date = ?, category = ?, account_id = ?, frequency = ?, reminder_days = ?, paid = ?,
              paid_at = CASE WHEN ? = 1 THEN COALESCE(paid_at, ?) ELSE NULL END,
              last_paid_period = CASE
                WHEN ? = 1 THEN COALESCE(last_paid_period, substr(?, 1, 7))
@@ -76,6 +78,8 @@ export async function PATCH(request: Request, context: Context) {
         bill.dueDate,
         bill.category,
         bill.accountId,
+        bill.frequency,
+        bill.reminderDays.join(","),
         bill.paid ? 1 : 0,
         bill.paid ? 1 : 0,
         now,

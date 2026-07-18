@@ -1,6 +1,7 @@
 import type { Account, AuditLog, Bill, Budget, FinanceCategory, Goal, InvestmentAsset, InvestmentTransaction, Transaction } from "./finance";
 import type { AiAnswer, AiChatMessage, AiSettingsStatus, OcrReceipt } from "./ai";
 import type { BackupOverview, BackupSchedule, ExportRecord, MigrationPreview } from "./portability";
+import { recurringBillDueDate, type NotificationOverview, type NotificationSettings } from "./notifications";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -134,6 +135,7 @@ function normalizeBudget(row: Record<string, unknown>, index: number): Budget {
     category: text(row.category, "Lainnya"),
     limit: number(row.limit ?? row.limitAmount ?? row.limit_amount),
     color: text(row.color, "#126b59"),
+    period: text(row.period ?? row.month) || undefined,
   };
 }
 
@@ -150,7 +152,12 @@ function normalizeGoal(row: Record<string, unknown>): Goal {
 }
 
 function normalizeBill(row: Record<string, unknown>, month: string): Bill {
-  const due = text(row.dueDate ?? row.due_date).slice(0, 10);
+  const sourceDue = text(row.dueDate ?? row.due_date).slice(0, 10);
+  const due = sourceDue.slice(0, 7) <= month ? recurringBillDueDate(sourceDue, month, "monthly") : sourceDue;
+  const rawReminderDays = row.reminderDays ?? row.reminder_days ?? "7,3,1,0";
+  const reminderDays = (Array.isArray(rawReminderDays) ? rawReminderDays : String(rawReminderDays).split(","))
+    .map(Number)
+    .filter((value) => Number.isSafeInteger(value) && value >= 0 && value <= 30);
   return {
     id: text(row.id),
     name: text(row.name, "Tagihan"),
@@ -159,6 +166,9 @@ function normalizeBill(row: Record<string, unknown>, month: string): Bill {
     category: text(row.category, "Tagihan"),
     accountId: text(row.accountId ?? row.account_id),
     paid: bool(row.paid) || text(row.lastPaidPeriod ?? row.last_paid_period) === month,
+    frequency: "monthly",
+    reminderDays: reminderDays.length ? reminderDays : [7, 3, 1, 0],
+    lastPaidPeriod: text(row.lastPaidPeriod ?? row.last_paid_period) || null,
   };
 }
 
@@ -423,6 +433,23 @@ export const cancelFinanceMigration = (migrationId: string) => mutation<Migratio
   "cancelMigration",
   `/api/finance/migrations/${encodeURIComponent(migrationId)}/cancel`,
   { migrationId },
+);
+
+export const loadFinanceNotifications = (period: string) => hasAppsScriptBridge()
+  ? callAppsScript<NotificationOverview>("notificationOverview", { period })
+  : webRequest<NotificationOverview>(`/api/finance/notifications?period=${encodeURIComponent(period)}`);
+
+export const updateFinanceNotificationSettings = (settings: NotificationSettings) => hasAppsScriptBridge()
+  ? callAppsScript<{ settings: NotificationSettings }>("updateNotificationSettings", settings)
+  : webRequest<{ settings: NotificationSettings }>("/api/finance/notifications", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+
+export const updateFinanceNotificationStates = (notificationIds: string[], action: "read" | "unread" | "dismiss" | "restore") => mutation<{ updated: number; action: string }>(
+  "updateNotificationState",
+  "/api/finance/notifications",
+  { notificationIds, action },
 );
 
 export const financeBackendLabel = () => hasAppsScriptBridge() ? "Google Sheets" : "Cloud database";

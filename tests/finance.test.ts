@@ -29,6 +29,7 @@ import {
 } from "../lib/ai";
 import { buildFinanceCsv, generateFinancePdf } from "../lib/report";
 import { nextBackupAt, parsePortableBackup } from "../lib/portability";
+import { buildFinanceNotifications, DEFAULT_NOTIFICATION_SETTINGS, recurringBillDueDate } from "../lib/notifications";
 
 const accounts: Account[] = [
   { id: "bank", name: "Bank", type: "Bank", institution: "Bank", balance: 10_000_000, mask: "01", color: "#000" },
@@ -368,6 +369,28 @@ test("jadwal backup menghitung tanggal harian, mingguan, dan bulanan", () => {
   assert.equal(nextBackupAt("2026-07-18T00:00:00.000Z", "daily"), "2026-07-19T00:00:00.000Z");
   assert.equal(nextBackupAt("2026-07-18T00:00:00.000Z", "weekly"), "2026-07-25T00:00:00.000Z");
   assert.equal(nextBackupAt("2026-07-18T00:00:00.000Z", "monthly"), "2026-08-18T00:00:00.000Z");
+});
+
+test("reminder menghitung tagihan bulanan dan mengurutkan peringatan nyata", () => {
+  assert.equal(recurringBillDueDate("2025-01-31", "2026-02"), "2026-02-28");
+  assert.equal(recurringBillDueDate("2024-01-31", "2024-02"), "2024-02-29");
+  const notifications = buildFinanceNotifications({
+    period: "2026-07",
+    today: "2026-07-18",
+    settings: DEFAULT_NOTIFICATION_SETTINGS,
+    bills: [{ id: "internet", name: "Internet", dueDate: "2026-01-18", paid: false, frequency: "monthly", reminderDays: [7, 3, 1, 0], lastPaidPeriod: null }],
+    budgets: [{ id: "food", category: "Makanan", limit: 100_000, period: "2026-07", color: "#16876f" }],
+    transactions: [tx({ id: "food-spend", amount: 120_000, date: "2026-07-10" })],
+    goals: [{ id: "goal", name: "Dana darurat", target: 1_000_000, current: 100_000, deadline: "2026-07-17" }],
+    investmentAssets: [{ id: "asset", ticker: "BBCA", active: true, priceStatus: "unavailable" }],
+    latestBackupAt: null,
+  });
+  assert.equal(notifications[0].severity, "critical");
+  assert.ok(notifications.some((item) => item.id === "bill:internet:2026-07" && item.type === "bill_due"));
+  assert.ok(notifications.some((item) => item.id === "budget:food:2026-07" && item.severity === "critical"));
+  assert.ok(notifications.some((item) => item.type === "goal"));
+  assert.ok(notifications.some((item) => item.type === "investment_price"));
+  assert.ok(notifications.some((item) => item.type === "backup"));
 });
 
 test("laporan bulanan menghasilkan PDF nyata dan CSV melindungi formula spreadsheet", () => {

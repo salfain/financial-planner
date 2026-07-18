@@ -36,6 +36,8 @@ npm test
 - Laporan PDF A4 lengkap dengan pilihan bagian, privacy mask, riwayat file, penyimpanan permanen, serta ekspor CSV yang aman dari formula injection.
 - Backup lengkap manual dan otomatis dengan histori unduhan; versi web menyimpan file pada object storage, versi Apps Script menyimpan salinan pada folder Google Drive khusus.
 - Migrasi backup JSON dengan preview jumlah baris, pemeriksaan relasi, rekonsiliasi saldo, deteksi aset duplikat, backup pra-migrasi, konfirmasi eksplisit, pembatalan preview, dan laporan hasil.
+- Notification center persisten untuk tagihan rutin, batas anggaran, deadline target, backup lama, dan harga investasi yang belum tersedia; status baca/arsip serta ambangnya dapat diatur.
+- Tagihan bulanan memakai jatuh tempo berulang dan pilihan reminder H-7, H-3, H-1, atau hari H.
 - Dark mode, privacy mode, UI responsif, reduced-motion, dan label aksesibilitas.
 - Harga investasi menampilkan sumber dan timestamp; harga manual maupun fallback transaksi terakhir tidak diklaim sebagai harga real-time.
 - VINN Insight berbasis Gemini dengan mode read-only, context builder minimal, manifest data yang dikirim, disclaimer, histori persisten, dan kontrol hapus histori.
@@ -66,4 +68,4 @@ public/               favicon dan social preview VINN STORE
 
 ## Status tahap berikutnya
 
-Core Finance, Investment, AI Assistant, OCR, Reports, Backup, dan Migration sudah tersambung ke UI, D1/R2, serta backend Google Sheets/Drive. Tahap berikutnya adalah penyempurnaan transaksi lanjutan, otomatisasi reminder, lalu QA dan release packaging.
+Core Finance, Investment, AI Assistant, OCR, Reports, Backup, Migration, dan in-app Reminder sudah tersambung ke UI, D1/R2, serta backend Google Sheets/Drive. Tahap berikutnya adalah penyempurnaan transaksi lanjutan, lalu QA dan release packaging. Pengiriman reminder melalui email/push tetap tahap lanjutan; reminder saat ini tampil di dalam aplikasi.

@@ -67,6 +67,8 @@ type BillRow = {
   dueDate: string;
   category: string;
   accountId: string;
+  frequency: "monthly";
+  reminderDays: string;
   paid: number;
   lastPaidPeriod: string | null;
 };
@@ -160,7 +162,8 @@ export const goalSelect = `
   FROM goals
 `;
 export const billSelect = `
-  SELECT id, name, amount, due_date AS dueDate, category, account_id AS accountId, paid,
+  SELECT id, name, amount, due_date AS dueDate, category, account_id AS accountId,
+         frequency, reminder_days AS reminderDays, paid,
          last_paid_period AS lastPaidPeriod
   FROM bills
 `;
@@ -250,6 +253,8 @@ export const serializeBill = (row: BillRow, period?: string) => ({
   dueDate: row.dueDate,
   category: row.category,
   accountId: row.accountId,
+  frequency: row.frequency,
+  reminderDays: String(row.reminderDays || "7,3,1,0").split(",").map(Number).filter((value) => Number.isSafeInteger(value) && value >= 0),
   paid: period ? row.lastPaidPeriod === period : Boolean(row.paid),
   lastPaidPeriod: row.lastPaidPeriod,
 });

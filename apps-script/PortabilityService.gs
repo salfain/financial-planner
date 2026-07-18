@@ -130,7 +130,7 @@ function portableSourceGs_(value) {
   }
   return {
     schemaVersion: String(root.schemaVersion || root.version || 'legacy'),
-    profile: root.profile || {},
+    profile: root.profile || {}, settings: root.settings || {},
     accounts: rows('accounts', 'Accounts'), categories: rows('categories', 'Categories'), transactions: rows('transactions', 'Transactions'),
     budgets: rows('budgets', 'Budgets'), goals: rows('goals', 'Goals'), bills: rows('bills', 'Bills'),
     investmentAssets: rows('investmentAssets', 'investment_assets', 'assets', 'Assets'),
@@ -359,6 +359,13 @@ function apiApplyMigration(payload) {
         realizedTotals[assetId] = Number(realizedTotals[assetId] || 0) + realized;
         return { id: id_('investment-tx'), request_id: 'migration:' + id + ':' + oldId, date: String(portableValueGs_(row, ['date'], now.slice(0, 10))), type: String(row.type || 'buy') === 'sell' ? 'sell' : 'buy', asset_id: assetId, account_id: accountIds[String(portableValueGs_(row, ['accountId', 'account_id'], ''))], units: units, price_per_unit: Math.max(1, Math.round(portableNumberGs_(row, ['pricePerUnit', 'price_per_unit'], 1))), gross_amount: Math.max(1, Math.round(portableNumberGs_(row, ['grossAmount', 'gross_amount'], 1))), fee: Math.max(0, Math.round(portableNumberGs_(row, ['fee'], 0))), tax: Math.max(0, Math.round(portableNumberGs_(row, ['tax'], 0))), net_amount: Math.max(1, Math.round(portableNumberGs_(row, ['netAmount', 'net_amount'], 1))), average_cost_after: average, remaining_units_after: remaining, cost_basis_after: Math.max(0, Math.round(average * remaining)), realized_pl: realized, realized_pl_total: realizedTotals[assetId], linked_cash_transaction_id: transactionIds[String(portableValueGs_(row, ['linkedCashTransactionId', 'linked_cash_transaction_id'], ''))] || '', linked_adjustment_transaction_id: transactionIds[String(portableValueGs_(row, ['linkedAdjustmentTransactionId', 'linked_adjustment_transaction_id'], ''))] || '', note: String(portableValueGs_(row, ['note', 'notes'], '')), created_at: now, updated_at: now };
       }));
+      if (backup.settings && typeof backup.settings === 'object') {
+        if (backup.settings.notificationEnabled !== undefined) upsertSetting_('notification_enabled', backup.settings.notificationEnabled !== false);
+        if (Array.isArray(backup.settings.notificationBillReminderDays)) upsertSetting_('notification_bill_days', JSON.stringify(notificationDays_(backup.settings.notificationBillReminderDays, NOTIFICATION_DEFAULTS.billReminderDays)));
+        if ([75, 90].indexOf(Number(backup.settings.notificationBudgetWarningPercent)) >= 0) upsertSetting_('notification_budget_percent', Number(backup.settings.notificationBudgetWarningPercent));
+        if ([7, 14, 30].indexOf(Number(backup.settings.notificationBackupWarningDays)) >= 0) upsertSetting_('notification_backup_days', Number(backup.settings.notificationBackupWarningDays));
+        if ([7, 30, 60].indexOf(Number(backup.settings.notificationGoalWarningDays)) >= 0) upsertSetting_('notification_goal_days', Number(backup.settings.notificationGoalWarningDays));
+      }
       const appliedAt = nowIso_();
       const report = { migrationId: id, sourceName: item.sourceName, sourceSchemaVersion: item.sourceSchemaVersion, targetSchemaVersion: VINN_CONFIG.SCHEMA_VERSION, appliedAt: appliedAt, counts: validation.counts, totalRecords: validation.totalRecords, balanceDifference: validation.balanceDifference, warnings: validation.warnings, status: 'applied' };
       const reportFile = portabilityFolder_().createFile(Utilities.newBlob(JSON.stringify(report, null, 2), 'application/json', 'VINN-STORE_Migration_Report_' + id + '.json'));

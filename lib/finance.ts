@@ -50,6 +50,7 @@ export interface Budget {
   category: string;
   limit: number;
   color: string;
+  period?: string;
 }
 
 export interface Goal {
@@ -70,6 +71,9 @@ export interface Bill {
   category: string;
   accountId: string;
   paid: boolean;
+  frequency?: "monthly";
+  reminderDays?: number[];
+  lastPaidPeriod?: string | null;
 }
 
 export interface FinanceCategory {

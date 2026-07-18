@@ -18,6 +18,7 @@ for (const action of [
   "aiSettings", "updateAiSettings", "aiHistory", "askAi", "clearAiHistory", "ocrReceipt",
   "createBackup", "backupOverview", "updateBackupSchedule", "listReports", "saveReportPdf",
   "migrationHistory", "previewMigration", "applyMigration", "cancelMigration",
+  "notificationOverview", "updateNotificationSettings", "updateNotificationState",
 ]) {
   assert.match(combinedSource, new RegExp(`\\b${action}\\s*:`), `Router action ${action} is missing`);
 }
@@ -78,6 +79,7 @@ const sheetNames = [
   "Settings", "Accounts", "Categories", "Transactions", "Budgets", "Goals",
   "Bills", "Assets", "InvestmentTransactions", "AuditLog", "Trash",
   "AIChat",
+  "NotificationStates",
 ];
 const sheets = Object.fromEntries(sheetNames.map((name) => [name, []]));
 const context = vm.createContext({
@@ -444,6 +446,23 @@ assert.match(result.data.downloadUrl, /^https:\/\/drive\.test\//);
 result = invoke(`apiBackupOverview()`);
 assert.equal(result.ok, true);
 assert.equal(result.data.backups.length >= 1, true);
+
+add("Bills", { id: "bill-reminder", name: "Internet", amount: 350000, category: "Tagihan", account_id: "source", frequency: "monthly", due_date: "2026-07-18", reminder_days: "7,3,1,0", status: "active", last_paid_period: "" });
+result = invoke(`apiNotificationOverview({ period: "2026-07" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.notifications.some((item) => item.id === "bill:bill-reminder:2026-07"), true);
+assert.equal(result.data.unreadCount > 0, true);
+result = invoke(`apiUpdateNotificationState({ notificationIds: ["bill:bill-reminder:2026-07"], action: "read" })`);
+assert.equal(result.ok, true);
+result = invoke(`apiNotificationOverview({ period: "2026-07" })`);
+assert.equal(result.data.notifications.find((item) => item.id === "bill:bill-reminder:2026-07").read, true);
+result = invoke(`apiUpdateNotificationState({ notificationIds: ["bill:bill-reminder:2026-07"], action: "dismiss" })`);
+assert.equal(result.ok, true);
+result = invoke(`apiNotificationOverview({ period: "2026-07" })`);
+assert.equal(result.data.notifications.some((item) => item.id === "bill:bill-reminder:2026-07"), false);
+result = invoke(`apiUpdateNotificationSettings({ enabled: true, billReminderDays: [3, 1, 0], budgetWarningPercent: 90, backupWarningDays: 14, goalWarningDays: 7 })`);
+assert.equal(result.ok, true);
+assert.deepEqual([...result.data.settings.billReminderDays], [3, 1, 0]);
 
 const samplePdf = Buffer.from("%PDF-1.4\nsample").toString("base64");
 result = invoke(`apiSaveReportPdf({ requestId: "report-1", contentBase64: "${samplePdf}", filename: "VINN-STORE_Laporan_2026-07.pdf", period: "2026-07", sections: ["summary"], privacy: false, pageCount: 1 })`);

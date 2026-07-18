@@ -162,13 +162,15 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     d1.prepare(`SELECT id, type, date, title, merchant, category, account_id AS accountId, destination_account_id AS destinationAccountId, transfer_group_id AS transferGroupId, amount, status, idempotency_key AS idempotencyKey, deleted_at AS deletedAt, created_at AS createdAt, updated_at AS updatedAt FROM transactions WHERE workspace_id = ? ORDER BY date, created_at, id`).bind(workspaceId),
     d1.prepare(`SELECT id, category, amount_limit AS amountLimit, period, color, created_at AS createdAt, updated_at AS updatedAt FROM budgets WHERE workspace_id = ? ORDER BY period, category, id`).bind(workspaceId),
     d1.prepare(`SELECT id, name, target, current, deadline, color, icon, created_at AS createdAt, updated_at AS updatedAt FROM goals WHERE workspace_id = ? ORDER BY deadline, id`).bind(workspaceId),
-    d1.prepare(`SELECT id, name, amount, due_date AS dueDate, category, account_id AS accountId, paid, paid_at AS paidAt, last_paid_period AS lastPaidPeriod, created_at AS createdAt, updated_at AS updatedAt FROM bills WHERE workspace_id = ? ORDER BY due_date, id`).bind(workspaceId),
+    d1.prepare(`SELECT id, name, amount, due_date AS dueDate, category, account_id AS accountId, frequency, reminder_days AS reminderDays, paid, paid_at AS paidAt, last_paid_period AS lastPaidPeriod, created_at AS createdAt, updated_at AS updatedAt FROM bills WHERE workspace_id = ? ORDER BY due_date, id`).bind(workspaceId),
     d1.prepare(`SELECT id, account_id AS accountId, ticker, name, asset_class AS assetClass, exchange, currency, manual_price AS manualPrice, latest_price_cache AS latestPriceCache, price_source AS priceSource, price_status AS priceStatus, price_updated_at AS priceUpdatedAt, active, created_at AS createdAt, updated_at AS updatedAt FROM investment_assets WHERE workspace_id = ? ORDER BY name, id`).bind(workspaceId),
     d1.prepare(`SELECT asset_id AS assetId, units_micro AS unitsMicro, cost_basis AS costBasis, realized_pl AS realizedPl, updated_at AS updatedAt FROM investment_positions WHERE workspace_id = ? ORDER BY asset_id`).bind(workspaceId),
     d1.prepare(`SELECT id, asset_id AS assetId, account_id AS accountId, date, type, units_micro AS unitsMicro, price_per_unit AS pricePerUnit, gross_amount AS grossAmount, fee, tax, net_amount AS netAmount, average_cost_after AS averageCostAfter, remaining_units_micro AS remainingUnitsMicro, realized_pl AS realizedPl, linked_cash_transaction_id AS linkedCashTransactionId, linked_adjustment_transaction_id AS linkedAdjustmentTransactionId, note, created_at AS createdAt, updated_at AS updatedAt FROM investment_transactions WHERE workspace_id = ? ORDER BY date, created_at, id`).bind(workspaceId),
     d1.prepare(`SELECT provider, model, enabled, consent_accepted AS consentAccepted FROM ai_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
+    d1.prepare(`SELECT enabled, bill_reminder_days AS billReminderDays, budget_warning_percent AS budgetWarningPercent, backup_warning_days AS backupWarningDays, goal_warning_days AS goalWarningDays FROM notification_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
   ]);
   const ai = results[9].results[0] as Record<string, unknown> | undefined;
+  const notification = results[10].results[0] as Record<string, unknown> | undefined;
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -180,12 +182,21 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
       currency: workspace.currency,
       timezone: workspace.timezone,
     },
-    settings: ai ? {
-      aiEnabled: Boolean(ai.enabled),
-      aiConsentAccepted: Boolean(ai.consentAccepted),
-      aiProvider: String(ai.provider ?? "gemini"),
-      aiModel: String(ai.model ?? ""),
-    } : {},
+    settings: {
+      ...(ai ? {
+        aiEnabled: Boolean(ai.enabled),
+        aiConsentAccepted: Boolean(ai.consentAccepted),
+        aiProvider: String(ai.provider ?? "gemini"),
+        aiModel: String(ai.model ?? ""),
+      } : {}),
+      ...(notification ? {
+        notificationEnabled: Boolean(notification.enabled),
+        notificationBillReminderDays: json<number[]>(String(notification.billReminderDays ?? "[7,3,1,0]"), [7, 3, 1, 0]),
+        notificationBudgetWarningPercent: Number(notification.budgetWarningPercent),
+        notificationBackupWarningDays: Number(notification.backupWarningDays),
+        notificationGoalWarningDays: Number(notification.goalWarningDays),
+      } : {}),
+    },
     data: {
       accounts: results[0].results as PortableRecord[],
       categories: results[1].results as PortableRecord[],
@@ -498,7 +509,8 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
   backup.data.bills.forEach((row, index) => {
     const oldId = text(row, "id") || `missing-${index}`;
     const oldAccount = text(row, "accountId", "account_id");
-    statements.push(d1.prepare(`INSERT INTO bills (id, workspace_id, name, amount, due_date, category, account_id, paid, paid_at, last_paid_period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(billIds.get(oldId), workspaceId, safeName(text(row, "name"), `Tagihan migrasi ${index + 1}`, 100), Math.max(1, integer(row, ["amount"], 1)), validDate(text(row, "dueDate", "due_date"), now.slice(0, 10)), safeName(text(row, "category"), "Tagihan", 100), accountIds.get(oldAccount), bool(row, "paid") ? 1 : 0, text(row, "paidAt", "paid_at") || null, text(row, "lastPaidPeriod", "last_paid_period") || null, now, now));
+    const reminders = text(row, "reminderDays", "reminder_days") || "7,3,1,0";
+    statements.push(d1.prepare(`INSERT INTO bills (id, workspace_id, name, amount, due_date, category, account_id, frequency, reminder_days, paid, paid_at, last_paid_period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(billIds.get(oldId), workspaceId, safeName(text(row, "name"), `Tagihan migrasi ${index + 1}`, 100), Math.max(1, integer(row, ["amount"], 1)), validDate(text(row, "dueDate", "due_date"), now.slice(0, 10)), safeName(text(row, "category"), "Tagihan", 100), accountIds.get(oldAccount), "monthly", reminders, bool(row, "paid") ? 1 : 0, text(row, "paidAt", "paid_at") || null, text(row, "lastPaidPeriod", "last_paid_period") || null, now, now));
   });
 
   const positionsByAsset = new Map(backup.data.investmentPositions.map((row) => [text(row, "assetId", "asset_id"), row]));
@@ -525,6 +537,15 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
     const linkedAdjustmentOld = text(row, "linkedAdjustmentTransactionId", "linked_adjustment_transaction_id");
     statements.push(d1.prepare(`INSERT INTO investment_transactions (id, workspace_id, asset_id, account_id, date, type, units_micro, price_per_unit, gross_amount, fee, tax, net_amount, average_cost_after, remaining_units_micro, realized_pl, linked_cash_transaction_id, linked_adjustment_transaction_id, note, request_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(investmentTransactionIds.get(oldId), workspaceId, assetIds.get(oldAsset), accountIds.get(oldAccount), validDate(text(row, "date"), now.slice(0, 10)), text(row, "type") === "sell" ? "sell" : "buy", unitsMicro, price, gross, Math.max(0, integer(row, ["fee"], 0)), Math.max(0, integer(row, ["tax"], 0)), Math.max(1, integer(row, ["netAmount", "net_amount"], gross)), Math.max(0, integer(row, ["averageCostAfter", "average_cost_after"], 0)), Math.max(0, integer(row, ["remainingUnitsMicro", "remaining_units_micro"], Math.round(numeric(row, ["remainingUnitsAfter", "remaining_units_after"], 0) * INVESTMENT_UNIT_SCALE))), integer(row, ["realizedPl", "realized_pl"], 0), transactionIds.get(linkedCashOld) ?? makeId("mig-linked-cash"), linkedAdjustmentOld ? transactionIds.get(linkedAdjustmentOld) ?? null : null, safeName(text(row, "note", "notes"), "", 300) || null, `migration:${migrationId}:${oldId}`, now, now));
   });
+
+  if (backup.settings.notificationEnabled !== undefined || backup.settings.notificationBillReminderDays || backup.settings.notificationBudgetWarningPercent || backup.settings.notificationBackupWarningDays || backup.settings.notificationGoalWarningDays) {
+    const reminderDays = (backup.settings.notificationBillReminderDays?.filter((day) => [7, 3, 1, 0].includes(day)) ?? [7, 3, 1, 0]);
+    statements.push(d1.prepare(
+      `INSERT INTO notification_settings (workspace_id, enabled, bill_reminder_days, budget_warning_percent, backup_warning_days, goal_warning_days, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(workspace_id) DO UPDATE SET enabled = excluded.enabled, bill_reminder_days = excluded.bill_reminder_days, budget_warning_percent = excluded.budget_warning_percent, backup_warning_days = excluded.backup_warning_days, goal_warning_days = excluded.goal_warning_days, updated_at = excluded.updated_at`,
+    ).bind(workspaceId, backup.settings.notificationEnabled === false ? 0 : 1, JSON.stringify(reminderDays.length ? reminderDays : [7, 3, 1, 0]), backup.settings.notificationBudgetWarningPercent ?? 75, backup.settings.notificationBackupWarningDays ?? 7, backup.settings.notificationGoalWarningDays ?? 30, now, now));
+  }
 
   try {
     await runChunks(statements);

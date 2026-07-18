@@ -163,6 +163,8 @@ export const bills = sqliteTable(
     dueDate: text("due_date").notNull(),
     category: text("category").notNull(),
     accountId: text("account_id").notNull(),
+    frequency: text("frequency").notNull().default("monthly"),
+    reminderDays: text("reminder_days").notNull().default("7,3,1,0"),
     paid: integer("paid", { mode: "boolean" }).notNull().default(false),
     paidAt: text("paid_at"),
     lastPaidPeriod: text("last_paid_period"),
@@ -173,6 +175,7 @@ export const bills = sqliteTable(
     index("bills_workspace_due_idx").on(table.workspaceId, table.dueDate),
     index("bills_workspace_account_idx").on(table.workspaceId, table.accountId),
     check("bills_amount_positive", sql`${table.amount} > 0`),
+    check("bills_frequency_check", sql`${table.frequency} IN ('monthly')`),
   ],
 );
 
@@ -375,6 +378,38 @@ export const migrationJobs = sqliteTable(
     uniqueIndex("migration_jobs_object_key_uidx").on(table.objectKey),
     index("migration_jobs_workspace_created_idx").on(table.workspaceId, table.createdAt),
     check("migration_jobs_status_check", sql`${table.status} IN ('preview', 'applied', 'cancelled', 'failed')`),
+  ],
+);
+
+export const notificationSettings = sqliteTable("notification_settings", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  billReminderDays: text("bill_reminder_days").notNull().default("[7,3,1,0]"),
+  budgetWarningPercent: integer("budget_warning_percent").notNull().default(75),
+  backupWarningDays: integer("backup_warning_days").notNull().default(7),
+  goalWarningDays: integer("goal_warning_days").notNull().default(30),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const notificationStates = sqliteTable(
+  "notification_states",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    notificationKey: text("notification_key").notNull(),
+    readAt: text("read_at"),
+    dismissedAt: text("dismissed_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("notification_states_workspace_key_uidx").on(table.workspaceId, table.notificationKey),
+    index("notification_states_workspace_updated_idx").on(table.workspaceId, table.updatedAt),
   ],
 );
 

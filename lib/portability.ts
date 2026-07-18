@@ -1,5 +1,5 @@
 export const BACKUP_FORMAT = "vinn-store-backup";
-export const BACKUP_SCHEMA_VERSION = "1.4.0";
+export const BACKUP_SCHEMA_VERSION = "1.5.0";
 export const BACKUP_MAX_RECORDS = 5_000;
 
 export const PORTABLE_COLLECTIONS = [
@@ -24,7 +24,17 @@ export type PortableBackup = {
   createdAt: string;
   source: { app: string; backend: string; workspaceId?: string };
   profile: { name: string; storeName: string; currency: string; timezone: string };
-  settings: { aiEnabled?: boolean; aiConsentAccepted?: boolean; aiProvider?: string; aiModel?: string };
+  settings: {
+    aiEnabled?: boolean;
+    aiConsentAccepted?: boolean;
+    aiProvider?: string;
+    aiModel?: string;
+    notificationEnabled?: boolean;
+    notificationBillReminderDays?: number[];
+    notificationBudgetWarningPercent?: number;
+    notificationBackupWarningDays?: number;
+    notificationGoalWarningDays?: number;
+  };
   data: PortableData;
 };
 
@@ -152,6 +162,11 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
       ...(settings.aiConsentAccepted !== undefined ? { aiConsentAccepted: Boolean(settings.aiConsentAccepted) } : {}),
       ...(text(settings.aiProvider) ? { aiProvider: text(settings.aiProvider).slice(0, 40) } : {}),
       ...(text(settings.aiModel) ? { aiModel: text(settings.aiModel).slice(0, 100) } : {}),
+      ...(settings.notificationEnabled !== undefined ? { notificationEnabled: Boolean(settings.notificationEnabled) } : {}),
+      ...(Array.isArray(settings.notificationBillReminderDays) ? { notificationBillReminderDays: settings.notificationBillReminderDays.map(Number).filter((day) => [7, 3, 1, 0].includes(day)) } : {}),
+      ...([75, 90].includes(Number(settings.notificationBudgetWarningPercent)) ? { notificationBudgetWarningPercent: Number(settings.notificationBudgetWarningPercent) } : {}),
+      ...([7, 14, 30].includes(Number(settings.notificationBackupWarningDays)) ? { notificationBackupWarningDays: Number(settings.notificationBackupWarningDays) } : {}),
+      ...([7, 30, 60].includes(Number(settings.notificationGoalWarningDays)) ? { notificationGoalWarningDays: Number(settings.notificationGoalWarningDays) } : {}),
     },
     data,
   };

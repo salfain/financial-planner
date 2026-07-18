@@ -52,6 +52,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import type { ReportSection } from "../lib/report";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
+import { DEFAULT_NOTIFICATION_SETTINGS, type FinanceNotification, type NotificationOverview, type NotificationSettings } from "../lib/notifications";
 import {
   Account,
   AuditLog,
@@ -92,6 +93,7 @@ import {
   getFinanceAiSettings,
   loadFinanceBackups,
   loadFinanceMigrations,
+  loadFinanceNotifications,
   loadFinanceReports,
   loadFinanceSnapshot,
   loadFinanceAiMessages,
@@ -104,6 +106,8 @@ import {
   updateFinanceBackupSchedule,
   updateFinanceAiSettings,
   updateFinanceInvestmentAsset,
+  updateFinanceNotificationSettings,
+  updateFinanceNotificationStates,
   updateFinanceTransaction,
   upsertFinanceBudget,
   previewFinanceMigration,
@@ -208,6 +212,14 @@ function NavButton({ item, active, onClick }: { item: { key: PageKey; label: str
   );
 }
 
+function NotificationIcon({ notification }: { notification: FinanceNotification }) {
+  if (notification.type === "budget") return <BarChart3 size={17} />;
+  if (notification.type === "goal") return <Target size={17} />;
+  if (notification.type === "backup") return <Database size={17} />;
+  if (notification.type === "investment_price") return <TrendingUp size={17} />;
+  return <CalendarDays size={17} />;
+}
+
 export function FinanceApp() {
   const [activePage, setActivePage] = useState<PageKey>("dashboard");
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -219,6 +231,7 @@ export function FinanceApp() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [investmentAssets, setInvestmentAssets] = useState<InvestmentAsset[]>([]);
   const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentTransaction[]>([]);
+  const [notificationOverview, setNotificationOverview] = useState<NotificationOverview | null>(null);
   const [profile, setProfile] = useState<FinanceProfile>({ name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" });
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -260,6 +273,13 @@ export function FinanceApp() {
   const refreshData = async () => {
     const snapshot = await loadFinanceSnapshot(month);
     applySnapshot(snapshot);
+    loadFinanceNotifications(month).then(setNotificationOverview).catch(() => undefined);
+  };
+
+  const refreshNotifications = async () => {
+    const result = await loadFinanceNotifications(month);
+    setNotificationOverview(result);
+    return result;
   };
 
   useEffect(() => {
@@ -274,6 +294,7 @@ export function FinanceApp() {
       })
       .catch((error) => setDataError(error instanceof Error ? error.message : "Data keuangan tidak dapat dimuat."))
       .finally(() => setLoading(false));
+    loadFinanceNotifications(month).then(setNotificationOverview).catch(() => undefined);
     return () => window.clearTimeout(themeTimer);
   }, [month]);
 
@@ -294,10 +315,10 @@ export function FinanceApp() {
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
 
-  const monthly = useMemo(() => monthlySummary(transactions, month), [transactions, month]);
+  const monthly = monthlySummary(transactions, month);
   const investmentMarketValue = useMemo(() => investmentAssets.reduce((sum, asset) => sum + asset.marketValue, 0), [investmentAssets]);
   const accountTotals = useMemo(() => accountSummary(accounts, investmentMarketValue), [accounts, investmentMarketValue]);
-  const healthScore = useMemo(() => calculateHealthScore(transactions, accounts, budgets, month), [transactions, accounts, budgets, month]);
+  const healthScore = calculateHealthScore(transactions, accounts, budgets, month);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -397,6 +418,38 @@ export function FinanceApp() {
     payload.type === "sell" ? "Penjualan dan realized P/L berhasil dicatat." : "Pembelian dan cost basis berhasil dicatat.",
   );
 
+  const updateNotificationState = async (ids: string[], action: "read" | "unread" | "dismiss" | "restore") => {
+    if (!ids.length) return;
+    setNotificationOverview((current) => {
+      if (!current) return current;
+      const selected = new Set(ids);
+      const notifications = current.notifications
+        .map((item) => selected.has(item.id)
+          ? { ...item, read: action === "read" || action === "dismiss" ? true : action === "unread" ? false : item.read, dismissed: action === "dismiss" ? true : action === "restore" ? false : item.dismissed }
+          : item)
+        .filter((item) => !item.dismissed);
+      return { ...current, notifications, unreadCount: notifications.filter((item) => !item.read).length };
+    });
+    try {
+      await updateFinanceNotificationStates(ids, action);
+    } catch (reason) {
+      await refreshNotifications().catch(() => undefined);
+      showToast(reason instanceof Error ? reason.message : "Status notifikasi tidak dapat disimpan.");
+    }
+  };
+
+  const openNotification = (notification: FinanceNotification) => {
+    if (!notification.read) void updateNotificationState([notification.id], "read");
+    selectPage(notification.actionPage);
+    setNotificationOpen(false);
+  };
+
+  const saveNotificationSettings = async (settings: NotificationSettings) => {
+    const result = await updateFinanceNotificationSettings(settings);
+    await refreshNotifications();
+    return result.settings;
+  };
+
   const openCreateForPage = () => {
     if (activePage === "accounts") return setAccountOpen(true);
     if (activePage === "budgets") return setBudgetOpen(true);
@@ -407,7 +460,8 @@ export function FinanceApp() {
   };
 
   const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
-  const pendingBills = [...bills].filter((bill) => !bill.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const notifications = notificationOverview?.notifications ?? [];
+  const unreadNotifications = notificationOverview?.unreadCount ?? 0;
 
   const title = { ...pageTitles[activePage] };
   if (activePage === "dashboard") { title.eyebrow = monthLabel(month); title.title = `Selamat datang, ${profile.name}`; }
@@ -480,15 +534,17 @@ export function FinanceApp() {
               {darkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <div className="notification-wrap">
-              <button className="icon-button" onClick={() => setNotificationOpen((value) => !value)} aria-label="Notifikasi" aria-expanded={notificationOpen}>
-                <Bell size={18} />{pendingBills.length > 0 && <span className="notification-dot" />}
+              <button className="icon-button" onClick={() => { const next = !notificationOpen; setNotificationOpen(next); if (next) void refreshNotifications().catch(() => undefined); }} aria-label={`Notifikasi${unreadNotifications ? `, ${unreadNotifications} belum dibaca` : ""}`} aria-expanded={notificationOpen}>
+                <Bell size={18} />{unreadNotifications > 0 && <span className="notification-dot" />}
               </button>
               {notificationOpen && (
                 <div className="notification-popover">
-                  <div className="popover-head"><strong>Notifikasi</strong><span>{pendingBills.length} perlu dicek</span></div>
-                  {pendingBills[0] ? <button onClick={() => { selectPage("bills"); setNotificationOpen(false); }}><span className="notice-icon warning"><CalendarDays size={17} /></span><span><strong>{pendingBills[0].name} belum dibayar</strong><small>Jatuh tempo {shortDate(pendingBills[0].dueDate)}.</small></span></button> : <button onClick={() => { selectPage("bills"); setNotificationOpen(false); }}><span className="notice-icon good"><Check size={17} /></span><span><strong>Semua tagihan selesai</strong><small>Tidak ada tagihan yang menunggu bulan ini.</small></span></button>}
-                  <button onClick={() => { selectPage("budgets"); setNotificationOpen(false); }}><span className="notice-icon good"><BarChart3 size={17} /></span><span><strong>{budgets.length} anggaran aktif</strong><small>Pantau realisasi langsung dari transaksi.</small></span></button>
-                  <button onClick={() => { selectPage("goals"); setNotificationOpen(false); }}><span className="notice-icon info"><Target size={17} /></span><span><strong>{goals.length} target finansial</strong><small>Kontribusi tersimpan pada data utama.</small></span></button>
+                  <div className="popover-head"><span><strong>Notification center</strong><small>{unreadNotifications ? `${unreadNotifications} belum dibaca` : "Semua sudah dibaca"}</small></span>{unreadNotifications > 0 && <button onClick={() => void updateNotificationState(notifications.filter((item) => !item.read).map((item) => item.id), "read")}>Tandai semua</button>}</div>
+                  <div className="notification-list">
+                    {notifications.slice(0, 8).map((notification) => <div className={`notification-item ${notification.read ? "read" : ""}`} key={notification.id}><button className="notification-main" onClick={() => openNotification(notification)}><span className={`notice-icon ${notification.severity}`}><NotificationIcon notification={notification} /></span><span><strong>{notification.title}</strong><small>{notification.message}</small></span></button><button className="notification-dismiss" onClick={() => void updateNotificationState([notification.id], "dismiss")} aria-label={`Arsipkan notifikasi ${notification.title}`} title="Arsipkan"><X size={14} /></button></div>)}
+                    {!notifications.length && <button className="notification-empty" onClick={() => { selectPage("settings"); setNotificationOpen(false); }}><span className="notice-icon good"><Check size={17} /></span><span><strong>Semua aman</strong><small>Tidak ada reminder aktif saat ini.</small></span></button>}
+                  </div>
+                  <button className="notification-settings-link" onClick={() => { selectPage("settings"); setNotificationOpen(false); }}><Settings size={14} /> Atur reminder</button>
                 </div>
               )}
             </div>
@@ -514,7 +570,7 @@ export function FinanceApp() {
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
-          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} onRefresh={refreshData} />}
+          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} onRefresh={refreshData} />}
         </div>
       </main>
 
@@ -1124,6 +1180,47 @@ function AiSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
   </section>;
 }
 
+function NotificationSettingsPanel({ settings, onSave, onToast }: {
+  settings: NotificationSettings;
+  onSave: (settings: NotificationSettings) => Promise<NotificationSettings>;
+  onToast: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState(settings);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const toggleReminderDay = (day: number) => setDraft((current) => {
+    const exists = current.billReminderDays.includes(day);
+    const billReminderDays = exists ? current.billReminderDays.filter((item) => item !== day) : [...current.billReminderDays, day].sort((a, b) => b - a);
+    return { ...current, billReminderDays };
+  });
+
+  const save = async () => {
+    if (!draft.billReminderDays.length) return setError("Pilih minimal satu jadwal reminder tagihan.");
+    setSaving(true);
+    setError("");
+    try {
+      const result = await onSave(draft);
+      setDraft(result);
+      onToast("Pengaturan reminder berhasil disimpan.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Pengaturan reminder tidak dapat disimpan.");
+    } finally { setSaving(false); }
+  };
+
+  return <section className="panel settings-section settings-wide notification-settings-panel">
+    <div className="settings-title"><span><Bell size={20} /></span><div><h2>Notification center & reminder</h2><p>Peringatan dibuat dari data nyata untuk tagihan, anggaran, target, backup, dan harga investasi.</p></div><button className={`switch ${draft.enabled ? "on" : ""}`} onClick={() => setDraft((current) => ({ ...current, enabled: !current.enabled }))} aria-pressed={draft.enabled}><span /></button></div>
+    <div className="notification-settings-grid">
+      <div><strong>Pengingat tagihan</strong><small>Reminder tetap terlihat setelah ambang terlewati sampai tagihan dibayar atau diarsipkan.</small><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={draft.billReminderDays.includes(day)} onChange={() => toggleReminderDay(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></div>
+      <label><span>Peringatan anggaran</span><select value={draft.budgetWarningPercent} onChange={(event) => setDraft((current) => ({ ...current, budgetWarningPercent: Number(event.target.value) }))}><option value="75">Mulai 75%</option><option value="90">Mulai 90%</option></select><ChevronDown size={15} /></label>
+      <label><span>Backup dianggap lama</span><select value={draft.backupWarningDays} onChange={(event) => setDraft((current) => ({ ...current, backupWarningDays: Number(event.target.value) }))}><option value="7">7 hari</option><option value="14">14 hari</option><option value="30">30 hari</option></select><ChevronDown size={15} /></label>
+      <label><span>Deadline target</span><select value={draft.goalWarningDays} onChange={(event) => setDraft((current) => ({ ...current, goalWarningDays: Number(event.target.value) }))}><option value="7">7 hari sebelumnya</option><option value="30">30 hari sebelumnya</option><option value="60">60 hari sebelumnya</option></select><ChevronDown size={15} /></label>
+    </div>
+    <div className="settings-actions"><button className="primary-button" onClick={save} disabled={saving || !draft.billReminderDays.length}><Bell size={15} /> {saving ? "Menyimpan…" : "Simpan reminder"}</button><small>Notifikasi hanya informatif dan tidak melakukan pembayaran atau perubahan data otomatis.</small></div>
+    {error && <div className="portability-error" role="alert">{error}</div>}
+  </section>;
+}
+
 function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLabel: string; onToast: (message: string) => void; onRefresh: () => Promise<void> }) {
   const [overview, setOverview] = useState<BackupOverview | null>(null);
   const [migrations, setMigrations] = useState<MigrationPreview[]>([]);
@@ -1247,7 +1344,7 @@ function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLab
   </section>;
 }
 
-function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, auditLogs, backendLabel, onAddCategory, onEditCategory, onArchiveCategory, onToast, onRefresh }: {
+function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, auditLogs, backendLabel, notificationSettings, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onToast, onRefresh }: {
   darkMode: boolean;
   setDarkMode: (value: boolean) => void;
   privacy: boolean;
@@ -1255,6 +1352,8 @@ function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, 
   categories: FinanceCategory[];
   auditLogs: AuditLog[];
   backendLabel: string;
+  notificationSettings: NotificationSettings;
+  onSaveNotificationSettings: (settings: NotificationSettings) => Promise<NotificationSettings>;
   onAddCategory: () => void;
   onEditCategory: (category: FinanceCategory) => void;
   onArchiveCategory: (categoryId: string) => void;
@@ -1265,6 +1364,7 @@ function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, 
   return <div className="settings-layout">
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
+    <NotificationSettingsPanel key={`${notificationSettings.enabled}-${notificationSettings.billReminderDays.join(",")}-${notificationSettings.budgetWarningPercent}-${notificationSettings.backupWarningDays}-${notificationSettings.goalWarningDays}`} settings={notificationSettings} onSave={onSaveNotificationSettings} onToast={onToast} />
     <AiSettingsPanel onToast={onToast} />
     <DataPortabilityPanel backendLabel={backendLabel} onToast={onToast} onRefresh={onRefresh} />
     <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
@@ -1480,8 +1580,11 @@ function BillModal({ accounts, categories, saving, onClose, onSubmit }: { accoun
   const [category, setCategory] = useState(expenseCategories.find((item) => item.name === "Tagihan")?.name ?? expenseCategories[0]?.name ?? "");
   const [dueDate, setDueDate] = useState(today());
   const [accountId, setAccountId] = useState(paymentAccounts[0]?.id ?? "");
-  return <SimpleModal title="Tagihan rutin" kicker="Reminder" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), amount: Number(amount || 0), category, dueDate, accountId, frequency: "monthly" }); }}>
-    <div className="form-grid"><label><span>Nama tagihan</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Jatuh tempo</span><input type="date" min={today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label></div>
+  const [reminderDays, setReminderDays] = useState([7, 3, 1, 0]);
+  const toggleReminder = (day: number) => setReminderDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((a, b) => b - a));
+  return <SimpleModal title="Tagihan rutin" kicker="Reminder" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), amount: Number(amount || 0), category, dueDate, accountId, frequency: "monthly", reminderDays }); }}>
+    <div className="form-grid"><label><span>Nama tagihan</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Jatuh tempo pertama</span><input type="date" min={today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Frekuensi</span><select value="monthly" disabled><option value="monthly">Bulanan</option></select><ChevronDown size={15} /></label><fieldset className="bill-reminder-field"><legend>Jadwal reminder</legend><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={reminderDays.includes(day)} onChange={() => toggleReminder(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></fieldset></div>
+    {!reminderDays.length && <div className="ocr-message"><Bell size={15} />Pilih minimal satu jadwal reminder.</div>}
     {!paymentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bank, e-wallet, atau cash untuk membayar tagihan.</div>}
     {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
   </SimpleModal>;
