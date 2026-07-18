@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const description = "Financial OS personal untuk transaksi, anggaran, investasi, AI Insight read-only, dan OCR struk dengan konfirmasi.";
+const description = "Financial OS personal untuk transaksi, investasi, AI, laporan PDF, backup otomatis, dan migrasi tervalidasi.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -18,13 +18,13 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       title: "VINN STORE — Financial OS",
       description,
-      images: [{ url: `${baseUrl}/og-ai-ocr.png`, width: 1672, height: 942, alt: "VINN STORE Financial OS — Core Finance, Investment, AI dan OCR" }],
+      images: [{ url: `${baseUrl}/og-reports-backup-migration.png`, width: 1672, height: 942, alt: "VINN STORE Financial OS — Reports, Backup dan Migration" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "VINN STORE — Financial OS",
       description,
-      images: [`${baseUrl}/og-ai-ocr.png`],
+      images: [`${baseUrl}/og-reports-backup-migration.png`],
     },
   };
 }

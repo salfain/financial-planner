@@ -59,16 +59,20 @@ function apiUpdateAiSettings(payload) {
   } catch (error) { return fail_(error); }
 }
 
-function apiCreateBackup() {
+function apiCreateBackup(reason) {
   const requestId = id_('req');
   try {
     const workbook = getWorkbook_();
     const file = DriveApp.getFileById(workbook.getId());
-    const folderIterator = file.getParents();
-    const folder = folderIterator.hasNext() ? folderIterator.next() : DriveApp.getRootFolder();
+    const folder = portabilityFolder_();
     const stamp = Utilities.formatDate(new Date(), VINN_CONFIG.TIMEZONE, 'yyyyMMdd-HHmm');
     const backup = file.makeCopy(VINN_CONFIG.APP_NAME + ' Backup ' + stamp, folder);
-    audit_('BACKUP', 'system', backup.getId(), requestId, { name: backup.getName() });
-    return ok_({ fileId: backup.getId(), name: backup.getName(), url: backup.getUrl() }, requestId);
+    const record = recordPortability_(portabilityExportRecord_(backup, 'backup', { reason: String(reason || 'manual'), schemaVersion: VINN_CONFIG.SCHEMA_VERSION }, null));
+    const schedule = backupScheduleGs_();
+    schedule.lastBackupAt = record.createdAt;
+    schedule.nextBackupAt = schedule.enabled ? nextBackupDateGs_(record.createdAt, schedule.frequency) : null;
+    saveBackupScheduleGs_(schedule);
+    audit_('BACKUP', 'system', backup.getId(), requestId, { name: backup.getName(), reason: record.metadata.reason });
+    return ok_(record, requestId);
   } catch (error) { return fail_(error, requestId); }
 }

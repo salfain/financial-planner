@@ -30,7 +30,11 @@ const [javascript, css] = await Promise.all([
   readFile(requireSingleAsset(".css"), "utf8"),
 ]);
 
-const safeJavascript = javascript.replace(/<\/script/gi, "<\\/script");
+const safeJavascript = javascript
+  .replace(/<\/script/gi, "<\\/script")
+  // core-js ships a whitespace lookup as a multiline template literal. Escape
+  // its trailing tab so the generated Apps Script bundle stays diff-clean.
+  .replace(/(t\.exports=`)\t(?=\r?\n)/g, "$1\\t");
 const safeCss = css.replace(/<\/style/gi, "<\\/style");
 
 if (safeJavascript.includes("<?") || safeCss.includes("<?")) {

@@ -311,6 +311,73 @@ export const aiChatMessages = sqliteTable(
   ],
 );
 
+export const dataExports = sqliteTable(
+  "data_exports",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull(),
+    objectKey: text("object_key").notNull(),
+    sizeBytes: integer("size_bytes").notNull().default(0),
+    status: text("status").notNull().default("ready"),
+    period: text("period"),
+    metadataJson: text("metadata_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("data_exports_object_key_uidx").on(table.objectKey),
+    index("data_exports_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    index("data_exports_workspace_kind_idx").on(table.workspaceId, table.kind),
+    check("data_exports_kind_check", sql`${table.kind} IN ('backup', 'report', 'migration_report')`),
+    check("data_exports_status_check", sql`${table.status} IN ('ready', 'failed')`),
+    check("data_exports_size_nonnegative", sql`${table.sizeBytes} >= 0`),
+  ],
+);
+
+export const backupSettings = sqliteTable("backup_settings", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  frequency: text("frequency").notNull().default("weekly"),
+  lastBackupAt: text("last_backup_at"),
+  nextBackupAt: text("next_backup_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const migrationJobs = sqliteTable(
+  "migration_jobs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sourceName: text("source_name").notNull(),
+    sourceSchemaVersion: text("source_schema_version").notNull(),
+    status: text("status").notNull().default("preview"),
+    objectKey: text("object_key").notNull(),
+    countsJson: text("counts_json").notNull().default("{}"),
+    warningsJson: text("warnings_json").notNull().default("[]"),
+    errorsJson: text("errors_json").notNull().default("[]"),
+    balanceDifference: integer("balance_difference").notNull().default(0),
+    requestId: text("request_id").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    appliedAt: text("applied_at"),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("migration_jobs_workspace_request_uidx").on(table.workspaceId, table.requestId),
+    uniqueIndex("migration_jobs_object_key_uidx").on(table.objectKey),
+    index("migration_jobs_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    check("migration_jobs_status_check", sql`${table.status} IN ('preview', 'applied', 'cancelled', 'failed')`),
+  ],
+);
+
 export const auditLogs = sqliteTable(
   "audit_logs",
   {

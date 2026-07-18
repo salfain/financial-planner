@@ -27,6 +27,8 @@ import {
   normalizeOcrReceipt,
   receiptNeedsRetake,
 } from "../lib/ai";
+import { buildFinanceCsv, generateFinancePdf } from "../lib/report";
+import { nextBackupAt, parsePortableBackup } from "../lib/portability";
 
 const accounts: Account[] = [
   { id: "bank", name: "Bank", type: "Bank", institution: "Bank", balance: 10_000_000, mask: "01", color: "#000" },
@@ -330,4 +332,68 @@ test("health score menggunakan bulan yang dipilih", () => {
   const july = calculateHealthScore(transactions, accounts, budgets, "2026-07");
   const august = calculateHealthScore(transactions, accounts, budgets, { month: "2026-08" });
   assert.ok(july > august, `Skor Juli (${july}) seharusnya lebih tinggi dari Agustus (${august}).`);
+});
+
+test("portable backup menerima format baru dan menolak referensi akun yang rusak", () => {
+  const valid = parsePortableBackup({
+    format: "vinn-store-backup",
+    schemaVersion: "1.4.0",
+    createdAt: "2026-07-18T00:00:00.000Z",
+    profile: { name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" },
+    data: {
+      accounts: [{ id: "account-1", name: "Kas", type: "Cash", balance: 100_000, openingBalance: 100_000 }],
+      categories: [], transactions: [], budgets: [], goals: [], bills: [], investmentAssets: [], investmentPositions: [], investmentTransactions: [],
+    },
+  });
+  assert.equal(valid.errors.length, 0);
+  assert.equal(valid.backup.data.accounts.length, 1);
+
+  const invalid = parsePortableBackup({
+    version: 2,
+    accounts: [{ id: "account-1", name: "Kas" }],
+    transactions: [{ id: "tx-1", accountId: "missing-account", amount: 10_000 }],
+  });
+  assert.ok(invalid.errors.some((message) => message.includes("akun sumber")));
+
+  const missingRequiredReferences = parsePortableBackup({
+    accounts: [{ id: "account-1", name: "Kas" }],
+    transactions: [{ id: "tx-1", type: "transfer", accountId: "account-1", amount: 10_000 }],
+    bills: [{ id: "bill-1", name: "Internet", amount: 100_000 }],
+  });
+  assert.ok(missingRequiredReferences.errors.some((message) => message.includes("akun tujuan")));
+  assert.ok(missingRequiredReferences.errors.some((message) => message.includes("akun pembayaran")));
+});
+
+test("jadwal backup menghitung tanggal harian, mingguan, dan bulanan", () => {
+  assert.equal(nextBackupAt("2026-07-18T00:00:00.000Z", "daily"), "2026-07-19T00:00:00.000Z");
+  assert.equal(nextBackupAt("2026-07-18T00:00:00.000Z", "weekly"), "2026-07-25T00:00:00.000Z");
+  assert.equal(nextBackupAt("2026-07-18T00:00:00.000Z", "monthly"), "2026-08-18T00:00:00.000Z");
+});
+
+test("laporan bulanan menghasilkan PDF nyata dan CSV melindungi formula spreadsheet", () => {
+  const input = {
+    period: "2026-07",
+    profile: { name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" },
+    accounts: [{ id: "cash", name: "Kas", type: "Cash" as const, institution: "", balance: 1_500_000, openingBalance: 1_000_000, mask: "", color: "#16876f" }],
+    transactions: [
+      { id: "previous-income", type: "income" as const, date: "2026-06-02", title: "Pendapatan Juni", merchant: "VINN STORE", category: "Pendapatan", accountId: "cash", amount: 800_000, status: "completed" as const },
+      { id: "income", type: "income" as const, date: "2026-07-02", title: "Pendapatan", merchant: "VINN STORE", category: "Pendapatan", accountId: "cash", amount: 1_000_000, status: "completed" as const },
+      { id: "expense", type: "expense" as const, date: "2026-07-03", title: "=HYPERLINK(\"bad\")", merchant: "Toko", category: "Makanan", accountId: "cash", amount: 500_000, status: "completed" as const },
+    ],
+    budgets: [{ id: "budget", category: "Makanan", limit: 700_000, color: "#16876f" }],
+    goals: [{ id: "goal", name: "Dana darurat", target: 5_000_000, current: 1_000_000, deadline: "2026-12-31", color: "#16876f", icon: "target" }],
+    bills: [{ id: "bill", name: "Internet", amount: 300_000, dueDate: "2026-07-20", category: "Tagihan", accountId: "cash", paid: false }],
+    categories: [], investmentAssets: [], investmentTransactions: [], privacy: false,
+    sections: ["summary", "cashflow", "categories", "accounts", "budgets", "bills", "goals", "investments"] as const,
+    generatedAt: "2026-07-18T03:00:00.000Z",
+  };
+  const pdf = generateFinancePdf({ ...input, sections: [...input.sections] });
+  assert.equal(new TextDecoder().decode(pdf.bytes.slice(0, 5)), "%PDF-");
+  assert.ok(pdf.bytes.length > 5_000);
+  assert.ok(pdf.pageCount >= 2);
+  assert.equal(pdf.filename, "VINN-STORE_Laporan_2026-07.pdf");
+
+  const csv = buildFinanceCsv(input);
+  assert.ok(csv.includes("'=HYPERLINK"));
+  assert.ok(csv.startsWith("\uFEFF"));
 });

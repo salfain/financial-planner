@@ -1,6 +1,6 @@
 const VINN_CONFIG = Object.freeze({
   APP_NAME: 'VINN STORE',
-  SCHEMA_VERSION: '1.3.0',
+  SCHEMA_VERSION: '1.4.0',
   TIMEZONE: 'Asia/Jakarta',
   CURRENCY: 'IDR',
   CACHE_SECONDS: 300,

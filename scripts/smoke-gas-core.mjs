@@ -16,6 +16,8 @@ for (const action of [
   "updateTransaction", "reconcileAccount", "listAuditLogs",
   "createInvestmentAsset", "updateInvestmentAsset", "createInvestmentTrade",
   "aiSettings", "updateAiSettings", "aiHistory", "askAi", "clearAiHistory", "ocrReceipt",
+  "createBackup", "backupOverview", "updateBackupSchedule", "listReports", "saveReportPdf",
+  "migrationHistory", "previewMigration", "applyMigration", "cancelMigration",
 ]) {
   assert.match(combinedSource, new RegExp(`\\b${action}\\s*:`), `Router action ${action} is missing`);
 }
@@ -25,6 +27,53 @@ const properties = new Map();
 const userProperties = new Map();
 const cache = new Map();
 const writes = [];
+const driveFiles = new Map();
+const driveFolders = new Map();
+const triggers = [];
+let driveId = 0;
+const iterator = (items) => ({
+  index: 0,
+  hasNext() { return this.index < items.length; },
+  next() { return items[this.index++]; },
+});
+const makeBlob = (value, contentType = "application/octet-stream", name = "blob") => {
+  const bytes = Array.isArray(value) ? Buffer.from(value) : Buffer.from(String(value));
+  return {
+    bytes, contentType, name,
+    getDataAsString: () => bytes.toString("utf8"),
+  };
+};
+const makeFile = (name, blob = makeBlob(""), parent = null, forcedId) => {
+  const id = forcedId || `drive-${++driveId}`;
+  const file = {
+    id, name, blob, parent, trashed: false,
+    getId: () => id,
+    getName: () => name,
+    getSize: () => blob.bytes.length,
+    getUrl: () => `https://drive.test/${id}`,
+    getBlob: () => blob,
+    getParents: () => iterator(parent ? [parent] : []),
+    setTrashed(value) { file.trashed = value; return file; },
+    makeCopy(copyName, folder) { return makeFile(copyName, makeBlob(blob.bytes, blob.contentType, copyName), folder); },
+  };
+  driveFiles.set(id, file);
+  return file;
+};
+const rootFolder = {
+  id: "root", name: "root", folders: [], files: [],
+  getFoldersByName(name) { return iterator(this.folders.filter((folder) => folder.name === name)); },
+  createFolder(name) {
+    const folder = {
+      id: `folder-${++driveId}`, name, folders: [], files: [],
+      getFoldersByName: rootFolder.getFoldersByName,
+      createFolder: rootFolder.createFolder,
+      createFile(blob) { const file = makeFile(blob.name, blob, folder); folder.files.push(file); return file; },
+    };
+    this.folders.push(folder); driveFolders.set(folder.id, folder); return folder;
+  },
+  createFile(blob) { const file = makeFile(blob.name, blob, this); this.files.push(file); return file; },
+};
+makeFile("VINN STORE Finance", makeBlob("spreadsheet", "application/vnd.google-apps.spreadsheet"), rootFolder, "workbook-id");
 const sheetNames = [
   "Settings", "Accounts", "Categories", "Transactions", "Budgets", "Goals",
   "Bills", "Assets", "InvestmentTransactions", "AuditLog", "Trash",
@@ -43,6 +92,23 @@ const context = vm.createContext({
       return iso;
     },
     base64Decode: (value) => [...Buffer.from(value, "base64")],
+    newBlob: (value, contentType, name) => makeBlob(value, contentType, name),
+  },
+  DriveApp: {
+    getFileById: (id) => {
+      const file = driveFiles.get(id);
+      if (!file) throw new Error(`Drive file ${id} not found`);
+      return file;
+    },
+    getRootFolder: () => rootFolder,
+  },
+  ScriptApp: {
+    getProjectTriggers: () => [...triggers],
+    deleteTrigger: (trigger) => { const index = triggers.indexOf(trigger); if (index >= 0) triggers.splice(index, 1); },
+    newTrigger: (handler) => ({
+      timeBased() { return this; }, everyDays() { return this; }, atHour() { return this; },
+      create() { const trigger = { getHandlerFunction: () => handler }; triggers.push(trigger); return trigger; },
+    }),
   },
   PropertiesService: {
     getDocumentProperties: () => ({
@@ -124,7 +190,7 @@ vm.runInContext(`
       }
     };
   };
-  getWorkbook_ = function() { return { getSheetByName: function(name) { return mockSheet_(name); } }; };
+  getWorkbook_ = function() { return { getId: function() { return "workbook-id"; }, getSheetByName: function(name) { return mockSheet_(name); } }; };
   ensureSheet_ = function(name) { if (!sheets[name]) sheets[name] = []; return mockSheet_(name); };
 `, context);
 
@@ -366,5 +432,46 @@ assert.equal(sheets.Categories.find((category) => category.id === "cat-food").is
 result = invoke(`setupVinnStore()`);
 assert.equal(result.ok, true);
 assert.equal(sheets.Categories.length, categoryCountAfterMigration);
+
+result = invoke(`apiUpdateBackupSchedule({ enabled: true, frequency: "weekly" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.schedule.enabled, true);
+assert.equal(triggers.length, 1);
+result = invoke(`apiCreateBackup("manual")`);
+assert.equal(result.ok, true);
+assert.equal(result.data.kind, "backup");
+assert.match(result.data.downloadUrl, /^https:\/\/drive\.test\//);
+result = invoke(`apiBackupOverview()`);
+assert.equal(result.ok, true);
+assert.equal(result.data.backups.length >= 1, true);
+
+const samplePdf = Buffer.from("%PDF-1.4\nsample").toString("base64");
+result = invoke(`apiSaveReportPdf({ requestId: "report-1", contentBase64: "${samplePdf}", filename: "VINN-STORE_Laporan_2026-07.pdf", period: "2026-07", sections: ["summary"], privacy: false, pageCount: 1 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.kind, "report");
+result = invoke(`apiListReports()`);
+assert.equal(result.ok, true);
+assert.equal(result.data.reports.length, 1);
+
+context.migrationSource = {
+  format: "vinn-store-backup",
+  schemaVersion: "1.4.0",
+  profile: { name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" },
+  data: {
+    accounts: [{ id: "legacy-cash", name: "Kas Lama", type: "Cash", openingBalance: 250000, balance: 250000, active: true }],
+    categories: [], transactions: [], budgets: [], goals: [], bills: [],
+    investmentAssets: [], investmentPositions: [], investmentTransactions: [],
+  },
+};
+result = invoke(`apiPreviewMigration({ requestId: "migration-preview-1", sourceName: "legacy.json", backup: migrationSource })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.canApply, true);
+assert.equal(result.data.balanceDifference, 0);
+const migrationId = result.data.id;
+result = invoke(`apiApplyMigration({ requestId: "migration-apply-1", migrationId: "${migrationId}" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.status, "applied");
+assert.equal(sheets.Accounts.some((account) => account.name === "Kas Lama"), true);
+assert.match(result.data.reportDownloadUrl, /^https:\/\/drive\.test\//);
 
 console.log(`GAS core smoke passed: ${sources.length} files, ${sheets.Transactions.length} transactions, ${sheets.AuditLog.length} audit rows.`);

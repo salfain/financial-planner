@@ -13,7 +13,7 @@ test("shell menggunakan identitas VINN STORE dan locale Indonesia", async () => 
   assert.match(page, /<FinanceApp\s*\/>/);
   assert.match(layout, /VINN STORE — Financial OS/);
   assert.match(layout, /<html lang="id"/);
-  assert.match(layout, /\/og-ai-ocr\.png/);
+  assert.match(layout, /\/og-reports-backup-migration\.png/);
   assert.doesNotMatch(layout, /Starter Project|Your site is taking shape/);
 });
 
@@ -61,4 +61,27 @@ test("UI AI dan OCR memakai backend nyata, disclosure, dan konfirmasi", async ()
   assert.match(aiRoute, /askAi/);
   assert.match(ocrRoute, /scanReceipt/);
   assert.doesNotMatch(app, /OCR belum diaktifkan|Analisis rule-based/);
+});
+
+test("UI laporan, backup, dan migrasi memakai storage serta preview nyata", async () => {
+  const [app, client, reportRoute, backupRoute, migrationRoute, storage] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../app/api/finance/reports/route.ts"),
+    source("../app/api/finance/backups/route.ts"),
+    source("../app/api/finance/migrations/preview/route.ts"),
+    source("../.openai/hosting.json"),
+  ]);
+  assert.match(app, /Buat, simpan & unduh PDF/);
+  assert.match(app, /Backup lengkap/);
+  assert.match(app, /Preview siap diterapkan/);
+  assert.match(app, /Backup pra-migrasi akan dibuat otomatis/);
+  assert.match(client, /\/api\/finance\/reports/);
+  assert.match(client, /\/api\/finance\/backups/);
+  assert.match(client, /\/api\/finance\/migrations\/preview/);
+  assert.match(reportRoute, /saveReport/);
+  assert.match(backupRoute, /createBackup/);
+  assert.match(migrationRoute, /previewMigration/);
+  assert.match(storage, /"r2": "FILES"/);
+  assert.doesNotMatch(app, /version: 2, exportedAt/);
 });

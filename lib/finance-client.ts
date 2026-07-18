@@ -1,5 +1,6 @@
 import type { Account, AuditLog, Bill, Budget, FinanceCategory, Goal, InvestmentAsset, InvestmentTransaction, Transaction } from "./finance";
 import type { AiAnswer, AiChatMessage, AiSettingsStatus, OcrReceipt } from "./ai";
+import type { BackupOverview, BackupSchedule, ExportRecord, MigrationPreview } from "./portability";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -374,6 +375,54 @@ export const scanFinanceReceipt = (payload: {
   "ocrReceipt",
   "/api/finance/ai/ocr",
   payload,
+);
+
+export const loadFinanceReports = () => hasAppsScriptBridge()
+  ? callAppsScript<{ reports: ExportRecord[] }>("listReports", {})
+  : webRequest<{ reports: ExportRecord[] }>("/api/finance/reports");
+
+export const saveFinanceReport = (payload: {
+  filename: string;
+  contentBase64: string;
+  period: string;
+  sections: string[];
+  privacy: boolean;
+  pageCount: number;
+}) => mutation<ExportRecord>("saveReportPdf", "/api/finance/reports", payload);
+
+export const loadFinanceBackups = () => hasAppsScriptBridge()
+  ? callAppsScript<BackupOverview>("backupOverview", {})
+  : webRequest<BackupOverview>("/api/finance/backups");
+
+export const createFinanceBackup = () => mutation<ExportRecord>("createBackup", "/api/finance/backups", {});
+
+export const updateFinanceBackupSchedule = (enabled: boolean, frequency: BackupSchedule["frequency"]) => hasAppsScriptBridge()
+  ? callAppsScript<BackupOverview>("updateBackupSchedule", { enabled, frequency })
+  : webRequest<BackupOverview>("/api/finance/backups", {
+      method: "PUT",
+      body: JSON.stringify({ enabled, frequency }),
+    });
+
+export const loadFinanceMigrations = () => hasAppsScriptBridge()
+  ? callAppsScript<{ migrations: MigrationPreview[] }>("migrationHistory", {})
+  : webRequest<{ migrations: MigrationPreview[] }>("/api/finance/migrations");
+
+export const previewFinanceMigration = (sourceName: string, backup: Record<string, unknown>) => mutation<MigrationPreview>(
+  "previewMigration",
+  "/api/finance/migrations/preview",
+  { sourceName, backup },
+);
+
+export const applyFinanceMigration = (migrationId: string) => mutation<MigrationPreview>(
+  "applyMigration",
+  `/api/finance/migrations/${encodeURIComponent(migrationId)}/apply`,
+  { migrationId },
+);
+
+export const cancelFinanceMigration = (migrationId: string) => mutation<MigrationPreview>(
+  "cancelMigration",
+  `/api/finance/migrations/${encodeURIComponent(migrationId)}/cancel`,
+  { migrationId },
 );
 
 export const financeBackendLabel = () => hasAppsScriptBridge() ? "Google Sheets" : "Cloud database";

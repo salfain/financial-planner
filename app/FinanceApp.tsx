@@ -10,8 +10,10 @@ import {
   Building2,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronDown,
   CircleDollarSign,
+  Clock3,
   CreditCard,
   Database,
   Download,
@@ -19,6 +21,7 @@ import {
   EyeOff,
   FileText,
   History,
+  HardDrive,
   Landmark,
   KeyRound,
   LayoutDashboard,
@@ -47,6 +50,8 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
+import type { ReportSection } from "../lib/report";
+import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
 import {
   Account,
   AuditLog,
@@ -75,6 +80,7 @@ import {
   clearFinanceAiMessages,
   contributeFinanceGoal,
   createFinanceAccount,
+  createFinanceBackup,
   createFinanceBill,
   createFinanceCategory,
   createFinanceGoal,
@@ -84,17 +90,25 @@ import {
   deleteFinanceTransaction,
   financeBackendLabel,
   getFinanceAiSettings,
+  loadFinanceBackups,
+  loadFinanceMigrations,
+  loadFinanceReports,
   loadFinanceSnapshot,
   loadFinanceAiMessages,
   markFinanceBillPaid,
   reconcileFinanceAccount,
   setupFinanceWorkspace,
   scanFinanceReceipt,
+  saveFinanceReport,
   updateFinanceCategory,
+  updateFinanceBackupSchedule,
   updateFinanceAiSettings,
   updateFinanceInvestmentAsset,
   updateFinanceTransaction,
   upsertFinanceBudget,
+  previewFinanceMigration,
+  applyFinanceMigration,
+  cancelFinanceMigration,
 } from "../lib/finance-client";
 
 type PageKey =
@@ -108,18 +122,6 @@ type PageKey =
   | "reports"
   | "assistant"
   | "settings";
-
-type StoredData = {
-  accounts: Account[];
-  transactions: Transaction[];
-  budgets: Budget[];
-  goals: Goal[];
-  bills: Bill[];
-  categories: FinanceCategory[];
-  auditLogs: AuditLog[];
-  investmentAssets: InvestmentAsset[];
-  investmentTransactions: InvestmentTransaction[];
-};
 
 const currentMonth = () => getCurrentMonth();
 const today = () => {
@@ -510,9 +512,9 @@ export function FinanceApp() {
           {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onContribute={contributeGoal} onAdd={() => setGoalOpen(true)} />}
           {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onAdd={() => setBillOpen(true)} />}
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
-          {activePage === "reports" && <ReportsPage transactions={transactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} />}
+          {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
-          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} data={{ accounts, transactions, budgets, goals, bills, categories, auditLogs, investmentAssets, investmentTransactions }} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} />}
+          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} onRefresh={refreshData} />}
         </div>
       </main>
 
@@ -851,9 +853,52 @@ function InvestmentsPage({ assets, transactions, accounts, privacy, onAddAsset, 
   </div>;
 }
 
-function ReportsPage({ transactions, monthly, accountTotals, privacy }: { transactions: Transaction[]; monthly: ReturnType<typeof monthlySummary>; accountTotals: ReturnType<typeof accountSummary>; privacy: boolean }) {
-  const month = currentMonth();
-  const monthTransactions = transactions.filter((item) => item.date.startsWith(month) && item.status === "completed");
+const reportSectionOptions: Array<{ key: ReportSection; label: string }> = [
+  { key: "summary", label: "Ringkasan eksekutif" },
+  { key: "cashflow", label: "Arus kas & transaksi" },
+  { key: "categories", label: "Kategori" },
+  { key: "accounts", label: "Saldo akun" },
+  { key: "budgets", label: "Anggaran" },
+  { key: "bills", label: "Tagihan" },
+  { key: "goals", label: "Target" },
+  { key: "investments", label: "Investasi" },
+];
+
+const downloadBrowserFile = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+};
+
+const fileSizeLabel = (value: number) => value >= 1024 * 1024
+  ? `${(value / 1024 / 1024).toFixed(1)} MB`
+  : `${Math.max(1, Math.round(value / 1024))} KB`;
+
+function ReportsPage({ period, profile, transactions, accounts, budgets, goals, bills, categories, investmentAssets, investmentTransactions, monthly, accountTotals, privacy, onToast }: {
+  period: string;
+  profile: FinanceProfile;
+  transactions: Transaction[];
+  accounts: Account[];
+  budgets: Budget[];
+  goals: Goal[];
+  bills: Bill[];
+  categories: FinanceCategory[];
+  investmentAssets: InvestmentAsset[];
+  investmentTransactions: InvestmentTransaction[];
+  monthly: ReturnType<typeof monthlySummary>;
+  accountTotals: ReturnType<typeof accountSummary>;
+  privacy: boolean;
+  onToast: (message: string) => void;
+}) {
+  const [sections, setSections] = useState<ReportSection[]>(reportSectionOptions.map((item) => item.key));
+  const [maskPdf, setMaskPdf] = useState(privacy);
+  const [generating, setGenerating] = useState(false);
+  const [reports, setReports] = useState<ExportRecord[]>([]);
+  const [error, setError] = useState("");
+  const monthTransactions = transactions.filter((item) => item.date.startsWith(period) && item.status === "completed");
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
     result[item.category] = (result[item.category] ?? 0) + item.amount;
     return result;
@@ -869,24 +914,72 @@ function ReportsPage({ transactions, monthly, accountTotals, privacy }: { transa
   const reportNote = topExpense
     ? `${topExpense[0]} merupakan pengeluaran terbesar bulan ini sebesar ${formatIDR(topExpense[1])}.`
     : "Tambahkan transaksi agar laporan dapat mengidentifikasi pola pengeluaran utama.";
-  const escapeCsv = (value: string) => {
-    const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
-    return `"${safe.replaceAll('"', '""')}"`;
+  useEffect(() => {
+    let active = true;
+    loadFinanceReports()
+      .then((result) => active && setReports(result.reports))
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Riwayat laporan tidak dapat dimuat."));
+    return () => { active = false; };
+  }, []);
+
+  const toggleSection = (section: ReportSection) => {
+    setSections((current) => current.includes(section) ? current.filter((item) => item !== section) : [...current, section]);
   };
-  const exportCsv = () => {
-    const rows = [["Tanggal", "Tipe", "Deskripsi", "Kategori", "Nominal"], ...monthTransactions.map((item) => [item.date, item.type, item.title, item.category, String(item.amount)])];
-    const blob = new Blob(["\uFEFF", rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `vinn-store-transaksi-${month}.csv`; anchor.click(); URL.revokeObjectURL(url);
+
+  const exportCsv = async () => {
+    const report = await import("../lib/report");
+    const csv = report.buildFinanceCsv({ period, transactions });
+    downloadBrowserFile(new Blob([csv], { type: "text/csv;charset=utf-8" }), report.financeCsvFilename(profile.storeName, period));
+    onToast("CSV transaksi berhasil diunduh.");
   };
+
+  const exportPdf = async () => {
+    if (!sections.length || generating) return;
+    setGenerating(true);
+    setError("");
+    try {
+      const report = await import("../lib/report");
+      const result = report.generateFinancePdf({
+        period,
+        profile,
+        transactions,
+        accounts,
+        budgets,
+        goals,
+        bills,
+        categories,
+        investmentAssets,
+        investmentTransactions,
+        privacy: maskPdf,
+        sections,
+      });
+      const saved = await saveFinanceReport({
+        filename: result.filename,
+        contentBase64: byteArrayToBase64(result.bytes),
+        period,
+        sections,
+        privacy: maskPdf,
+        pageCount: result.pageCount,
+      });
+      downloadBrowserFile(new Blob([result.bytes as BlobPart], { type: "application/pdf" }), result.filename);
+      setReports((current) => [saved, ...current.filter((item) => item.id !== saved.id)].slice(0, 30));
+      onToast(`PDF ${result.pageCount} halaman dibuat, disimpan, dan diunduh.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "PDF tidak dapat dibuat.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return <div className="report-layout">
     <section className="report-sheet">
-      <div className="report-brand"><BrandMark /><span><strong>VINN STORE</strong><small>Financial OS</small></span><div><small>LAPORAN BULANAN</small><strong>{monthLabel(month)}</strong></div></div>
+      <div className="report-brand"><BrandMark /><span><strong>{profile.storeName}</strong><small>Financial OS</small></span><div><small>LAPORAN BULANAN</small><strong>{monthLabel(period)}</strong></div></div>
       <div className="report-title"><span>Ringkasan eksekutif</span><h2>{reportHeadline}</h2><p>Savings rate tercatat {monthly.savingsRate.toFixed(1)}% dan rasio kewajiban terhadap aset {liabilityRatio.toFixed(1)}%.</p></div>
       <div className="report-metrics"><div><span>Kekayaan bersih</span><Amount value={accountTotals.netWorth} privacy={privacy} /></div><div><span>Arus kas bersih</span><Amount value={monthly.cashflow} privacy={privacy} /></div><div><span>Savings rate</span><strong>{monthly.savingsRate.toFixed(1)}%</strong></div></div>
       <div className="report-section"><span className="card-kicker">Arus kas bulanan</span><div className="report-bars"><div><span>Pemasukan</span><i style={{ width: `${monthly.income / chartMax * 100}%` }} /><Amount value={monthly.income} privacy={privacy} /></div><div><span>Pengeluaran</span><i className="expense-bar" style={{ width: `${monthly.expense / chartMax * 100}%` }} /><Amount value={monthly.expense} privacy={privacy} /></div><div><span>Tabungan</span><i className="saving-bar" style={{ width: `${Math.max(0, monthly.cashflow) / chartMax * 100}%` }} /><Amount value={monthly.cashflow} privacy={privacy} /></div></div></div>
       <div className="report-note"><Sparkles size={18} /><p><strong>Catatan:</strong> {reportNote}</p></div>
     </section>
-    <aside className="report-actions panel"><span className="card-kicker">Ekspor</span><h2>Bagikan laporan</h2><p>Unduh data transaksi atau cetak laporan ini sebagai PDF melalui browser.</p><button className="primary-button full" onClick={() => window.print()}><FileText size={17} /> Cetak / Simpan PDF</button><button className="secondary-button full" onClick={exportCsv}><Download size={17} /> Unduh CSV</button><div className="security-note"><ShieldCheck size={18} /><span><strong>Privasi terjaga</strong><small>Ekspor dibuat langsung di perangkatmu.</small></span></div></aside>
+    <aside className="report-actions panel"><span className="card-kicker">Ekspor A4</span><h2>Buat laporan lengkap</h2><p>Pilih bagian yang diperlukan. PDF disimpan pada storage workspace dan juga diunduh ke perangkatmu.</p><div className="report-section-picker">{reportSectionOptions.map((item) => <label key={item.key}><input type="checkbox" checked={sections.includes(item.key)} onChange={() => toggleSection(item.key)} /><span>{item.label}</span></label>)}</div><label className="report-privacy-option"><input type="checkbox" checked={maskPdf} onChange={(event) => setMaskPdf(event.target.checked)} /><span>Samarkan semua nominal pada PDF</span></label><button className="primary-button full" onClick={exportPdf} disabled={generating || !sections.length}><FileText size={17} /> {generating ? "Membuat PDF…" : "Buat, simpan & unduh PDF"}</button><button className="secondary-button full" onClick={exportCsv}><Download size={17} /> Unduh CSV transaksi</button>{error && <div className="portability-error" role="alert">{error}</div>}<div className="security-note"><ShieldCheck size={18} /><span><strong>Snapshot periode terkunci</strong><small>Riwayat laporan menyimpan file yang sama dengan versi unduhan.</small></span></div>{reports.length > 0 && <div className="export-history"><strong>Riwayat PDF</strong>{reports.slice(0, 5).map((report) => <a key={report.id} href={report.downloadUrl} target="_blank" rel="noreferrer"><span><FileText size={15} /><span><b>{report.period ? monthLabel(report.period) : "Laporan"}</b><small>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(report.createdAt))}</small></span></span><small>{fileSizeLabel(report.sizeBytes)}</small></a>)}</div>}</aside>
   </div>;
 }
 
@@ -1031,12 +1124,134 @@ function AiSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
   </section>;
 }
 
-function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, data, categories, auditLogs, backendLabel, onAddCategory, onEditCategory, onArchiveCategory, onToast }: {
+function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLabel: string; onToast: (message: string) => void; onRefresh: () => Promise<void> }) {
+  const [overview, setOverview] = useState<BackupOverview | null>(null);
+  const [migrations, setMigrations] = useState<MigrationPreview[]>([]);
+  const [preview, setPreview] = useState<MigrationPreview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState<"backup" | "schedule" | "preview" | "apply" | "cancel" | "">("");
+  const [error, setError] = useState("");
+
+  const load = async () => {
+    const [backupResult, migrationResult] = await Promise.all([loadFinanceBackups(), loadFinanceMigrations()]);
+    setOverview(backupResult);
+    setMigrations(migrationResult.migrations);
+    const activePreview = migrationResult.migrations.find((item) => item.status === "preview");
+    if (activePreview) setPreview(activePreview);
+  };
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([loadFinanceBackups(), loadFinanceMigrations()])
+      .then(([backupResult, migrationResult]) => {
+        if (!active) return;
+        setOverview(backupResult);
+        setMigrations(migrationResult.migrations);
+        setPreview(migrationResult.migrations.find((item) => item.status === "preview") ?? null);
+        setError("");
+      })
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Status backup dan migrasi tidak dapat dimuat."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  const createBackup = async () => {
+    setWorking("backup");
+    setError("");
+    try {
+      await createFinanceBackup();
+      await load();
+      onToast("Backup lengkap berhasil dibuat dan disimpan.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Backup tidak dapat dibuat.");
+    } finally { setWorking(""); }
+  };
+
+  const changeSchedule = async (enabled: boolean, frequency = overview?.schedule.frequency ?? "weekly") => {
+    setWorking("schedule");
+    setError("");
+    try {
+      setOverview(await updateFinanceBackupSchedule(enabled, frequency));
+      onToast(enabled ? "Backup otomatis berhasil diaktifkan." : "Backup otomatis dinonaktifkan.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Jadwal backup tidak dapat disimpan.");
+    } finally { setWorking(""); }
+  };
+
+  const chooseMigrationFile = async (file?: File) => {
+    if (!file) return;
+    if (file.size > 12 * 1024 * 1024) return setError("File migrasi maksimal 12 MB.");
+    if (!file.name.toLowerCase().endsWith(".json")) return setError("Gunakan file backup JSON VINN STORE.");
+    setWorking("preview");
+    setError("");
+    try {
+      const raw = JSON.parse(await file.text()) as unknown;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Isi file harus berupa object JSON.");
+      const result = await previewFinanceMigration(file.name, raw as Record<string, unknown>);
+      setPreview(result);
+      setMigrations((current) => [result, ...current.filter((item) => item.id !== result.id)]);
+      onToast(result.canApply ? "Preview migrasi lolos dan siap dikonfirmasi." : "Preview selesai; periksa catatan validasi.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "File migrasi tidak dapat diproses.");
+    } finally { setWorking(""); }
+  };
+
+  const applyMigration = async () => {
+    if (!preview?.canApply || !window.confirm(`Terapkan ${preview.totalRecords} baris dari ${preview.sourceName}? Backup pra-migrasi akan dibuat otomatis.`)) return;
+    setWorking("apply");
+    setError("");
+    try {
+      const result = await applyFinanceMigration(preview.id);
+      setPreview(result);
+      await Promise.all([load(), onRefresh()]);
+      onToast("Migrasi berhasil diterapkan dan laporan validasi dibuat.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Migrasi tidak dapat diterapkan.");
+    } finally { setWorking(""); }
+  };
+
+  const cancelMigration = async () => {
+    if (!preview || preview.status !== "preview") return;
+    setWorking("cancel");
+    setError("");
+    try {
+      const result = await cancelFinanceMigration(preview.id);
+      setPreview(result);
+      await load();
+      onToast("Preview dibatalkan; tidak ada data yang dimasukkan.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Preview tidak dapat dibatalkan.");
+    } finally { setWorking(""); }
+  };
+
+  const schedule = overview?.schedule;
+  return <section className="panel settings-section settings-wide portability-panel">
+    <div className="settings-title"><span><HardDrive size={20} /></span><div><h2>Laporan data, backup & migrasi</h2><p>File tersimpan permanen di {backendLabel === "Google Sheets" ? "Google Drive" : "storage workspace"}; migrasi selalu melewati preview dan rekonsiliasi.</p></div>{loading && <span className="portability-loading">Memuat…</span>}</div>
+    <div className="portability-grid">
+      <div className="portability-column">
+        <div className="portability-heading"><span><Database size={18} /></span><div><strong>Backup lengkap</strong><small>Akun, transaksi, planning, investasi, dan pengaturan aman. API key tidak pernah ikut.</small></div></div>
+        <button className="primary-button full" onClick={createBackup} disabled={Boolean(working)}><Download size={16} /> {working === "backup" ? "Membuat backup…" : "Buat backup sekarang"}</button>
+        <div className="backup-schedule-row"><div><strong>Backup otomatis</strong><small>{schedule?.mode === "scheduled" ? "Dijalankan oleh penjadwal Google." : "Dijalankan saat aplikasi dibuka setelah jadwal jatuh tempo."}</small></div><button className={`switch ${schedule?.enabled ? "on" : ""}`} onClick={() => changeSchedule(!schedule?.enabled)} disabled={working === "schedule"} aria-pressed={Boolean(schedule?.enabled)}><span /></button></div>
+        <label className="schedule-select"><span>Frekuensi</span><select value={schedule?.frequency ?? "weekly"} onChange={(event) => changeSchedule(Boolean(schedule?.enabled), event.target.value as BackupOverview["schedule"]["frequency"])} disabled={working === "schedule"}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option></select><ChevronDown size={15} /></label>
+        {schedule?.nextBackupAt && <div className="next-backup"><Clock3 size={15} /><span>Backup berikutnya <strong>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(schedule.nextBackupAt))}</strong></span></div>}
+        <div className="export-history compact"><strong>Backup terbaru</strong>{overview?.backups.slice(0, 5).map((backup) => <a key={backup.id} href={backup.downloadUrl} target="_blank" rel="noreferrer"><span><Database size={15} /><span><b>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(backup.createdAt))}</b><small>{String(backup.metadata?.reason ?? "manual").replaceAll("_", " ")}</small></span></span><small>{fileSizeLabel(backup.sizeBytes)}</small></a>)}{!loading && !overview?.backups.length && <small className="empty-portability">Belum ada backup tersimpan.</small>}</div>
+      </div>
+      <div className="portability-column">
+        <div className="portability-heading"><span><Upload size={18} /></span><div><strong>Migrasi backup lama</strong><small>Unggah JSON, periksa jumlah baris dan selisih saldo, lalu konfirmasi secara eksplisit.</small></div></div>
+        <label className={`migration-drop ${working === "preview" ? "busy" : ""}`}><Upload size={21} /><span><strong>{working === "preview" ? "Memvalidasi file…" : "Pilih file backup JSON"}</strong><small>Maks. 12 MB · sumber tidak pernah dihapus</small></span><input type="file" accept="application/json,.json" disabled={Boolean(working)} onChange={(event) => { chooseMigrationFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>
+        {preview && <div className={`migration-preview ${preview.canApply ? "valid" : preview.status === "applied" ? "applied" : "invalid"}`}><div className="migration-preview-head"><span>{preview.canApply || preview.status === "applied" ? <CheckCircle2 size={18} /> : <ShieldCheck size={18} />}</span><div><strong>{preview.status === "applied" ? "Migrasi sudah diterapkan" : preview.canApply ? "Preview siap diterapkan" : "Preview perlu diperbaiki"}</strong><small>{preview.sourceName} · skema {preview.sourceSchemaVersion}</small></div></div><div className="migration-counts">{Object.entries(preview.counts).filter(([, count]) => count > 0).map(([key, count]) => <span key={key}><small>{key.replace(/([A-Z])/g, " $1")}</small><strong>{count}</strong></span>)}</div><div className="balance-check"><Scale size={15} /><span>Selisih rekonsiliasi <strong>{formatIDR(preview.balanceDifference)}</strong></span></div>{preview.warnings.map((warning) => <small className="migration-warning" key={warning}>{warning}</small>)}{preview.errors.map((item) => <small className="migration-error" key={item}>{item}</small>)}{preview.status === "preview" && <div className="migration-actions"><button className="primary-button" onClick={applyMigration} disabled={!preview.canApply || Boolean(working)}>{working === "apply" ? "Menerapkan…" : "Konfirmasi & terapkan"}</button><button className="secondary-button" onClick={cancelMigration} disabled={Boolean(working)}>{working === "cancel" ? "Membatalkan…" : "Batalkan preview"}</button></div>}{preview.reportDownloadUrl && <a className="secondary-button report-download-link" href={preview.reportDownloadUrl} target="_blank" rel="noreferrer"><Download size={15} /> Unduh laporan migrasi</a>}</div>}
+        {!preview && migrations.length > 0 && <div className="migration-history"><strong>Riwayat migrasi</strong>{migrations.slice(0, 4).map((item) => <div key={item.id}><span className={item.status}><i />{item.sourceName}</span><small>{item.status} · {item.totalRecords} baris</small></div>)}</div>}
+      </div>
+    </div>
+    {error && <div className="portability-error" role="alert">{error}</div>}
+  </section>;
+}
+
+function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, auditLogs, backendLabel, onAddCategory, onEditCategory, onArchiveCategory, onToast, onRefresh }: {
   darkMode: boolean;
   setDarkMode: (value: boolean) => void;
   privacy: boolean;
   setPrivacy: (value: boolean) => void;
-  data: StoredData;
   categories: FinanceCategory[];
   auditLogs: AuditLog[];
   backendLabel: string;
@@ -1044,24 +1259,15 @@ function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, data, catego
   onEditCategory: (category: FinanceCategory) => void;
   onArchiveCategory: (categoryId: string) => void;
   onToast: (message: string) => void;
+  onRefresh: () => Promise<void>;
 }) {
-  const backup = () => {
-    const blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), ...data }, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "vinn-store-backup.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
-    onToast("Backup berhasil dibuat.");
-  };
   const editableCategories = categories.filter((category) => category.active && (category.type === "income" || category.type === "expense"));
   return <div className="settings-layout">
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
     <AiSettingsPanel onToast={onToast} />
+    <DataPortabilityPanel backendLabel={backendLabel} onToast={onToast} onRefresh={onRefresh} />
     <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
-    <section className="panel settings-section"><div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Data & keamanan</h2><p>Backup portabel dari data yang sedang tersinkron.</p></div></div><div className="settings-actions"><button className="secondary-button" onClick={backup}><Download size={17} /> Unduh backup JSON</button></div><div className="settings-footnote">Data finansial utama tersimpan di backend, bukan localStorage. Setiap perubahan melewati validasi API dan ledger.</div></section>
     <section className="panel settings-section"><div className="settings-title"><span><History size={20} /></span><div><h2>Audit trail</h2><p>20 aktivitas terbaru yang tercatat di workspace.</p></div></div><div className="audit-list">{auditLogs.slice(0, 20).map((log) => <div key={log.id}><span><strong>{log.action.replaceAll("_", " ")}</strong><small>{log.module}{log.entityId ? ` · ${log.entityId.slice(0, 18)}` : ""}</small></span><time>{log.createdAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(log.createdAt)) : "—"}</time></div>)}{!auditLogs.length && <div className="settings-empty">Belum ada aktivitas yang tercatat.</div>}</div></section>
   </div>;
 }

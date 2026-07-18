@@ -33,7 +33,9 @@ npm test
 - Pembayaran tagihan dan pencatatan transaksi terkait.
 - Portofolio investasi persisten: asset master, buy/sell, unit pecahan, weighted average cost, fee, pajak, realized/unrealized P/L, serta harga manual dengan fallback harga transaksi terakhir.
 - Setiap buy/sell terhubung ke ledger akun secara logis sehingga saldo kas, cost basis, dan histori dapat direkonstruksi tanpa masuk ke arus kas operasional.
-- Laporan operasional dan backup JSON.
+- Laporan PDF A4 lengkap dengan pilihan bagian, privacy mask, riwayat file, penyimpanan permanen, serta ekspor CSV yang aman dari formula injection.
+- Backup lengkap manual dan otomatis dengan histori unduhan; versi web menyimpan file pada object storage, versi Apps Script menyimpan salinan pada folder Google Drive khusus.
+- Migrasi backup JSON dengan preview jumlah baris, pemeriksaan relasi, rekonsiliasi saldo, deteksi aset duplikat, backup pra-migrasi, konfirmasi eksplisit, pembatalan preview, dan laporan hasil.
 - Dark mode, privacy mode, UI responsif, reduced-motion, dan label aksesibilitas.
 - Harga investasi menampilkan sumber dan timestamp; harga manual maupun fallback transaksi terakhir tidak diklaim sebagai harga real-time.
 - VINN Insight berbasis Gemini dengan mode read-only, context builder minimal, manifest data yang dikirim, disclaimer, histori persisten, dan kontrol hapus histori.
@@ -50,7 +52,7 @@ npm test
 6. Pastikan semua sheet terbentuk tanpa menghapus data yang sudah ada.
 7. Pilih **Deploy → New deployment → Web app**. Jalankan sebagai pemilik dan batasi akses ke akun yang berwenang.
 
-API key Gemini dapat ditambahkan dari halaman **Pengaturan → AI & OCR Gemini**. Pada Apps Script key disimpan melalui User Properties dan tidak pernah dikirim kembali ke browser. Apps Script menggunakan document lock, request ID untuk idempotency, soft delete, audit log, cache dashboard, dan backup ke Google Drive.
+API key Gemini dapat ditambahkan dari halaman **Pengaturan → AI & OCR Gemini**. Pada Apps Script key disimpan melalui User Properties dan tidak pernah dikirim kembali ke browser. Apps Script menggunakan document lock, request ID untuk idempotency, soft delete, audit log, cache dashboard, backup ke Google Drive, dan time-driven trigger untuk backup otomatis.
 
 ## Struktur penting
 
@@ -64,4 +66,4 @@ public/               favicon dan social preview VINN STORE
 
 ## Status tahap berikutnya
 
-Core Finance, Investment, AI Assistant, dan OCR sudah tersambung ke UI, D1, serta backend Google Sheets. Tahap berikutnya adalah laporan PDF/Drive, backup terjadwal, dan migrasi lanjutan.
+Core Finance, Investment, AI Assistant, OCR, Reports, Backup, dan Migration sudah tersambung ke UI, D1/R2, serta backend Google Sheets/Drive. Tahap berikutnya adalah penyempurnaan transaksi lanjutan, otomatisasi reminder, lalu QA dan release packaging.
