@@ -22,6 +22,11 @@ import {
   calculateInvestmentSell,
   toUnitMicro,
 } from "../lib/investment";
+import {
+  estimateBase64Bytes,
+  normalizeOcrReceipt,
+  receiptNeedsRetake,
+} from "../lib/ai";
 
 const accounts: Account[] = [
   { id: "bank", name: "Bank", type: "Bank", institution: "Bank", balance: 10_000_000, mask: "01", color: "#000" },
@@ -52,6 +57,40 @@ test("transfer tidak dihitung sebagai income atau expense", () => {
   assert.equal(result.expense, 1_250_000);
   assert.equal(result.cashflow, 3_750_000);
   assert.equal(result.savingsRate, 75);
+});
+
+test("OCR menormalisasi hasil Gemini tanpa menyimpan transaksi", () => {
+  const receipt = normalizeOcrReceipt({
+    merchant: "  VINN Mart  ",
+    date: "tanggal-salah",
+    total: 125_499.6,
+    tax: -10,
+    serviceFee: 2500,
+    suggestedCategory: "MAKANAN",
+    confidence: 0.92,
+    imageQuality: "clear",
+    items: [{ name: "Kopi", quantity: 2, amount: 50_000 }],
+  }, ["Makanan", "Lainnya"], "2026-07-18");
+  assert.equal(receipt.merchant, "VINN Mart");
+  assert.equal(receipt.date, "2026-07-18");
+  assert.equal(receipt.total, 125_500);
+  assert.equal(receipt.tax, 0);
+  assert.equal(receipt.suggestedCategory, "Makanan");
+  assert.equal(receipt.items[0].quantity, 2);
+  assert.equal(receiptNeedsRetake(receipt), false);
+});
+
+test("OCR meminta foto ulang jika buram, confidence rendah, atau total hilang", () => {
+  const receipt = normalizeOcrReceipt({
+    merchant: "",
+    total: 0,
+    confidence: 0.3,
+    imageQuality: "blurry",
+    warnings: ["Total tidak terbaca"],
+  }, ["Lainnya"], "2026-07-18");
+  assert.equal(receiptNeedsRetake(receipt), true);
+  assert.equal(receipt.warnings[0], "Total tidak terbaca");
+  assert.equal(estimateBase64Bytes("YWJjZA=="), 4);
 });
 
 test("transfer memperbarui dua sisi dan tidak mengubah kekayaan bersih", () => {

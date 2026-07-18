@@ -20,6 +20,7 @@ import {
   FileText,
   History,
   Landmark,
+  KeyRound,
   LayoutDashboard,
   Menu,
   Moon,
@@ -31,6 +32,7 @@ import {
   Send,
   Settings,
   Scale,
+  ScanLine,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -44,6 +46,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import {
   Account,
   AuditLog,
@@ -66,8 +69,10 @@ import {
 import {
   FinanceProfile,
   SetupWorkspaceInput,
+  askFinanceAi,
   archiveFinanceAccount,
   archiveFinanceCategory,
+  clearFinanceAiMessages,
   contributeFinanceGoal,
   createFinanceAccount,
   createFinanceBill,
@@ -78,11 +83,15 @@ import {
   createFinanceTransaction,
   deleteFinanceTransaction,
   financeBackendLabel,
+  getFinanceAiSettings,
   loadFinanceSnapshot,
+  loadFinanceAiMessages,
   markFinanceBillPaid,
   reconcileFinanceAccount,
   setupFinanceWorkspace,
+  scanFinanceReceipt,
   updateFinanceCategory,
+  updateFinanceAiSettings,
   updateFinanceInvestmentAsset,
   updateFinanceTransaction,
   upsertFinanceBudget,
@@ -158,7 +167,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   bills: { eyebrow: "3 menunggu", title: "Tagihan rutin", subtitle: "Jangan lewatkan jatuh tempo dan hindari pencatatan ganda." },
   investments: { eyebrow: "Portofolio", title: "Portofolio investasi", subtitle: "Pantau unit, cost basis, harga, dan profit/loss tanpa mengubah arus kas operasional." },
   reports: { eyebrow: "Laporan bulanan", title: "Laporan keuangan", subtitle: "Ringkasan siap cetak dengan data yang dapat ditelusuri kembali." },
-  assistant: { eyebrow: "Analisis lokal · read-only", title: "VINN Insight", subtitle: "Baca indikator keuangan tanpa mengubah data apa pun." },
+  assistant: { eyebrow: "Gemini · read-only", title: "VINN Insight", subtitle: "Tanyakan kondisi keuanganmu dengan konteks terpilih dan kontrol privasi yang jelas." },
   settings: { eyebrow: "Workspace personal", title: "Pengaturan", subtitle: "Kelola preferensi, keamanan data, backup, dan koneksi Google." },
 };
 
@@ -502,7 +511,7 @@ export function FinanceApp() {
           {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onAdd={() => setBillOpen(true)} />}
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
           {activePage === "reports" && <ReportsPage transactions={transactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} />}
-          {activePage === "assistant" && <AssistantPage monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} privacy={privacy} />}
+          {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
           {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} data={{ accounts, transactions, budgets, goals, bills, categories, auditLogs, investmentAssets, investmentTransactions }} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} />}
         </div>
       </main>
@@ -881,31 +890,145 @@ function ReportsPage({ transactions, monthly, accountTotals, privacy }: { transa
   </div>;
 }
 
-function AssistantPage({ monthly, accountTotals, healthScore, privacy }: { monthly: ReturnType<typeof monthlySummary>; accountTotals: ReturnType<typeof accountSummary>; healthScore: number; privacy: boolean }) {
-  const month = currentMonth();
-  const liabilityRatio = accountTotals.assets > 0 ? accountTotals.liabilities / accountTotals.assets * 100 : accountTotals.liabilities > 0 ? 100 : 0;
-  const [messages, setMessages] = useState<{ role: "ai" | "user"; text: string }[]>([{ role: "ai", text: "Halo Vinn! Insight ini dihitung secara lokal dari ringkasan ledger. Modul ini tidak menggunakan AI eksternal dan tidak dapat mengubah transaksi." }]);
+function AssistantPage({ period, onOpenSettings }: { period: string; onOpenSettings: () => void }) {
+  const [settings, setSettings] = useState<AiSettingsStatus | null>(null);
+  const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const send = (question?: string) => {
-    const text = (question ?? input).trim(); if (!text) return;
-    const answer = text.toLowerCase().includes("hemat") || text.toLowerCase().includes("tabung")
-      ? monthly.income > 0 ? `Savings rate ${monthLabel(month)} ada di ${monthly.savingsRate.toFixed(1)}%. Arus kas bersihmu ${privacy ? "sudah dihitung dari ledger" : formatIDR(monthly.cashflow)}. Pertahankan pengeluaran di bawah pemasukan dan alokasikan surplus sesuai prioritasmu.` : "Belum ada pemasukan bulan ini, jadi savings rate belum dapat menjadi dasar rekomendasi. Catat pemasukan dan pengeluaran terlebih dahulu."
-      : text.toLowerCase().includes("utang")
-        ? `Total kewajibanmu ${privacy ? "telah dihitung" : formatIDR(accountTotals.liabilities)}, setara ${liabilityRatio.toFixed(1)}% dari aset. Tinjau jadwal tagihan dan prioritaskan kewajiban dengan jatuh tempo terdekat.`
-        : `Skor kesehatan finansialmu ${healthScore}/100. Skor ini dihitung deterministik dari savings rate, likuiditas, rasio utang, dan kepatuhan anggaran.`;
-    setMessages((current) => [...current, { role: "user", text }, { role: "ai", text: answer }]); setInput("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([getFinanceAiSettings(), loadFinanceAiMessages()])
+      .then(([nextSettings, history]) => {
+        if (!active) return;
+        setSettings(nextSettings);
+        setMessages(history.messages);
+        setError("");
+      })
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "AI tidak dapat dimuat."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  const ready = Boolean(settings?.configured && settings.enabled && settings.consentAccepted);
+  const send = async (question?: string) => {
+    const text = (question ?? input).trim();
+    if (!text || sending || !ready) return;
+    const userMessage: AiChatMessage = {
+      id: `local-${crypto.randomUUID()}`,
+      role: "user",
+      content: text,
+      period,
+      contextUsed: [],
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((current) => [...current, userMessage]);
+    setInput("");
+    setError("");
+    setSending(true);
+    try {
+      const result = await askFinanceAi(text, period);
+      setMessages((current) => [...current, result.message]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Pertanyaan tidak dapat diproses.");
+    } finally {
+      setSending(false);
+    }
   };
+
+  const clearHistory = async () => {
+    if (!messages.length || !window.confirm("Hapus seluruh histori percakapan VINN Insight?")) return;
+    try {
+      await clearFinanceAiMessages();
+      setMessages([]);
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Histori tidak dapat dihapus.");
+    }
+  };
+
+  const latestContext = [...messages].reverse().find((message) => message.role === "assistant")?.contextUsed ?? [
+    `Ringkasan ${period}`,
+    "Agregat kategori",
+  ];
+
   return <div className="assistant-layout">
     <section className="assistant-chat panel">
-      <div className="assistant-banner"><span><Bot size={21} /></span><div><strong>VINN Insight</strong><small>Analisis lokal {monthLabel(month)} · Read only</small></div><span className="online"><i /> Aktif</span></div>
-      <div className="chat-body">
-        {messages.map((message, index) => <div className={`chat-message ${message.role}`} key={index}>{message.role === "ai" && <span><Sparkles size={16} /></span>}<p>{message.text}</p></div>)}
+      <div className="assistant-banner"><span><Bot size={21} /></span><div><strong>VINN Insight</strong><small>Gemini · {monthLabel(period)} · Read-only</small></div><span className={`online ${ready ? "" : "offline"}`}><i /> {loading ? "Memeriksa" : ready ? "Siap" : "Perlu setup"}</span></div>
+      {!loading && !ready && <div className="ai-setup-callout"><KeyRound size={18} /><div><strong>Aktifkan AI terlebih dahulu</strong><small>Tambahkan API key Gemini dan setujui disclosure privasi di Pengaturan. Key hanya disimpan terenkripsi di server.</small></div><button className="secondary-button" onClick={onOpenSettings}>Buka Pengaturan</button></div>}
+      <div className="chat-body" aria-live="polite">
+        {!messages.length && <div className="chat-message assistant"><span><Sparkles size={16} /></span><p>Halo! Saya dapat menjelaskan arus kas, anggaran, target, tagihan, dan investasi dari data yang kamu izinkan. Saya tidak dapat mengubah transaksi atau melakukan investasi.</p></div>}
+        {messages.map((message) => <div className={`chat-message ${message.role}`} key={message.id}>{message.role === "assistant" && <span><Sparkles size={16} /></span>}<p>{message.content}</p></div>)}
+        {sending && <div className="chat-message assistant"><span><Sparkles size={16} /></span><p className="ai-thinking">Menganalisis konteks terpilih…</p></div>}
       </div>
-      <div className="suggestion-chips"><button onClick={() => send("Bagaimana cara menabung lebih banyak?")}>Cara menabung lebih banyak</button><button onClick={() => send("Apakah utang saya aman?")}>Apakah utang saya aman?</button></div>
-      <form className="chat-input" onSubmit={(event) => { event.preventDefault(); send(); }}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Tanya tentang kondisi keuanganmu..." aria-label="Pertanyaan untuk VINN Insight" /><button aria-label="Kirim pertanyaan"><Send size={18} /></button></form>
+      {error && <div className="ai-error" role="alert">{error}</div>}
+      <div className="suggestion-chips"><button disabled={!ready || sending} onClick={() => send("Mengapa saldo saya berubah bulan ini?")}>Mengapa saldo berubah?</button><button disabled={!ready || sending} onClick={() => send("Apakah anggaran saya berisiko terlampaui?")}>Risiko anggaran</button><button disabled={!ready || sending} onClick={() => send("Berapa keuntungan investasi yang sudah direalisasikan?")}>Realized P/L</button></div>
+      <form className="chat-input" onSubmit={(event) => { event.preventDefault(); send(); }}><input maxLength={600} disabled={!ready || sending} value={input} onChange={(event) => setInput(event.target.value)} placeholder={ready ? "Tanya tentang kondisi keuanganmu…" : "Aktifkan AI di Pengaturan"} aria-label="Pertanyaan untuk VINN Insight" /><button disabled={!ready || sending || !input.trim()} aria-label="Kirim pertanyaan"><Send size={18} /></button></form>
     </section>
-    <aside className="assistant-context panel"><span className="card-kicker">Data yang dibaca</span><h2>Ringkasan agregat</h2><p>Analisis rule-based ini hanya membaca angka ringkasan berikut.</p><div><span><CircleDollarSign size={17} /> Arus kas {monthLabel(month)}</span><strong>Digunakan</strong></div><div><span><WalletCards size={17} /> Total akun</span><strong>Digunakan</strong></div><div><span><ReceiptText size={17} /> Detail merchant</span><strong className="disabled-text">Tidak digunakan</strong></div><div><span><CreditCard size={17} /> Nomor akun</span><strong className="disabled-text">Tidak digunakan</strong></div><small className="ai-disclaimer">Insight bersifat informatif dan bukan pengganti penasihat keuangan profesional.</small></aside>
+    <aside className="assistant-context panel"><div className="assistant-context-head"><span><span className="card-kicker">Data yang dikirim</span><h2>Konteks minimal</h2></span><button className="icon-button small danger" onClick={clearHistory} disabled={!messages.length} aria-label="Hapus histori AI"><Trash2 size={14} /></button></div><p>Backend memilih ringkasan yang relevan dengan pertanyaan—bukan seluruh spreadsheet.</p>{latestContext.map((item) => <div key={item}><span><CircleDollarSign size={17} /> {item}</span><strong>Digunakan</strong></div>)}<div><span><CreditCard size={17} /> PIN, OTP, CVV, nomor kartu lengkap</span><strong className="disabled-text">Tidak pernah</strong></div><small className="ai-disclaimer">Jawaban AI dapat keliru dan bukan pengganti penasihat keuangan profesional. Kamu tetap bertanggung jawab atas keputusan finansial.</small></aside>
   </div>;
+}
+
+function AiSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
+  const [status, setStatus] = useState<AiSettingsStatus | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getFinanceAiSettings().then((next) => {
+      setStatus(next);
+      setEnabled(next.enabled);
+      setConsentAccepted(next.consentAccepted);
+    }).catch((reason) => setError(reason instanceof Error ? reason.message : "Status AI tidak dapat dimuat."));
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      const next = await updateFinanceAiSettings({
+        enabled,
+        consentAccepted,
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      });
+      setStatus(next);
+      setApiKey("");
+      onToast("Pengaturan AI berhasil disimpan.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Pengaturan AI tidak dapat disimpan.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeKey = async () => {
+    if (!window.confirm("Hapus API key Gemini dan nonaktifkan AI?")) return;
+    setSaving(true);
+    try {
+      const next = await updateFinanceAiSettings({ enabled: false, consentAccepted, removeApiKey: true });
+      setStatus(next);
+      setEnabled(false);
+      setApiKey("");
+      onToast("API key Gemini berhasil dihapus.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "API key tidak dapat dihapus.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <section className="panel settings-section settings-wide ai-settings-panel">
+    <div className="settings-title"><span><Bot size={20} /></span><div><h2>AI & OCR Gemini</h2><p>Kelola akses read-only, API key, dan persetujuan pengiriman data.</p></div><span className={`ai-config-badge ${status?.configured ? "ready" : ""}`}>{status?.configured ? "Key tersimpan" : "Belum dikonfigurasi"}</span></div>
+    <div className="ai-settings-grid">
+      <div className="ai-key-box"><label><span>API key Gemini</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={status?.configured ? "••••••••••••••••••••" : "Masukkan API key dari Google AI Studio"} /></label><small>Key dikirim sekali melalui HTTPS, dienkripsi di server, dan tidak pernah ditampilkan kembali ke browser.</small><div className="settings-actions"><button className="primary-button" onClick={save} disabled={saving || (enabled && !consentAccepted) || (!status?.configured && !apiKey.trim())}><ShieldCheck size={16} /> {saving ? "Menyimpan…" : "Simpan pengaturan"}</button>{status?.configured && <button className="secondary-button danger-text" onClick={removeKey} disabled={saving}><Trash2 size={15} /> Hapus key</button>}</div>{error && <div className="ai-error" role="alert">{error}</div>}</div>
+      <div className="ai-consent-box"><div className="settings-row"><div><strong>Aktifkan AI & OCR</strong><small>AI hanya membaca konteks yang relevan dan tidak dapat menulis transaksi.</small></div><button className={`switch ${enabled ? "on" : ""}`} onClick={() => setEnabled(!enabled)} aria-pressed={enabled}><span /></button></div><label className="ai-consent-check"><input type="checkbox" checked={consentAccepted} onChange={(event) => setConsentAccepted(event.target.checked)} /><span>Saya memahami data terpilih dan foto struk akan dikirim ke Gemini; hasil dapat keliru; AI bukan penasihat keuangan; dan transaksi OCR baru tersimpan setelah saya konfirmasi.</span></label><div className="ai-privacy-facts"><span><ShieldCheck size={15} /> Foto struk tidak disimpan setelah ekstraksi.</span><span><KeyRound size={15} /> API key tidak masuk ke histori atau audit log.</span><span><Bot size={15} /> Model: {status?.model ?? "gemini-3.5-flash"}</span></div></div>
+    </div>
+  </section>;
 }
 
 function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, data, categories, auditLogs, backendLabel, onAddCategory, onEditCategory, onArchiveCategory, onToast }: {
@@ -936,10 +1059,38 @@ function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, data, catego
   return <div className="settings-layout">
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
+    <AiSettingsPanel onToast={onToast} />
     <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
     <section className="panel settings-section"><div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Data & keamanan</h2><p>Backup portabel dari data yang sedang tersinkron.</p></div></div><div className="settings-actions"><button className="secondary-button" onClick={backup}><Download size={17} /> Unduh backup JSON</button></div><div className="settings-footnote">Data finansial utama tersimpan di backend, bukan localStorage. Setiap perubahan melewati validasi API dan ledger.</div></section>
     <section className="panel settings-section"><div className="settings-title"><span><History size={20} /></span><div><h2>Audit trail</h2><p>20 aktivitas terbaru yang tercatat di workspace.</p></div></div><div className="audit-list">{auditLogs.slice(0, 20).map((log) => <div key={log.id}><span><strong>{log.action.replaceAll("_", " ")}</strong><small>{log.module}{log.entityId ? ` · ${log.entityId.slice(0, 18)}` : ""}</small></span><time>{log.createdAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(log.createdAt)) : "—"}</time></div>)}{!auditLogs.length && <div className="settings-empty">Belum ada aktivitas yang tercatat.</div>}</div></section>
   </div>;
+}
+
+async function compressReceiptImage(file: File) {
+  if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Gunakan gambar JPG, PNG, atau WebP.");
+  if (file.size > 15 * 1024 * 1024) throw new Error("Foto terlalu besar. Pilih gambar di bawah 15 MB.");
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Gambar tidak dapat dibaca."));
+      element.src = objectUrl;
+    });
+    const maxEdge = 1600;
+    const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Kompresi gambar tidak didukung perangkat ini.");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+    if (dataUrl.length > 5_600_000) throw new Error("Hasil kompresi masih terlalu besar. Potong foto agar hanya struk yang terlihat.");
+    return { imageBase64: dataUrl.split(",")[1], mimeType: "image/jpeg", previewUrl: dataUrl };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function TransactionModal({ accounts, categories, initial, saving, onClose, onSubmit }: { accounts: Account[]; categories: FinanceCategory[]; initial?: Transaction; saving: boolean; onClose: () => void; onSubmit: (transaction: Transaction, requestId?: string) => Promise<boolean> }) {
@@ -955,6 +1106,9 @@ function TransactionModal({ accounts, categories, initial, saving, onClose, onSu
   const [category, setCategory] = useState(initial?.category ?? categories.find((item) => item.active && item.type === "expense")?.name ?? "");
   const [date, setDate] = useState(initial?.date ?? today());
   const [ocrMessage, setOcrMessage] = useState("");
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrPreview, setOcrPreview] = useState("");
+  const [ocrReceipt, setOcrReceipt] = useState<OcrReceipt | null>(null);
   const categoryType = type === "income" ? "income" : "expense";
   const availableCategories = categories.filter((item) => item.active && item.type === categoryType);
   const categoryOptions = availableCategories.some((item) => item.name === category)
@@ -974,7 +1128,32 @@ function TransactionModal({ accounts, categories, initial, saving, onClose, onSu
     const saved = await onSubmit({ id: draftId, type, date, title: title.trim(), merchant: title.trim(), category: type === "transfer" ? "Transfer" : type === "investment_buy" ? "Investasi" : category, accountId, destinationAccountId: type === "transfer" || type === "investment_buy" ? destinationAccountId : undefined, amount: value, status: initial?.status ?? "completed", transferGroupId: initial?.transferGroupId, updatedAt: initial?.updatedAt }, mutationRequestId);
     if (saved) onClose();
   };
-  const explainOcr = () => setOcrMessage("OCR belum diaktifkan. Hubungkan Gemini API pada tahap AI/OCR; tidak ada data contoh yang dimasukkan.");
+  const selectReceipt = async (file?: File) => {
+    if (!file) return;
+    setOcrLoading(true);
+    setOcrMessage("");
+    setOcrReceipt(null);
+    try {
+      const prepared = await compressReceiptImage(file);
+      setOcrPreview(prepared.previewUrl);
+      const result = await scanFinanceReceipt({ imageBase64: prepared.imageBase64, mimeType: prepared.mimeType, fileName: file.name });
+      setOcrReceipt(result.receipt);
+      setOcrMessage("Hasil OCR siap diperiksa. Belum ada transaksi yang disimpan.");
+    } catch (reason) {
+      setOcrMessage(reason instanceof Error ? reason.message : "Foto struk tidak dapat diproses.");
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+  const applyReceipt = () => {
+    if (!ocrReceipt) return;
+    changeType("expense");
+    setAmount(String(ocrReceipt.total));
+    setTitle(ocrReceipt.merchant || "Belanja dari struk");
+    setDate(ocrReceipt.date);
+    setCategory(ocrReceipt.suggestedCategory);
+    setOcrMessage("Form sudah diisi. Periksa nominal dan pilih akun, lalu tekan Simpan transaksi untuk mengonfirmasi.");
+  };
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal" role="dialog" aria-modal="true" aria-labelledby="transaction-title">
       <div className="modal-head"><div><span className="card-kicker">{initial ? "Edit ledger" : "Quick add"}</span><h2 id="transaction-title">{initial ? "Edit transaksi" : "Transaksi baru"}</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
@@ -989,7 +1168,12 @@ function TransactionModal({ accounts, categories, initial, saving, onClose, onSu
           <label><span>Akun {type === "transfer" ? "sumber" : ""}</span><select value={accountId} required onChange={(event) => { const nextId = event.target.value; setAccountId(nextId); if (nextId === destinationAccountId) setDestinationAccountId(accounts.find((account) => account.id !== nextId)?.id ?? ""); }}><option value="" disabled>Pilih akun</option>{sourceAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label>
           {(type === "transfer" || type === "investment_buy") ? <label><span>Akun tujuan</span><select value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)}>{accounts.filter((item) => item.id !== accountId).map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label> : <label><span>Kategori</span><select value={category} required onChange={(event) => setCategory(event.target.value)}><option value="" disabled>Pilih kategori</option>{categoryOptions.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label>}
         </div>
-        {!initial && <button type="button" className="ocr-button" onClick={explainOcr}><Upload size={17} /><span><strong>Isi dari foto struk</strong><small>Memerlukan konfigurasi Gemini API.</small></span></button>}
+        {!initial && <label className={`ocr-button ${ocrLoading ? "loading" : ""}`}><Upload size={17} /><span><strong>{ocrLoading ? "Gemini sedang membaca struk…" : "Isi dari foto struk"}</strong><small>JPG, PNG, atau WebP · dikompresi di perangkat · gambar tidak disimpan.</small></span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={ocrLoading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; selectReceipt(file); }} /></label>}
+        {!initial && ocrPreview && <div className="ocr-review">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={ocrPreview} alt="Preview foto struk yang akan diperiksa" />
+          {ocrLoading ? <div className="ocr-review-loading"><ScanLine size={21} /><strong>Mengekstrak merchant, tanggal, total, dan kategori…</strong></div> : ocrReceipt ? <div className="ocr-result"><div><span>Merchant</span><strong>{ocrReceipt.merchant || "Tidak terbaca"}</strong></div><div><span>Total</span><strong>{formatIDR(ocrReceipt.total)}</strong></div><div><span>Tanggal</span><strong>{ocrReceipt.date}</strong></div><div><span>Kategori</span><strong>{ocrReceipt.suggestedCategory}</strong></div><div><span>Pajak + layanan</span><strong>{formatIDR(ocrReceipt.tax + ocrReceipt.serviceFee)}</strong></div><div><span>Keyakinan</span><strong>{Math.round(ocrReceipt.confidence * 100)}%</strong></div>{ocrReceipt.items.length > 0 && <small>{ocrReceipt.items.length} item terdeteksi{ocrReceipt.paymentMethod ? ` · ${ocrReceipt.paymentMethod}` : ""}</small>}<button type="button" className="secondary-button" onClick={applyReceipt}><Check size={16} /> Gunakan hasil OCR</button></div> : null}
+        </div>}
         {ocrMessage && <div className="ocr-message"><Sparkles size={15} />{ocrMessage}</div>}
         {!sourceAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun pembayaran sebelum mencatat transaksi.</div>}
         {!availableCategories.length && type !== "transfer" && type !== "investment_buy" && !initial && <div className="ocr-message"><Tags size={15} />Tambahkan kategori {categoryType === "income" ? "pemasukan" : "pengeluaran"} di Pengaturan.</div>}

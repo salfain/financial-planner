@@ -36,7 +36,9 @@ npm test
 - Laporan operasional dan backup JSON.
 - Dark mode, privacy mode, UI responsif, reduced-motion, dan label aksesibilitas.
 - Harga investasi menampilkan sumber dan timestamp; harga manual maupun fallback transaksi terakhir tidak diklaim sebagai harga real-time.
-- OCR dan AI masih merupakan tahap lanjutan; UI tidak mengklaim data simulasi sebagai data nyata.
+- VINN Insight berbasis Gemini dengan mode read-only, context builder minimal, manifest data yang dikirim, disclaimer, histori persisten, dan kontrol hapus histori.
+- OCR struk berbasis Gemini: gambar dikompresi di perangkat, tidak disimpan, hasil divalidasi, dan baru mengisi form setelah pengguna menekan konfirmasi. Transaksi tetap harus dikonfirmasi manual.
+- API key Gemini tersimpan terenkripsi pada D1 atau di User Properties Apps Script; key tidak pernah dikirim kembali ke browser, histori, maupun audit log.
 
 ## Menyiapkan Google Sheets + Apps Script
 
@@ -48,7 +50,7 @@ npm test
 6. Pastikan semua sheet terbentuk tanpa menghapus data yang sudah ada.
 7. Pilih **Deploy → New deployment → Web app**. Jalankan sebagai pemilik dan batasi akses ke akun yang berwenang.
 
-API key Gemini disimpan melalui User Properties oleh `apiSaveAiKey()` dan tidak pernah dikirim kembali ke browser. Apps Script menggunakan document lock, request ID untuk idempotency, soft delete, audit log, cache dashboard, dan backup ke Google Drive.
+API key Gemini dapat ditambahkan dari halaman **Pengaturan → AI & OCR Gemini**. Pada Apps Script key disimpan melalui User Properties dan tidak pernah dikirim kembali ke browser. Apps Script menggunakan document lock, request ID untuk idempotency, soft delete, audit log, cache dashboard, dan backup ke Google Drive.
 
 ## Struktur penting
 
@@ -57,9 +59,9 @@ app/                 React UI dan design system
 lib/                 kalkulasi finansial dan adapter Apps Script
 apps-script/         backend Google Apps Script
 tests/               unit test untuk aturan ledger
-public/og.png         social preview VINN STORE
+public/               favicon dan social preview VINN STORE
 ```
 
 ## Status tahap berikutnya
 
-Core Finance dan Investment sudah tersambung ke UI, D1, serta backend Google Sheets. Tahap berikutnya adalah AI/OCR, kemudian laporan, backup, dan migrasi lanjutan.
+Core Finance, Investment, AI Assistant, dan OCR sudah tersambung ke UI, D1, serta backend Google Sheets. Tahap berikutnya adalah laporan PDF/Drive, backup terjadwal, dan migrasi lanjutan.

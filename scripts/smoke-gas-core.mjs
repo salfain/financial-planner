@@ -15,17 +15,20 @@ for (const action of [
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
   "updateTransaction", "reconcileAccount", "listAuditLogs",
   "createInvestmentAsset", "updateInvestmentAsset", "createInvestmentTrade",
+  "aiSettings", "updateAiSettings", "aiHistory", "askAi", "clearAiHistory", "ocrReceipt",
 ]) {
   assert.match(combinedSource, new RegExp(`\\b${action}\\s*:`), `Router action ${action} is missing`);
 }
 
 let uuid = 0;
 const properties = new Map();
+const userProperties = new Map();
 const cache = new Map();
 const writes = [];
 const sheetNames = [
   "Settings", "Accounts", "Categories", "Transactions", "Budgets", "Goals",
   "Bills", "Assets", "InvestmentTransactions", "AuditLog", "Trash",
+  "AIChat",
 ];
 const sheets = Object.fromEntries(sheetNames.map((name) => [name, []]));
 const context = vm.createContext({
@@ -39,12 +42,36 @@ const context = vm.createContext({
       if (format === "yyyy-MM-dd") return iso.slice(0, 10);
       return iso;
     },
+    base64Decode: (value) => [...Buffer.from(value, "base64")],
   },
   PropertiesService: {
     getDocumentProperties: () => ({
       getProperty: (key) => properties.get(key) ?? null,
       setProperty: (key, value) => properties.set(key, value),
     }),
+    getUserProperties: () => ({
+      getProperty: (key) => userProperties.get(key) ?? null,
+      setProperty: (key, value) => userProperties.set(key, value),
+      deleteProperty: (key) => userProperties.delete(key),
+    }),
+  },
+  UrlFetchApp: {
+    fetch: (_url, options) => {
+      const payload = JSON.parse(options.payload);
+      const isOcr = JSON.stringify(payload).includes("inlineData");
+      const text = isOcr
+        ? JSON.stringify({
+            merchant: "VINN Mart", date: "2026-07-18", total: 125000,
+            tax: 12500, serviceFee: 0, paymentMethod: "QRIS",
+            suggestedCategory: "Makanan", notes: "", items: [{ name: "Kopi", quantity: 1, amount: 125000 }],
+            confidence: 0.94, imageQuality: "clear", warnings: [],
+          })
+        : "Fakta: Arus kas bulan 2026-07 positif.\nPerhitungan: berdasarkan ringkasan terpilih.\nSaran umum: pertahankan anggaran.";
+      return {
+        getResponseCode: () => 200,
+        getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }),
+      };
+    },
   },
   CacheService: {
     getDocumentCache: () => ({
@@ -77,7 +104,7 @@ vm.runInContext(`
   mockSheet_ = function(name) {
     return {
       getLastRow: function() { return (sheets[name] || []).length + 1; },
-      getRange: function(row, column) {
+      getRange: function(row, column, rowCount) {
         return {
           setValues: function(values) {
             writes.push({ sheet: name, row: row, count: values.length });
@@ -89,6 +116,9 @@ vm.runInContext(`
               if (dataIndex >= sheets[name].length) sheets[name].push(object);
               else sheets[name][dataIndex] = Object.assign({}, sheets[name][dataIndex], object);
             });
+          },
+          clearContent: function() {
+            if (row >= 2) sheets[name].splice(row - 2, rowCount || sheets[name].length);
           }
         };
       }
@@ -267,6 +297,38 @@ assert.equal(result.data.investmentAssets[0].units, 9);
 for (const [accountId, target] of [["asset-up", 1200], ["asset-down", 800], ["debt-up", 1200], ["debt-down", 800]]) {
   assert.equal(result.data.accounts.find((account) => account.id === accountId).current_balance, target);
 }
+
+result = invoke(`apiAiSettings()`);
+assert.equal(result.ok, true);
+assert.equal(result.data.configured, false);
+result = invoke(`apiUpdateAiSettings({ enabled: true, consentAccepted: true })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "AI_NOT_CONFIGURED");
+result = invoke(`apiUpdateAiSettings({ enabled: true, consentAccepted: true, apiKey: "test-gemini-key-1234567890" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.configured, true);
+assert.equal(result.data.enabled, true);
+assert.equal(JSON.stringify(result.data).includes("test-gemini-key"), false);
+
+result = invoke(`apiAskAi({ requestId: "ai-ask-1", question: "Mengapa saldo saya turun?", period: "2026-07" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.message.role, "assistant");
+assert.equal(result.data.contextUsed.includes("Saldo akun terpilih"), true);
+assert.equal(sheets.AIChat.length, 2);
+result = invoke(`apiAiHistory()`);
+assert.equal(result.ok, true);
+assert.equal(result.data.messages.length, 2);
+
+result = invoke(`apiOcrReceipt({ requestId: "ocr-1", mimeType: "image/jpeg", imageBase64: "YWJj" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.receipt.merchant, "VINN Mart");
+assert.equal(result.data.receipt.total, 125000);
+assert.equal(result.data.imageStored, false);
+assert.equal(sheets.Transactions.some((row) => row.request_id === "ocr-1"), false);
+
+result = invoke(`apiClearAiHistory()`);
+assert.equal(result.ok, true);
+assert.equal(sheets.AIChat.length, 0);
 
 result = invoke(`apiListAuditLogs({ page: 1, pageSize: 100, module: "accounts" })`);
 assert.equal(result.ok, true);

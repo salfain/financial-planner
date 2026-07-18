@@ -13,7 +13,7 @@ test("shell menggunakan identitas VINN STORE dan locale Indonesia", async () => 
   assert.match(page, /<FinanceApp\s*\/>/);
   assert.match(layout, /VINN STORE — Financial OS/);
   assert.match(layout, /<html lang="id"/);
-  assert.match(layout, /\/og-investment\.png/);
+  assert.match(layout, /\/og-ai-ocr\.png/);
   assert.doesNotMatch(layout, /Starter Project|Your site is taking shape/);
 });
 
@@ -43,4 +43,22 @@ test("UI Investment mengekspos asset master, buy/sell, dan P/L tanpa placeholder
   assert.match(app, /realized P\/L/i);
   assert.match(app, /Weighted average cost/);
   assert.doesNotMatch(app, /Modul investasi belum diaktifkan/);
+});
+
+test("UI AI dan OCR memakai backend nyata, disclosure, dan konfirmasi", async () => {
+  const [app, client, aiRoute, ocrRoute] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../app/api/finance/ai/assistant/route.ts"),
+    source("../app/api/finance/ai/ocr/route.ts"),
+  ]);
+  assert.match(app, /AI & OCR Gemini/);
+  assert.match(app, /data terpilih dan foto struk akan dikirim ke Gemini/);
+  assert.match(app, /Belum ada transaksi yang disimpan/);
+  assert.match(app, /Gunakan hasil OCR/);
+  assert.match(client, /\/api\/finance\/ai\/assistant/);
+  assert.match(client, /\/api\/finance\/ai\/ocr/);
+  assert.match(aiRoute, /askAi/);
+  assert.match(ocrRoute, /scanReceipt/);
+  assert.doesNotMatch(app, /OCR belum diaktifkan|Analisis rule-based/);
 });

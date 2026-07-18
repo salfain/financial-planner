@@ -1,4 +1,5 @@
 import type { Account, AuditLog, Bill, Budget, FinanceCategory, Goal, InvestmentAsset, InvestmentTransaction, Transaction } from "./finance";
+import type { AiAnswer, AiChatMessage, AiSettingsStatus, OcrReceipt } from "./ai";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -337,5 +338,42 @@ export const updateFinanceInvestmentAsset = (assetId: string, payload: Record<st
 
 export const createFinanceInvestmentTrade = (payload: Record<string, unknown>, requestId = `investment-trade:${crypto.randomUUID()}`) =>
   mutation("createInvestmentTrade", "/api/finance/investments/transactions", { ...payload, requestId });
+
+export const getFinanceAiSettings = () => hasAppsScriptBridge()
+  ? callAppsScript<AiSettingsStatus>("aiSettings", {})
+  : webRequest<AiSettingsStatus>("/api/finance/ai/settings");
+
+export const updateFinanceAiSettings = (payload: {
+  enabled: boolean;
+  consentAccepted: boolean;
+  apiKey?: string;
+  removeApiKey?: boolean;
+}) => hasAppsScriptBridge()
+  ? callAppsScript<AiSettingsStatus>("updateAiSettings", payload)
+  : webRequest<AiSettingsStatus>("/api/finance/ai/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+
+export const loadFinanceAiMessages = () => hasAppsScriptBridge()
+  ? callAppsScript<{ messages: AiChatMessage[] }>("aiHistory", {})
+  : webRequest<{ messages: AiChatMessage[] }>("/api/finance/ai/assistant");
+
+export const askFinanceAi = (question: string, period: string) =>
+  mutation<AiAnswer>("askAi", "/api/finance/ai/assistant", { question, period });
+
+export const clearFinanceAiMessages = () => hasAppsScriptBridge()
+  ? callAppsScript<{ cleared: boolean }>("clearAiHistory", {})
+  : webRequest<{ cleared: boolean }>("/api/finance/ai/assistant", { method: "DELETE" });
+
+export const scanFinanceReceipt = (payload: {
+  imageBase64: string;
+  mimeType: string;
+  fileName?: string;
+}) => mutation<{ receipt: OcrReceipt; model: string; imageStored: false }>(
+  "ocrReceipt",
+  "/api/finance/ai/ocr",
+  payload,
+);
 
 export const financeBackendLabel = () => hasAppsScriptBridge() ? "Google Sheets" : "Cloud database";

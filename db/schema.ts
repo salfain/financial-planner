@@ -278,6 +278,39 @@ export const investmentTransactions = sqliteTable(
   ],
 );
 
+export const aiSettings = sqliteTable("ai_settings", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("gemini"),
+  model: text("model").notNull().default("gemini-3.5-flash"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  consentAccepted: integer("consent_accepted", { mode: "boolean" }).notNull().default(false),
+  encryptedApiKey: text("encrypted_api_key"),
+  apiKeyIv: text("api_key_iv"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const aiChatMessages = sqliteTable(
+  "ai_chat_messages",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    period: text("period").notNull(),
+    contextManifest: text("context_manifest").notNull().default("[]"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("ai_chat_messages_workspace_created_idx").on(table.workspaceId, table.createdAt),
+    check("ai_chat_messages_role_check", sql`${table.role} IN ('user', 'assistant')`),
+  ],
+);
+
 export const auditLogs = sqliteTable(
   "audit_logs",
   {

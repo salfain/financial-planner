@@ -26,7 +26,13 @@ function api(action, payload) {
     createInvestmentTrade: function() { return apiCreateInvestmentTrade(payload || {}); },
     backup: function() { return apiCreateBackup(); },
     saveAiKey: function() { return apiSaveAiKey(payload.provider, payload.apiKey); },
-    aiKeyStatus: function() { return apiAiKeyStatus(payload && payload.provider); }
+    aiKeyStatus: function() { return apiAiKeyStatus(payload && payload.provider); },
+    aiSettings: function() { return apiAiSettings(); },
+    updateAiSettings: function() { return apiUpdateAiSettings(payload || {}); },
+    aiHistory: function() { return apiAiHistory(); },
+    askAi: function() { return apiAskAi(payload || {}); },
+    clearAiHistory: function() { return apiClearAiHistory(); },
+    ocrReceipt: function() { return apiOcrReceipt(payload || {}); }
   };
   try {
     if (!routes[action]) throw createError_('ROUTE_NOT_FOUND', 'Aksi API tidak dikenal: ' + action);
