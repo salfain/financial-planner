@@ -63,6 +63,21 @@ test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () =>
   assert.doesNotMatch(app, /const\s+demo(?:Accounts|Transactions|Budgets|Goals|Bills)/);
 });
 
+test("impor akun menyediakan template, preview, validasi duplikat, dan endpoint persisten", async () => {
+  const [app, client, parser, route] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../lib/account-import.ts"),
+    source("../app/api/finance/accounts/import/route.ts"),
+  ]);
+  assert.match(app, /Impor akun & saldo awal/);
+  assert.match(app, /Unduh template CSV/);
+  assert.match(client, /\/api\/finance\/accounts\/import/);
+  assert.match(parser, /Nama akun muncul lebih dari sekali/);
+  assert.match(route, /account\.import/);
+  assert.match(route, /DUPLICATE_IMPORT_NAME/);
+});
+
 test("UI Investment mengekspos asset master, buy/sell, dan P/L tanpa placeholder", async () => {
   const app = await source("../app/FinanceApp.tsx");
   assert.match(app, /Aset investasi baru/);

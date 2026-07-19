@@ -56,6 +56,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import type { ReportSection } from "../lib/report";
 import type { LedgerHealthReport } from "../lib/ledger";
+import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
 import { DEFAULT_NOTIFICATION_SETTINGS, type FinanceNotification, type NotificationOverview, type NotificationSettings } from "../lib/notifications";
@@ -108,6 +109,7 @@ import {
   loadFinanceAiMessages,
   markFinanceBillPaid,
   importFinanceTransactions,
+  importFinanceAccounts,
   reconcileFinanceAccount,
   repairFinanceLedger,
   setupFinanceWorkspace,
@@ -259,6 +261,7 @@ export function FinanceApp() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
   const [transactionImportOpen, setTransactionImportOpen] = useState(false);
+  const [accountImportOpen, setAccountImportOpen] = useState(false);
   const [reconcileTarget, setReconcileTarget] = useState<Account | null>(null);
   const [categoryModal, setCategoryModal] = useState<{ category?: FinanceCategory } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -390,6 +393,11 @@ export function FinanceApp() {
   const importTransactions = async (items: Transaction[]) => runMutation(
     () => importFinanceTransactions(items),
     `${items.length} transaksi CSV berhasil diimpor.`,
+  );
+
+  const importAccounts = async (items: AccountImportItem[]) => runMutation(
+    () => importFinanceAccounts(items),
+    `${items.length} akun beserta saldo awal berhasil diimpor.`,
   );
 
   const undoLastTransaction = async () => runMutation(
@@ -596,7 +604,7 @@ export function FinanceApp() {
 
           {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setTransactionOpen(true)} />}
           {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
-          {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
+          {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onImport={() => setAccountImportOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} />}
           {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onContribute={contributeGoal} onAdd={() => setGoalOpen(true)} />}
           {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onAdd={() => setBillOpen(true)} />}
@@ -614,6 +622,7 @@ export function FinanceApp() {
 
       {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
       {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
+      {accountImportOpen && <AccountImportModal accounts={accounts} saving={saving} onClose={() => setAccountImportOpen(false)} onSubmit={async (items) => { const ok = await importAccounts(items); if (ok) setAccountImportOpen(false); return ok; }} />}
       {accountOpen && <AccountModal saving={saving} onClose={() => setAccountOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceAccount(payload), "Akun baru berhasil ditambahkan."); if (ok) setAccountOpen(false); }} />}
       {budgetOpen && <BudgetModal month={month} categories={categories} saving={saving} onClose={() => setBudgetOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => upsertFinanceBudget(payload), "Anggaran berhasil disimpan."); if (ok) setBudgetOpen(false); }} />}
       {goalOpen && <GoalModal saving={saving} onClose={() => setGoalOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceGoal(payload), "Target finansial berhasil dibuat."); if (ok) setGoalOpen(false); }} />}
@@ -847,7 +856,7 @@ function TransactionTable({ transactions, accounts, privacy, compact = false, on
   </div>;
 }
 
-function AccountsPage({ accounts, privacy, onAdd, onArchive, onReconcile, onInspect }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onArchive: (id: string) => void; onReconcile: (account: Account) => void; onInspect: (account: Account) => void }) {
+function AccountsPage({ accounts, privacy, onAdd, onImport, onArchive, onReconcile, onInspect }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onImport: () => void; onArchive: (id: string) => void; onReconcile: (account: Account) => void; onInspect: (account: Account) => void }) {
   const totals = accountSummary(accounts);
   return <div className="content-stack">
     <div className="summary-strip account-summary">
@@ -856,6 +865,7 @@ function AccountsPage({ accounts, privacy, onAdd, onArchive, onReconcile, onInsp
       <div><span>Total kewajiban</span><Amount value={totals.liabilities} privacy={privacy} /><small className="negative-text">Perlu dibayar</small></div>
       <div><span>Kekayaan bersih</span><Amount value={totals.netWorth} privacy={privacy} /><small>Setelah kewajiban</small></div>
     </div>
+    <div className="account-import-bar"><div><FileUp size={18} /><span><strong>Pindahkan daftar akun sekaligus</strong><small>Impor hingga 100 akun dan tetapkan saldo awal dari CSV.</small></span></div><button className="secondary-button" onClick={onImport}><FileUp size={16} /> Impor akun</button></div>
     <div className="account-grid">
       {accounts.map((account) => <article className={`account-card ${account.liability ? "liability" : ""}`} key={account.id}>
         <div className="account-card-top"><span className="large-account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={22} /> : account.type === "Investment" ? <TrendingUp size={22} /> : account.liability ? <CreditCard size={22} /> : <WalletCards size={22} />}</span><span className="account-card-actions"><button className="icon-button small" onClick={() => onReconcile(account)} aria-label={`Rekonsiliasi ${account.name}`} title="Cocokkan saldo"><Scale size={16} /></button><button className="icon-button small" onClick={() => window.confirm(`Arsipkan ${account.name}?`) && onArchive(account.id)} aria-label={`Arsipkan ${account.name}`}><Trash2 size={16} /></button></span></div>
@@ -1797,6 +1807,45 @@ function TransactionImportModal({ accounts, categories, saving, onClose, onSubmi
         {preview.rows.length > 30 && <small className="import-more">Menampilkan 30 dari {preview.rows.length} baris.</small>}
       </>}
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button type="button" className="primary-button" disabled={saving || !preview?.validCount || Boolean(preview.errorCount)} onClick={() => preview && void onSubmit(preview.valid)}><FileUp size={17} /> {saving ? "Mengimpor..." : `Impor ${preview?.validCount || 0} transaksi`}</button></div>
+    </section>
+  </div>;
+}
+
+function AccountImportModal({ accounts, saving, onClose, onSubmit }: {
+  accounts: Account[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (items: AccountImportItem[]) => Promise<boolean>;
+}) {
+  const [preview, setPreview] = useState<AccountImportPreview | null>(null);
+  const [filename, setFilename] = useState("");
+  const [error, setError] = useState("");
+  const selectFile = async (file?: File) => {
+    if (!file) return;
+    setError(""); setFilename(file.name);
+    if (file.size > 1024 * 1024) { setPreview(null); setError("Ukuran CSV maksimal 1 MB."); return; }
+    try {
+      const result = previewAccountCsv(await file.text(), accounts);
+      if (!result.rows.length) throw new Error("CSV kosong atau hanya berisi header.");
+      setPreview(result);
+    } catch (reason) { setPreview(null); setError(reason instanceof Error ? reason.message : "CSV tidak dapat dibaca."); }
+  };
+  const downloadTemplate = () => {
+    const url = URL.createObjectURL(new Blob([accountCsvTemplate], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "template-akun-vinn-store.csv"; anchor.click(); URL.revokeObjectURL(url);
+  };
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="account-import-title">
+      <div className="modal-head"><div><span className="card-kicker">Penyiapan data</span><h2 id="account-import-title">Impor akun & saldo awal</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
+      <div className="import-guide"><WalletCards size={22} /><div><strong>Periksa preview sebelum menyimpan.</strong><p>Kolom wajib: nama dan jenis. Saldo awal harus Rupiah bulat non-negatif; nama akun tidak boleh duplikat.</p><button type="button" className="text-button" onClick={downloadTemplate}><Download size={14} /> Unduh template CSV</button></div></div>
+      <label className="csv-dropzone"><Upload size={20} /><span><strong>{filename || "Pilih file CSV akun"}</strong><small>Maksimal 100 akun atau 1 MB</small></span><input type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
+      {error && <div className="ocr-message"><X size={15} />{error}</div>}
+      {preview && <>
+        <div className="import-summary"><span><small>Baris valid</small><strong>{preview.validCount}</strong></span><span className={preview.errorCount ? "negative-text" : "positive-text"}><small>Perlu diperbaiki</small><strong>{preview.errorCount}</strong></span><span><small>Total saldo awal</small><strong>{formatIDR(preview.totalOpeningBalance)}</strong></span><span><small>Akun kewajiban</small><strong>{preview.liabilityCount}</strong></span></div>
+        <div className="import-preview-table"><div className="import-preview-head"><span>Baris</span><span>Akun</span><span>Jenis / institusi</span><span>Saldo awal</span><span>Status</span></div>{preview.rows.slice(0, 30).map((row) => <div className={row.errors.length ? "invalid" : ""} key={row.rowNumber}><span>{row.rowNumber}</span><span><strong>{row.account?.name || row.raw.name || "-"}</strong><small>{row.account?.mask || row.raw.mask ? `Akhir ${row.account?.mask || row.raw.mask}` : "Tanpa nomor"}</small></span><span>{row.account ? `${row.account.type}${row.account.institution ? ` · ${row.account.institution}` : ""}` : row.raw.type || "-"}</span><span>{row.account ? formatIDR(row.account.openingBalance) : row.raw.opening_balance || "-"}</span><span>{row.errors.length ? row.errors.join(" ") : "Siap"}</span></div>)}</div>
+        {preview.rows.length > 30 && <small className="import-more">Menampilkan 30 dari {preview.rows.length} baris.</small>}
+      </>}
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button type="button" className="primary-button" disabled={saving || !preview?.validCount || Boolean(preview.errorCount)} onClick={() => preview && void onSubmit(preview.valid)}><FileUp size={17} /> {saving ? "Mengimpor..." : `Impor ${preview?.validCount || 0} akun`}</button></div>
     </section>
   </div>;
 }

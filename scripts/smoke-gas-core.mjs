@@ -14,6 +14,7 @@ const sources = readdirSync(appsScriptDirectory)
 const combinedSource = sources.join("\n");
 for (const action of [
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
+  "importAccounts",
   "updateTransaction", "reconcileAccount", "listAuditLogs",
   "inspectLedger", "repairLedger",
   "createInvestmentAsset", "updateInvestmentAsset", "createInvestmentTrade",
@@ -217,12 +218,26 @@ for (const [id, liability] of [
 }
 add("Accounts", { id: "inv-cash", name: "Kas Investasi", type: "Bank", opening_balance: 100000, is_liability: false, is_active: true });
 add("Accounts", { id: "inv-book", name: "Portofolio", type: "Investment", opening_balance: 0, is_liability: false, is_active: true });
+const accountCountBeforeImport = sheets.Accounts.length;
+let result = invoke(`apiImportAccounts({ requestId: "account-import-1", accounts: [{ id: "imported-bank", name: "Rekening Cabang", type: "Bank", institution: "BCA", openingBalance: 250000, mask: "7788", color: "#126b59" }, { id: "imported-card", name: "Kartu Operasional", type: "Credit Card", openingBalance: 500000, color: "#c76565" }] })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.imported, 2);
+assert.equal(sheets.Accounts.find((account) => account.id === "imported-card").is_liability, true);
+assert.equal(sheets.Accounts.find((account) => account.id === "imported-bank").opening_balance, 250000);
+result = invoke(`apiImportAccounts({ requestId: "account-import-1", accounts: [{ name: "Tidak Disimpan", type: "Cash" }] })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.duplicate, true);
+assert.equal(sheets.Accounts.length, accountCountBeforeImport + 2);
+result = invoke(`apiImportAccounts({ requestId: "account-import-duplicate", accounts: [{ name: "rekening cabang", type: "Cash" }] })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "DUPLICATE_ACCOUNT_NAME");
+assert.equal(sheets.Accounts.length, accountCountBeforeImport + 2);
 add("Categories", {
   id: "cat-food", name: "Makanan", type: "expense", parent_id: "", color: "#16876f",
   icon: "tag", is_active: true, is_default: true, request_id: "",
 });
 
-let result = invoke(`apiCreateCategory({ requestId: "cat-create", name: "Hobi", type: "expense", color: "#112233", icon: "sparkles" })`);
+result = invoke(`apiCreateCategory({ requestId: "cat-create", name: "Hobi", type: "expense", color: "#112233", icon: "sparkles" })`);
 assert.equal(result.ok, true);
 assert.equal(result.data.duplicate, false);
 result = invoke(`apiCreateCategory({ requestId: "cat-create", name: "Hobi", type: "expense", color: "#112233", icon: "sparkles" })`);
@@ -419,7 +434,7 @@ assert.equal(sheets.AIChat.length, 0);
 
 result = invoke(`apiListAuditLogs({ page: 1, pageSize: 100, module: "accounts" })`);
 assert.equal(result.ok, true);
-assert.equal(result.data.total, 5);
+assert.equal(result.data.total, 6);
 
 const transferVersion = sheets.Transactions.find((row) => row.id === "transfer-out").updated_at;
 const transactionWritesBeforeDelete = writes.filter((write) => write.sheet === "Transactions").length;

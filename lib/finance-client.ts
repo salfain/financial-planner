@@ -3,6 +3,7 @@ import type { AiAnswer, AiChatMessage, AiSettingsStatus, OcrReceipt } from "./ai
 import type { BackupOverview, BackupSchedule, ExportRecord, MigrationPreview } from "./portability";
 import { recurringBillDueDate, type NotificationOverview, type NotificationSettings } from "./notifications";
 import type { LedgerHealthReport } from "./ledger";
+import type { AccountImportItem } from "./account-import";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -279,6 +280,9 @@ export async function setupFinanceWorkspace(input: SetupWorkspaceInput, month: s
 
 export const createFinanceAccount = (payload: Record<string, unknown>) =>
   mutation("createAccount", "/api/finance/accounts", payload);
+
+export const importFinanceAccounts = (accounts: AccountImportItem[], requestId = `account-import:${crypto.randomUUID()}`) =>
+  mutation<{ imported: number }>("importAccounts", "/api/finance/accounts/import", { accounts, requestId });
 
 export const archiveFinanceAccount = (accountId: string) =>
   mutation("archiveAccount", `/api/finance/accounts/${encodeURIComponent(accountId)}/archive`, { accountId, requestId: `account-archive:${accountId}` });

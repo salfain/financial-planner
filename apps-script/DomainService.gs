@@ -73,6 +73,51 @@ function apiCreateAccount(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function apiImportAccounts(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const replay = requestAudit_(requestId);
+      if (replay) {
+        if (String(replay.action) !== 'IMPORT' || String(replay.module) !== 'accounts') throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        return ok_({ imported: Number(parseJsonObject_(replay.details_json).imported || 0), duplicate: true }, requestId);
+      }
+      const items = Array.isArray(payload.accounts) ? payload.accounts : [];
+      if (!items.length || items.length > 100) throw createError_('INVALID_IMPORT', 'Impor harus berisi 1 sampai 100 akun.');
+      const allowedTypes = ['Bank', 'E-Wallet', 'Cash', 'Investment', 'Credit Card'];
+      const existingNames = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).map(function(account) { return String(account.name || '').trim().toLowerCase(); });
+      const incomingNames = {};
+      const now = nowIso_();
+      const rows = items.map(function(item, index) {
+        const rowNumber = index + 2;
+        const name = String(item.name || '').trim();
+        const normalizedName = name.toLowerCase();
+        const type = String(item.type || '');
+        const openingBalance = Number(item.openingBalance === undefined ? item.balance || 0 : item.openingBalance);
+        const color = String(item.color || '#126b59').trim();
+        if (!name || name.length > 100) throw createError_('INVALID_IMPORT_ROW', 'Baris ' + rowNumber + ': nama akun wajib diisi dan maksimal 100 karakter.');
+        if (allowedTypes.indexOf(type) === -1) throw createError_('INVALID_IMPORT_ROW', 'Baris ' + rowNumber + ': jenis akun tidak dikenali.');
+        if (!Number.isSafeInteger(openingBalance) || openingBalance < 0) throw createError_('INVALID_IMPORT_ROW', 'Baris ' + rowNumber + ': saldo awal harus Rupiah bulat non-negatif.');
+        if (!/^#[0-9a-f]{6}$/i.test(color)) throw createError_('INVALID_IMPORT_ROW', 'Baris ' + rowNumber + ': warna harus berupa kode hex.');
+        if (existingNames.indexOf(normalizedName) >= 0 || incomingNames[normalizedName]) throw createError_('DUPLICATE_ACCOUNT_NAME', 'Baris ' + rowNumber + ': nama akun sudah digunakan.');
+        incomingNames[normalizedName] = true;
+        return {
+          id: String(item.id || id_('acc')), name: name, type: type,
+          institution: String(item.institution || '').trim().slice(0, 100),
+          mask: String(item.mask || '').trim().slice(0, 40), currency: VINN_CONFIG.CURRENCY,
+          opening_balance: openingBalance, color: color,
+          is_liability: type === 'Credit Card', is_active: true,
+          created_at: now, updated_at: now
+        };
+      });
+      appendObjects_(VINN_CONFIG.SHEETS.ACCOUNTS, rows);
+      audit_('IMPORT', 'accounts', requestId, requestId, { imported: rows.length, accountIds: rows.map(function(row) { return row.id; }), after: rows });
+      invalidateDashboard_();
+      return ok_({ imported: rows.length, duplicate: false }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiArchiveAccount(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {

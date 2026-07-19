@@ -379,6 +379,10 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 @media (max-width: 720px) { .ledger-health-status { grid-template-columns: 36px 1fr; }.ledger-health-status time { grid-column: 2; text-align: left; }.ledger-health-summary { grid-template-columns: 1fr 1fr; }.ledger-difference-list { overflow-x: auto; }.ledger-difference-head,.ledger-difference-row { min-width: 620px; }.ledger-repair-confirm { grid-template-columns: 28px 1fr; }.ledger-repair-confirm button { grid-column: 2; width: 100%; justify-content: center; } }
 @media (max-width: 440px) { .ledger-health-summary { grid-template-columns: 1fr; }.ledger-health-panel .settings-title { align-items: flex-start; flex-wrap: wrap; }.ledger-health-panel .settings-title-action { width: 100%; margin-left: 0; justify-content: center; } }
 
+.account-import-bar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 15px; border: 1px solid var(--border-soft); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.account-import-bar > div { display: flex; align-items: center; gap: 10px; color: var(--primary); }.account-import-bar span { display: grid; gap: 2px; }.account-import-bar strong { color: var(--text); font-size: 10px; }.account-import-bar small { color: var(--text-faint); font-size: 8px; }
+@media (max-width: 720px) { .account-import-bar { align-items: stretch; flex-direction: column; }.account-import-bar .secondary-button { width: 100%; justify-content: center; } }
+
 @media print {
   body { background: #fff; color: #111; }.sidebar,.topbar,.page-heading,.report-actions,.mobile-nav { display: none !important; }.main-area { margin: 0; }.page-wrap { max-width: none; padding: 0; }.report-layout { display: block; }.report-sheet { min-height: 0; border: 0; box-shadow: none; }.report-note { border: 1px solid #ddd; }
 }

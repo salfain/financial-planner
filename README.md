@@ -30,6 +30,7 @@ npm test
 - Kategori pemasukan/pengeluaran dinamis: tambah, ubah, arsipkan, dan gunakan langsung pada form transaksi, anggaran, serta tagihan.
 - Audit trail aktivitas terbaru pada halaman Pengaturan.
 - Perhitungan rekening aset dan kewajiban.
+- Impor hingga 100 akun dan saldo awal dari CSV dengan template, preview, validasi nama duplikat, penyimpanan satu batch, idempotensi, dan audit trail.
 - Realisasi budget; refund mengurangi realisasi.
 - Kontribusi target finansial.
 - Pembayaran tagihan dan pencatatan transaksi terkait.
