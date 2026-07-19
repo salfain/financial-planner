@@ -47,6 +47,7 @@ import {
   Tags,
   Trash2,
   TrendingUp,
+  TrendingDown,
   Undo2,
   Upload,
   UserRound,
@@ -59,6 +60,7 @@ import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import type { ReportSection } from "../lib/report";
 import type { LedgerHealthReport } from "../lib/ledger";
 import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapScenario, type RoadmapSettings } from "../lib/roadmap";
+import { addMonthsToPeriod, compareDebtStrategies, DEFAULT_DEBT_SETTINGS, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "../lib/debt";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
@@ -107,6 +109,7 @@ import {
   loadFinanceLedgerHealth,
   loadFinanceNotifications,
   loadFinanceRoadmapSettings,
+  loadFinanceDebtPlanner,
   loadFinanceReports,
   loadFinanceSnapshot,
   loadFinanceTransactions,
@@ -127,6 +130,8 @@ import {
   updateFinanceNotificationStates,
   updateFinanceProfile,
   updateFinanceRoadmapSettings,
+  updateFinanceDebtPlannerSettings,
+  upsertFinanceDebtPlan,
   updateFinanceTransaction,
   undoLastFinanceTransactionAction,
   uploadFinanceTransactionReceipt,
@@ -140,6 +145,7 @@ import {
 type PageKey =
   | "dashboard"
   | "roadmap"
+  | "debts"
   | "transactions"
   | "accounts"
   | "budgets"
@@ -166,6 +172,7 @@ const navPrimary: { key: PageKey; label: string; icon: LucideIcon }[] = [
   { key: "budgets", label: "Anggaran", icon: BarChart3 },
   { key: "goals", label: "Target", icon: Target },
   { key: "bills", label: "Tagihan", icon: CalendarDays },
+  { key: "debts", label: "Pelunasan Utang", icon: TrendingDown },
   { key: "investments", label: "Investasi", icon: TrendingUp },
 ];
 
@@ -196,6 +203,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   budgets: { eyebrow: "Rencana Juli", title: "Anggaran bulanan", subtitle: "Kendalikan pengeluaran sebelum melewati batas yang kamu tentukan." },
   goals: { eyebrow: "3 target aktif", title: "Target finansial", subtitle: "Lihat kemajuan dan kebutuhan kontribusi bulanan untuk setiap tujuan." },
   bills: { eyebrow: "3 menunggu", title: "Tagihan rutin", subtitle: "Jangan lewatkan jatuh tempo dan hindari pencatatan ganda." },
+  debts: { eyebrow: "Strategi pelunasan", title: "Debt Payoff Planner", subtitle: "Bandingkan metode avalanche dan snowball, lalu lihat kapan kamu bisa bebas utang." },
   investments: { eyebrow: "Portofolio", title: "Portofolio investasi", subtitle: "Pantau unit, cost basis, harga, dan profit/loss tanpa mengubah arus kas operasional." },
   reports: { eyebrow: "Laporan bulanan", title: "Laporan keuangan", subtitle: "Ringkasan siap cetak dengan data yang dapat ditelusuri kembali." },
   assistant: { eyebrow: "Gemini · read-only", title: "Financial Insight", subtitle: "Tanyakan kondisi keuanganmu dengan konteks terpilih dan kontrol privasi yang jelas." },
@@ -525,6 +533,7 @@ export function FinanceApp() {
   if (activePage === "budgets") title.eyebrow = `Rencana ${monthLabel(month)}`;
   if (activePage === "goals") title.eyebrow = `${goals.length} target aktif`;
   if (activePage === "bills") title.eyebrow = `${bills.filter((bill) => !bill.paid).length} menunggu`;
+  if (activePage === "debts") title.eyebrow = `${accounts.filter((account) => account.liability).length} akun kewajiban`;
   if (activePage === "investments") title.eyebrow = `${investmentAssets.length} aset aktif`;
   if (activePage === "reports") title.eyebrow = `Laporan ${monthLabel(month)}`;
   if (activePage === "settings") title.eyebrow = `Workspace ${profile.storeName}`;
@@ -612,13 +621,14 @@ export function FinanceApp() {
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
-            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "assistant" && activePage !== "settings" && (
+            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "debts" && activePage !== "assistant" && activePage !== "settings" && (
               <button className="primary-button" onClick={openCreateForPage}><Plus size={18} /> {createLabel}</button>
             )}
           </section>
 
           {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setTransactionOpen(true)} />}
           {activePage === "roadmap" && <RoadmapPage month={month} transactions={transactions} accounts={accounts} goals={goals} investmentAssets={investmentAssets} privacy={privacy} onToast={showToast} />}
+          {activePage === "debts" && <DebtPayoffPage month={month} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
           {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onImport={() => setAccountImportOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} />}
@@ -1042,6 +1052,93 @@ function RoadmapPage({ month, transactions, accounts, goals, investmentAssets, p
   </div>;
 }
 
+function DebtPayoffPage({ month, accounts, privacy, onToast }: { month: string; accounts: Account[]; privacy: boolean; onToast: (message: string) => void }) {
+  const liabilityAccounts = accounts.filter((account) => account.liability);
+  const [settings, setSettings] = useState<DebtPlannerSettings>(DEFAULT_DEBT_SETTINGS);
+  const [savedDebts, setSavedDebts] = useState<DebtPlan[]>([]);
+  const [editing, setEditing] = useState<Account | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    loadFinanceDebtPlanner().then((value) => {
+      if (!active) return;
+      setSettings(value.settings); setSavedDebts(value.debts); setError("");
+    }).catch((reason) => active && setError(reason instanceof Error ? reason.message : "Rencana utang tidak dapat dimuat."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  const plans = useMemo(() => savedDebts.map((debt) => {
+    const account = liabilityAccounts.find((item) => item.id === debt.accountId);
+    return account ? { ...debt, name: account.name, balance: account.balance } : null;
+  }).filter((debt): debt is DebtPlan => Boolean(debt)), [savedDebts, liabilityAccounts]);
+  const result = useMemo(() => simulateDebtPayoff(plans, settings), [plans, settings]);
+  const comparison = useMemo(() => compareDebtStrategies(plans, settings.extraMonthlyPayment), [plans, settings.extraMonthlyPayment]);
+  const payoffPeriod = !result.nonAmortizing && result.startingBalance > 0 ? addMonthsToPeriod(month, result.months) : null;
+  const chartMax = Math.max(1, ...result.schedule.map((point) => point.balance));
+  const chartWidth = 720; const chartHeight = 190; const padX = 18; const padY = 18;
+  const chartPoints = result.schedule.map((point, index) => `${padX + index / Math.max(1, result.schedule.length - 1) * (chartWidth - padX * 2)},${padY + (1 - point.balance / chartMax) * (chartHeight - padY * 2)}`).join(" ");
+
+  const saveSettings = async () => {
+    setSaving(true); setError("");
+    try { const next = await updateFinanceDebtPlannerSettings(settings); setSettings(next.settings); setSavedDebts(next.debts); onToast("Strategi pelunasan berhasil disimpan."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Strategi tidak dapat disimpan."); }
+    finally { setSaving(false); }
+  };
+  const savePlan = async (plan: Omit<DebtPlan, "name" | "balance">) => {
+    setSaving(true); setError("");
+    try { const next = await upsertFinanceDebtPlan(plan); setSettings(next.settings); setSavedDebts(next.debts); setEditing(null); onToast("Detail utang berhasil disimpan."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Detail utang tidak dapat disimpan."); }
+    finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="panel settings-empty">Memuat strategi pelunasan utang…</div>;
+  return <div className="debt-layout">
+    <section className="debt-hero">
+      <div><span className="card-kicker light">Debt-free forecast</span><h2>{payoffPeriod ? formatMonthLabel(payoffPeriod) : result.startingBalance ? "Perlu penyesuaian" : "Siap membuat rencana"}</h2><p>{payoffPeriod ? `Dengan strategi ${settings.strategy}, seluruh utang diproyeksikan selesai dalam ${result.months} bulan.` : result.nonAmortizing ? "Pembayaran saat ini belum cukup untuk melunasi seluruh saldo dalam 50 tahun." : "Tambahkan akun kewajiban dan detail cicilannya untuk memulai simulasi."}</p></div>
+      <div className="debt-hero-metrics"><span><small>Total utang</small><Amount value={result.startingBalance} privacy={privacy} /></span><span><small>Komitmen bulanan</small><Amount value={result.monthlyCommitment} privacy={privacy} /></span><span><small>Estimasi bunga</small><Amount value={result.totalInterest} privacy={privacy} /></span></div>
+    </section>
+
+    {error && <div className="data-alert debt-error"><span><TrendingDown size={17} /></span><div><strong>Rencana perlu perhatian</strong><small>{error}</small></div></div>}
+
+    <section className="panel debt-chart-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Payoff trajectory</span><h2>Saldo menuju nol</h2></div><span className="roadmap-data-badge">{plans.length} utang terkonfigurasi</span></div>
+      {plans.length ? <div className="debt-chart-wrap"><svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Grafik proyeksi saldo utang"><defs><linearGradient id="debt-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#d4685c" stopOpacity=".28"/><stop offset="1" stopColor="#d4685c" stopOpacity="0"/></linearGradient></defs><polyline points={`${padX},${chartHeight - padY} ${chartPoints} ${chartWidth - padX},${chartHeight - padY}`} fill="url(#debt-area)" stroke="none"/><polyline points={chartPoints} fill="none" stroke="#d4685c" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/></svg><div><span>Sekarang</span><span>{payoffPeriod ? formatMonthLabel(payoffPeriod) : "Belum lunas"}</span></div></div> : <div className="empty-state compact"><TrendingDown size={28}/><h3>Belum ada detail utang</h3><p>Konfigurasikan bunga dan cicilan minimum dari akun kewajibanmu.</p></div>}
+    </section>
+
+    <aside className="panel debt-settings-panel">
+      <span className="card-kicker">Strategi utama</span><h2>Atur akselerasi</h2>
+      <div className="debt-strategy-tabs"><button className={settings.strategy === "avalanche" ? "active" : ""} onClick={() => setSettings((value) => ({ ...value, strategy: "avalanche" }))}><strong>Avalanche</strong><small>Bunga tertinggi dulu</small></button><button className={settings.strategy === "snowball" ? "active" : ""} onClick={() => setSettings((value) => ({ ...value, strategy: "snowball" }))}><strong>Snowball</strong><small>Saldo terkecil dulu</small></button></div>
+      <label className="debt-extra-field"><span>Pembayaran ekstra per bulan</span><div className="roadmap-money-input"><small>Rp</small><input value={settings.extraMonthlyPayment} onChange={(event) => setSettings((value) => ({ ...value, extraMonthlyPayment: Math.max(0, Math.min(1_000_000_000, Number(event.target.value) || 0)) }))} type="number" min={0} step={100000}/></div></label>
+      <button className="primary-button roadmap-save" disabled={saving} onClick={() => void saveSettings()}><Check size={16}/>{saving ? "Menyimpan…" : "Simpan strategi"}</button>
+      <small className="roadmap-disclaimer">Avalanche biasanya menekan bunga; snowball memberi kemenangan psikologis lebih cepat.</small>
+    </aside>
+
+    <section className="debt-comparison-grid">
+      {([comparison.avalanche, comparison.snowball] as const).map((item) => <article className={`panel debt-comparison ${settings.strategy === item.strategy ? "selected" : ""}`} key={item.strategy}><span>{item.strategy === "avalanche" ? "Bunga minimum" : "Momentum cepat"}</span><h3>{item.strategy === "avalanche" ? "Avalanche" : "Snowball"}</h3><dl><div><dt>Durasi</dt><dd>{item.nonAmortizing ? "> 50 tahun" : `${item.months} bulan`}</dd></div><div><dt>Total bunga</dt><dd><Amount value={item.totalInterest} privacy={privacy} compact/></dd></div></dl></article>)}
+    </section>
+
+    <section className="panel debt-list-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Liability accounts</span><h2>Detail seluruh utang</h2></div>{!liabilityAccounts.length && <button className="secondary-button" disabled>Tambahkan akun kewajiban dahulu</button>}</div>
+      <div className="debt-account-list">{liabilityAccounts.map((account) => { const plan = plans.find((item) => item.accountId === account.id); const payoff = result.debts.find((item) => item.accountId === account.id); return <article key={account.id}><span className="debt-account-icon"><CreditCard size={18}/></span><span><strong>{account.name}</strong><small>{plan ? `${plan.annualInterestRatePct}% per tahun · jatuh tempo tanggal ${plan.dueDay}` : "Bunga dan cicilan belum diatur"}</small></span><span><small>Saldo</small><Amount value={account.balance} privacy={privacy}/></span><span><small>Estimasi selesai</small><strong>{payoff?.payoffMonth ? formatMonthLabel(addMonthsToPeriod(month, payoff.payoffMonth)) : "—"}</strong></span><button className="secondary-button" onClick={() => setEditing(account)}><Pencil size={14}/>{plan ? "Edit" : "Atur"}</button></article>; })}{!liabilityAccounts.length && <div className="empty-state compact"><CreditCard size={28}/><h3>Belum ada akun kewajiban</h3><p>Tambahkan Credit Card, Paylater, Loan, atau Mortgage dari halaman Akun.</p></div>}</div>
+    </section>
+    {editing && <DebtPlanModal account={editing} plan={plans.find((item) => item.accountId === editing.id)} saving={saving} onClose={() => setEditing(null)} onSubmit={savePlan}/>} 
+  </div>;
+}
+
+function DebtPlanModal({ account, plan, saving, onClose, onSubmit }: { account: Account; plan?: DebtPlan; saving: boolean; onClose: () => void; onSubmit: (plan: Omit<DebtPlan, "name" | "balance">) => Promise<void> }) {
+  const [rate, setRate] = useState(plan ? String(plan.annualInterestRatePct) : "0");
+  const [minimum, setMinimum] = useState(plan ? String(plan.minimumPayment) : "");
+  const [dueDay, setDueDay] = useState(plan ? String(plan.dueDay) : "1");
+  return <SimpleModal title={`Atur ${account.name}`} kicker="Debt terms" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ accountId: account.id, annualInterestRatePct: Number(rate.replace(",", ".") || 0), minimumPayment: Number(minimum || 0), dueDay: Number(dueDay || 1) }); }}>
+    <div className="debt-modal-balance"><small>Saldo utang saat ini</small><strong>{formatIDR(account.balance)}</strong></div>
+    <div className="form-grid"><label><span>Bunga per tahun (%)</span><input type="number" min={0} max={100} step="0.01" value={rate} onChange={(event) => setRate(event.target.value)} required autoFocus/></label><label><span>Cicilan minimum / bulan</span><input value={minimum} onChange={(event) => setMinimum(event.target.value.replace(/\D/g, ""))} inputMode="numeric" required/></label><label><span>Tanggal jatuh tempo</span><input type="number" min={1} max={31} value={dueDay} onChange={(event) => setDueDay(event.target.value)} required/></label></div>
+  </SimpleModal>;
+}
+
 function BillsPage({ bills, accounts, privacy, onPay, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; onPay: (bill: Bill) => void; onAdd: () => void }) {
   const pending = bills.filter((bill) => !bill.paid);
   return <div className="content-stack">
@@ -1120,6 +1217,7 @@ const reportSectionOptions: Array<{ key: ReportSection; label: string }> = [
   { key: "bills", label: "Tagihan" },
   { key: "goals", label: "Target" },
   { key: "roadmap", label: "Financial Roadmap" },
+  { key: "debts", label: "Pelunasan utang" },
   { key: "investments", label: "Investasi" },
 ];
 
@@ -1157,6 +1255,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
   const [generating, setGenerating] = useState(false);
   const [reports, setReports] = useState<ExportRecord[]>([]);
   const [roadmapReportSettings, setRoadmapReportSettings] = useState<RoadmapSettings>(DEFAULT_ROADMAP_SETTINGS);
+  const [debtReportPlanner, setDebtReportPlanner] = useState<{ settings: DebtPlannerSettings; debts: DebtPlan[] }>({ settings: DEFAULT_DEBT_SETTINGS, debts: [] });
   const [error, setError] = useState("");
   const monthTransactions = transactions.filter((item) => item.date.startsWith(period) && item.status === "completed");
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
@@ -1180,8 +1279,9 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
       .then((result) => active && setReports(result.reports))
       .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Riwayat laporan tidak dapat dimuat."));
     loadFinanceRoadmapSettings().then((value) => active && setRoadmapReportSettings(value)).catch(() => undefined);
+    loadFinanceDebtPlanner().then((value) => active && setDebtReportPlanner({ settings: value.settings, debts: value.debts.map((debt) => ({ ...debt, balance: accounts.find((account) => account.id === debt.accountId)?.balance ?? debt.balance })) })).catch(() => undefined);
     return () => { active = false; };
-  }, []);
+  }, [accounts]);
 
   const toggleSection = (section: ReportSection) => {
     setSections((current) => current.includes(section) ? current.filter((item) => item !== section) : [...current, section]);
@@ -1214,6 +1314,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
         privacy: maskPdf,
         sections,
         roadmapSettings: roadmapReportSettings,
+        debtPlanner: debtReportPlanner,
       });
       const saved = await saveFinanceReport({
         filename: result.filename,
@@ -2060,7 +2161,7 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
         <div className="setup-divider"><span>Akun pertama</span></div>
         <div className="form-grid setup-form">
           <label><span>Nama akun</span><input value={accountName} onChange={(event) => setAccountName(event.target.value)} placeholder="Contoh: BCA Utama" required /></label>
-          <label><span>Jenis akun</span><select value={accountType} onChange={(event) => setAccountType(event.target.value)}>{["Bank", "E-Wallet", "Cash", "Credit Card"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label>
+          <label><span>Jenis akun</span><select value={accountType} onChange={(event) => setAccountType(event.target.value)}>{["Bank", "E-Wallet", "Cash", "Credit Card", "Paylater", "Loan", "Mortgage"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label>
           <label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Contoh: Bank BCA" /></label>
           <label><span>Saldo awal</span><input value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="0" /></label>
         </div>
@@ -2077,7 +2178,7 @@ function AccountModal({ saving, onClose, onSubmit }: { saving: boolean; onClose:
   const [institution, setInstitution] = useState("");
   const [openingBalance, setOpeningBalance] = useState("");
   return <SimpleModal title="Tambah akun" kicker="Multi-account" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), type, institution: institution.trim(), openingBalance: Number(openingBalance || 0), color: categoryColors[name] || "#126b59", currency: "IDR" }); }}>
-    <div className="form-grid"><label><span>Nama akun</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Jenis akun</span><select value={type} onChange={(event) => setType(event.target.value)}>{["Bank", "E-Wallet", "Cash", "Credit Card", "Investment"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Opsional" /></label><label><span>Saldo awal</span><input value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="0" /></label></div>
+    <div className="form-grid"><label><span>Nama akun</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Jenis akun</span><select value={type} onChange={(event) => setType(event.target.value)}>{["Bank", "E-Wallet", "Cash", "Credit Card", "Paylater", "Loan", "Mortgage", "Investment"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Opsional" /></label><label><span>Saldo awal</span><input value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="0" /></label></div>
   </SimpleModal>;
 }
 

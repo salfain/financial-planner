@@ -19,6 +19,9 @@ export const ACCOUNT_TYPES = [
   "Cash",
   "Investment",
   "Credit Card",
+  "Paylater",
+  "Loan",
+  "Mortgage",
 ] as const;
 export const TRANSACTION_TYPES = [
   "income",
@@ -137,7 +140,7 @@ export function parseAccount(input: Record<string, unknown>, fallbackId?: string
     mask: optionalString(input, "mask", 40) ?? "",
     color: input.color === undefined ? "#16876f" : colorValue(input),
     liability:
-      input.liability === undefined ? type === "Credit Card" : booleanValue(input, "liability"),
+      input.liability === undefined ? ["Credit Card", "Paylater", "Loan", "Mortgage"].includes(type) : booleanValue(input, "liability"),
   };
 }
 

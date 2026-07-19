@@ -34,7 +34,7 @@ function apiSetupWorkspace(payload) {
           mask: String(account.mask || '').trim().slice(0, 30), currency: currency,
           opening_balance: Math.round(Number(account.openingBalance || 0)),
           color: String(account.color || '#126b59'),
-          is_liability: type === 'Credit Card' || type === 'Paylater' || type === 'Loan',
+          is_liability: type === 'Credit Card' || type === 'Paylater' || type === 'Loan' || type === 'Mortgage',
           is_active: true, created_at: now, updated_at: now
         };
       });
@@ -136,6 +136,90 @@ function apiUpdateRoadmapSettings(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function defaultDebtPlannerSettings_() {
+  return { strategy: 'avalanche', extraMonthlyPayment: 0 };
+}
+
+function debtPlannerData_() {
+  const rawSettings = settingValue_('debt_planner_settings', '');
+  const rawPlans = settingValue_('debt_accounts', '');
+  const settings = rawSettings ? Object.assign(defaultDebtPlannerSettings_(), parseJsonObject_(rawSettings)) : defaultDebtPlannerSettings_();
+  const saved = rawPlans ? JSON.parse(rawPlans) : [];
+  const plansByAccount = {};
+  const completedTransactions = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(transaction) {
+    return String(transaction.status || 'completed') === 'completed' && !transaction.deleted_at;
+  });
+  (Array.isArray(saved) ? saved : []).forEach(function(plan) { plansByAccount[String(plan.accountId || '')] = plan; });
+  const debts = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS)
+    .filter(function(account) {
+      const active = account.is_active !== false && String(account.is_active).toLowerCase() !== 'false';
+      const liability = account.is_liability === true || String(account.is_liability).toLowerCase() === 'true';
+      return active && liability && plansByAccount[String(account.id)];
+    })
+    .map(function(account) {
+      const plan = plansByAccount[String(account.id)];
+      return {
+        accountId: String(account.id), name: String(account.name || 'Utang'),
+        balance: Math.max(0, Math.round(accountCurrentBalance_(account, completedTransactions))),
+        annualInterestRatePct: Number(plan.annualInterestRatePct || 0),
+        minimumPayment: Math.max(0, Math.round(Number(plan.minimumPayment || 0))),
+        dueDay: Math.max(1, Math.min(31, Math.round(Number(plan.dueDay || 1))))
+      };
+    });
+  return { settings: settings, debts: debts };
+}
+
+function apiDebtPlanner() {
+  try { return ok_(debtPlannerData_()); } catch (error) { return fail_(error); }
+}
+
+function apiUpdateDebtPlanner(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const mode = String(payload && payload.mode || '');
+      const expectedAction = mode === 'settings' ? 'UPDATE_DEBT_SETTINGS' : 'UPSERT_DEBT_PLAN';
+      const replay = requestAudit_(requestId);
+      if (replay) {
+        if (String(replay.action) !== expectedAction || String(replay.module) !== 'debt_planner') {
+          throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        }
+        return ok_(debtPlannerData_(), requestId);
+      }
+      if (mode === 'settings') {
+        const strategy = String(payload.strategy || '');
+        const extra = Number(payload.extraMonthlyPayment);
+        if (['avalanche', 'snowball'].indexOf(strategy) === -1) throw createError_('INVALID_DEBT_STRATEGY', 'Strategi utang tidak valid.');
+        if (!Number.isSafeInteger(extra) || extra < 0 || extra > 1000000000) throw createError_('INVALID_DEBT_EXTRA', 'Pembayaran ekstra tidak valid.');
+        const before = debtPlannerData_().settings;
+        const settings = { strategy: strategy, extraMonthlyPayment: extra };
+        upsertSetting_('debt_planner_settings', JSON.stringify(settings));
+        audit_('UPDATE_DEBT_SETTINGS', 'debt_planner', 'settings', requestId, { before: before, after: settings });
+      } else if (mode === 'debt') {
+        const accountId = String(payload.accountId || '');
+        const account = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).find(function(row) { return String(row.id) === accountId; });
+        const liability = account && (account.is_liability === true || String(account.is_liability).toLowerCase() === 'true');
+        if (!account || !liability) throw createError_('INVALID_DEBT_ACCOUNT', 'Pilih akun kewajiban yang aktif.');
+        const rate = Number(payload.annualInterestRatePct);
+        const minimum = Number(payload.minimumPayment);
+        const dueDay = Number(payload.dueDay);
+        if (!Number.isFinite(rate) || rate < 0 || rate > 100) throw createError_('INVALID_DEBT_RATE', 'Bunga tahunan tidak valid.');
+        if (!Number.isSafeInteger(minimum) || minimum < 0 || minimum > 1000000000) throw createError_('INVALID_DEBT_MINIMUM', 'Cicilan minimum tidak valid.');
+        if (!Number.isSafeInteger(dueDay) || dueDay < 1 || dueDay > 31) throw createError_('INVALID_DEBT_DUE_DAY', 'Tanggal jatuh tempo tidak valid.');
+        const raw = settingValue_('debt_accounts', '[]');
+        const plans = JSON.parse(raw || '[]');
+        const next = Array.isArray(plans) ? plans.filter(function(plan) { return String(plan.accountId) !== accountId; }) : [];
+        const plan = { accountId: accountId, annualInterestRatePct: Math.round(rate * 100) / 100, minimumPayment: minimum, dueDay: dueDay };
+        next.push(plan);
+        upsertSetting_('debt_accounts', JSON.stringify(next));
+        audit_('UPSERT_DEBT_PLAN', 'debt_planner', accountId, requestId, { after: plan });
+      } else throw createError_('INVALID_DEBT_MODE', 'Mode perubahan tidak valid.');
+      invalidateDashboard_();
+      return ok_(debtPlannerData_(), requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiCreateAccount(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {
@@ -152,7 +236,7 @@ function apiCreateAccount(payload) {
         currency: String(payload.currency || VINN_CONFIG.CURRENCY).toUpperCase(),
         opening_balance: Math.round(Number(payload.openingBalance || 0)),
         color: String(payload.color || '#126b59'),
-        is_liability: type === 'Credit Card' || type === 'Paylater' || type === 'Loan',
+          is_liability: type === 'Credit Card' || type === 'Paylater' || type === 'Loan' || type === 'Mortgage',
         is_active: true, created_at: now, updated_at: now
       };
       appendObjects_(VINN_CONFIG.SHEETS.ACCOUNTS, [account]);
@@ -174,7 +258,7 @@ function apiImportAccounts(payload) {
       }
       const items = Array.isArray(payload.accounts) ? payload.accounts : [];
       if (!items.length || items.length > 100) throw createError_('INVALID_IMPORT', 'Impor harus berisi 1 sampai 100 akun.');
-      const allowedTypes = ['Bank', 'E-Wallet', 'Cash', 'Investment', 'Credit Card'];
+      const allowedTypes = ['Bank', 'E-Wallet', 'Cash', 'Investment', 'Credit Card', 'Paylater', 'Loan', 'Mortgage'];
       const existingNames = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).map(function(account) { return String(account.name || '').trim().toLowerCase(); });
       const incomingNames = {};
       const now = nowIso_();
@@ -196,7 +280,7 @@ function apiImportAccounts(payload) {
           institution: String(item.institution || '').trim().slice(0, 100),
           mask: String(item.mask || '').trim().slice(0, 40), currency: VINN_CONFIG.CURRENCY,
           opening_balance: openingBalance, color: color,
-          is_liability: type === 'Credit Card', is_active: true,
+          is_liability: ['Credit Card', 'Paylater', 'Loan', 'Mortgage'].indexOf(type) !== -1, is_active: true,
           created_at: now, updated_at: now
         };
       });

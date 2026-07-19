@@ -11,6 +11,7 @@ import type {
 } from "./finance";
 import { accountSummary, budgetSpent, formatIDR, formatMonthLabel, monthlySummary } from "./finance";
 import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
+import { addMonthsToPeriod, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "./debt";
 
 export const REPORT_SECTIONS = [
   "summary",
@@ -21,6 +22,7 @@ export const REPORT_SECTIONS = [
   "bills",
   "goals",
   "roadmap",
+  "debts",
   "investments",
 ] as const;
 
@@ -40,6 +42,7 @@ export type FinanceReportInput = {
   privacy: boolean;
   sections: ReportSection[];
   roadmapSettings?: RoadmapSettings;
+  debtPlanner?: { settings: DebtPlannerSettings; debts: DebtPlan[] };
   generatedAt?: string;
 };
 
@@ -463,8 +466,24 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
     );
   }
 
+  if (selected(input, "debts")) {
+    const planner = input.debtPlanner;
+    const payoff = planner ? simulateDebtPayoff(planner.debts, planner.settings) : null;
+    sectionTitle("09 - Pelunasan Utang", "Debt Payoff Planner", "Proyeksi menggunakan bunga, cicilan minimum, dan pembayaran ekstra yang tersimpan. Simulasi bukan perubahan otomatis pada transaksi.");
+    keyValueCards([
+      { label: "Total utang", value: money(payoff?.startingBalance ?? 0, input.privacy), tone: "negative" },
+      { label: "Komitmen bulanan", value: money(payoff?.monthlyCommitment ?? 0, input.privacy) },
+      { label: "Estimasi bebas utang", value: payoff && !payoff.nonAmortizing && payoff.startingBalance > 0 ? formatMonthLabel(addMonthsToPeriod(input.period, payoff.months)) : "Belum tersedia" },
+    ]);
+    table(
+      ["Utang", "Bunga/thn", "Minimum", "Jatuh tempo", "Estimasi selesai"],
+      (payoff?.debts ?? []).map((debt) => [debt.name, `${debt.annualInterestRatePct.toFixed(2)}%`, money(debt.minimumPayment, input.privacy), `Tanggal ${debt.dueDay}`, debt.payoffMonth ? formatMonthLabel(addMonthsToPeriod(input.period, debt.payoffMonth)) : "Belum lunas"]),
+      [45, 29, 36, 31, contentWidth - 141],
+    );
+  }
+
   if (selected(input, "investments")) {
-    sectionTitle("09 - Investasi", "Portofolio investasi", "Harga manual atau transaksi terakhir dapat bersifat delayed dan bukan harga real-time.");
+    sectionTitle("10 - Investasi", "Portofolio investasi", "Harga manual atau transaksi terakhir dapat bersifat delayed dan bukan harga real-time.");
     table(
       ["Aset", "Unit", "Cost basis", "Nilai", "Unrealized P/L"],
       input.investmentAssets.map((asset) => [`${asset.ticker} - ${asset.name}`, asset.units.toLocaleString("id-ID", { maximumFractionDigits: 8 }), money(asset.costBasis, input.privacy), money(asset.marketValue, input.privacy), money(asset.unrealizedPl, input.privacy)]),

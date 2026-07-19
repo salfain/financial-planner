@@ -37,14 +37,13 @@ test("preview menandai nama yang sudah ada dan duplikat di dalam file", () => {
   assert.match(preview.rows[1].errors.join(" "), /lebih dari sekali/i);
 });
 
-test("preview menolak jenis, saldo, dan warna yang tidak valid", () => {
+test("preview menerima Paylater sebagai kewajiban dan menolak saldo serta warna tidak valid", () => {
   const preview = previewAccountCsv([
     "name,type,institution,opening_balance,mask,color",
     "Akun Salah,Paylater,Contoh,-100,99,biru",
   ].join("\n"), []);
   assert.equal(preview.validCount, 0);
   assert.equal(preview.errorCount, 1);
-  assert.match(preview.rows[0].errors.join(" "), /jenis akun/i);
   assert.match(preview.rows[0].errors.join(" "), /saldo awal/i);
   assert.match(preview.rows[0].errors.join(" "), /kode hex/i);
 });

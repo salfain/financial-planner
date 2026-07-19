@@ -7,6 +7,8 @@ function api(action, payload) {
     updateProfile: function() { return apiUpdateProfile(payload || {}); },
     getRoadmapSettings: function() { return apiRoadmapSettings(); },
     updateRoadmapSettings: function() { return apiUpdateRoadmapSettings(payload || {}); },
+    getDebtPlanner: function() { return apiDebtPlanner(); },
+    updateDebtPlanner: function() { return apiUpdateDebtPlanner(payload || {}); },
     createAccount: function() { return apiCreateAccount(payload || {}); },
     importAccounts: function() { return apiImportAccounts(payload || {}); },
     archiveAccount: function() { return apiArchiveAccount(payload || {}); },

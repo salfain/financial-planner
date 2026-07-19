@@ -78,6 +78,13 @@
       "when": 1784444975263,
       "tag": "0010_elite_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1784445864256,
+      "tag": "0011_mute_roughhouse",
+      "breakpoints": true
     }
   ]
 }

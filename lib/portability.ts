@@ -1,5 +1,5 @@
 export const BACKUP_FORMAT = "vinn-store-backup";
-export const BACKUP_SCHEMA_VERSION = "1.7.0";
+export const BACKUP_SCHEMA_VERSION = "1.8.0";
 export const BACKUP_MAX_RECORDS = 5_000;
 
 export const PORTABLE_COLLECTIONS = [
@@ -40,6 +40,9 @@ export type PortableBackup = {
     roadmapAnnualInvestmentReturnPct?: number;
     roadmapAnnualInflationPct?: number;
     roadmapMonthlyInvestment?: number;
+    debtStrategy?: "avalanche" | "snowball";
+    debtExtraMonthlyPayment?: number;
+    debtPlans?: Array<{ accountId: string; annualInterestRatePct: number; minimumPayment: number; dueDay: number }>;
   };
   data: PortableData;
 };
@@ -173,6 +176,18 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
       ...([75, 90].includes(Number(settings.notificationBudgetWarningPercent)) ? { notificationBudgetWarningPercent: Number(settings.notificationBudgetWarningPercent) } : {}),
       ...([7, 14, 30].includes(Number(settings.notificationBackupWarningDays)) ? { notificationBackupWarningDays: Number(settings.notificationBackupWarningDays) } : {}),
       ...([7, 30, 60].includes(Number(settings.notificationGoalWarningDays)) ? { notificationGoalWarningDays: Number(settings.notificationGoalWarningDays) } : {}),
+      ...([12, 24, 36, 60].includes(Number(settings.roadmapHorizonMonths)) ? { roadmapHorizonMonths: Number(settings.roadmapHorizonMonths) } : {}),
+      ...(Number.isFinite(Number(settings.roadmapIncomeAdjustmentPct)) ? { roadmapIncomeAdjustmentPct: Number(settings.roadmapIncomeAdjustmentPct) } : {}),
+      ...(Number.isFinite(Number(settings.roadmapExpenseAdjustmentPct)) ? { roadmapExpenseAdjustmentPct: Number(settings.roadmapExpenseAdjustmentPct) } : {}),
+      ...(Number.isFinite(Number(settings.roadmapAnnualInvestmentReturnPct)) ? { roadmapAnnualInvestmentReturnPct: Number(settings.roadmapAnnualInvestmentReturnPct) } : {}),
+      ...(Number.isFinite(Number(settings.roadmapAnnualInflationPct)) ? { roadmapAnnualInflationPct: Number(settings.roadmapAnnualInflationPct) } : {}),
+      ...(Number.isFinite(Number(settings.roadmapMonthlyInvestment)) ? { roadmapMonthlyInvestment: Number(settings.roadmapMonthlyInvestment) } : {}),
+      ...(settings.debtStrategy === "avalanche" || settings.debtStrategy === "snowball" ? { debtStrategy: settings.debtStrategy } : {}),
+      ...(Number.isSafeInteger(Number(settings.debtExtraMonthlyPayment)) ? { debtExtraMonthlyPayment: Math.max(0, Number(settings.debtExtraMonthlyPayment)) } : {}),
+      ...(Array.isArray(settings.debtPlans) ? { debtPlans: settings.debtPlans.map((plan) => {
+        const item = object(plan) ?? {};
+        return { accountId: text(item.accountId), annualInterestRatePct: Number(item.annualInterestRatePct || 0), minimumPayment: Number(item.minimumPayment || 0), dueDay: Number(item.dueDay || 1) };
+      }).filter((plan) => plan.accountId) } : {}),
     },
     data,
   };

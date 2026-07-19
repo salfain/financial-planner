@@ -41,7 +41,7 @@ function apiSaveReportPdf(payload) {
     const base64 = String(payload.contentBase64 || '');
     const period = String(payload.period || '');
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw createError_('INVALID_PERIOD', 'Periode laporan tidak valid.');
-    const allowedSections = ['summary', 'cashflow', 'categories', 'accounts', 'budgets', 'bills', 'goals', 'investments'];
+    const allowedSections = ['summary', 'cashflow', 'categories', 'accounts', 'budgets', 'bills', 'goals', 'roadmap', 'debts', 'investments'];
     const sections = Array.isArray(payload.sections) ? payload.sections.map(String) : [];
     if (!sections.length || sections.length > allowedSections.length || sections.some(function(item, index) { return allowedSections.indexOf(item) === -1 || sections.indexOf(item) !== index; })) throw createError_('INVALID_REPORT_SECTIONS', 'Bagian laporan tidak valid atau terduplikasi.');
     const pageCount = Number(payload.pageCount);

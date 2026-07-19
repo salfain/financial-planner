@@ -447,6 +447,48 @@ export const roadmapSettings = sqliteTable(
   ],
 );
 
+export const debtPayoffSettings = sqliteTable(
+  "debt_payoff_settings",
+  {
+    workspaceId: text("workspace_id")
+      .primaryKey()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    strategy: text("strategy").notNull().default("avalanche"),
+    extraMonthlyPayment: integer("extra_monthly_payment").notNull().default(0),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    check("debt_payoff_strategy_check", sql`${table.strategy} IN ('avalanche', 'snowball')`),
+    check("debt_payoff_extra_nonnegative", sql`${table.extraMonthlyPayment} >= 0`),
+  ],
+);
+
+export const debtAccounts = sqliteTable(
+  "debt_accounts",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    annualRateBps: integer("annual_rate_bps").notNull().default(0),
+    minimumPayment: integer("minimum_payment").notNull().default(0),
+    dueDay: integer("due_day").notNull().default(1),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("debt_accounts_workspace_account_uidx").on(table.workspaceId, table.accountId),
+    index("debt_accounts_workspace_idx").on(table.workspaceId),
+    check("debt_accounts_rate_check", sql`${table.annualRateBps} BETWEEN 0 AND 10000`),
+    check("debt_accounts_minimum_nonnegative", sql`${table.minimumPayment} >= 0`),
+    check("debt_accounts_due_day_check", sql`${table.dueDay} BETWEEN 1 AND 31`),
+  ],
+);
+
 export const notificationStates = sqliteTable(
   "notification_states",
   {

@@ -66,6 +66,9 @@ const parseAccountType = (value: string): AccountType | "" => {
   if (["e wallet", "ewallet", "dompet digital"].includes(normalized)) return "E-Wallet";
   if (["cash", "kas", "tunai"].includes(normalized)) return "Cash";
   if (["credit card", "kartu kredit"].includes(normalized)) return "Credit Card";
+  if (["paylater", "pay later"].includes(normalized)) return "Paylater";
+  if (["loan", "pinjaman"].includes(normalized)) return "Loan";
+  if (["mortgage", "kpr", "hipotek"].includes(normalized)) return "Mortgage";
   if (["investment", "investasi"].includes(normalized)) return "Investment";
   return "";
 };
@@ -117,7 +120,7 @@ export function previewAccountCsv(source: string, existingAccounts: Account[]): 
       openingBalance,
       mask,
       color,
-      liability: type === "Credit Card",
+      liability: ["Credit Card", "Paylater", "Loan", "Mortgage"].includes(type),
     };
     return { rowNumber: index + 2, raw, account, errors };
   });

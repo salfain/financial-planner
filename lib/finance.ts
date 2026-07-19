@@ -12,7 +12,10 @@ export type AccountType =
   | "E-Wallet"
   | "Cash"
   | "Investment"
-  | "Credit Card";
+  | "Credit Card"
+  | "Paylater"
+  | "Loan"
+  | "Mortgage";
 
 export interface Account {
   id: string;

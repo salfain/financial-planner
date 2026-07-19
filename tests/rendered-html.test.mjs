@@ -75,6 +75,21 @@ test("Financial Roadmap menyediakan simulasi tiga skenario dan asumsi persisten"
   assert.match(schema, /roadmap_settings/);
 });
 
+test("Debt Payoff Planner memakai simulasi dan penyimpanan persisten", async () => {
+  const [app, client, engine, route, schema, appsScript] = await Promise.all([
+    source("../app/FinanceApp.tsx"), source("../lib/finance-client.ts"), source("../lib/debt.ts"),
+    source("../app/api/finance/debts/route.ts"), source("../db/schema.ts"), source("../apps-script/DomainService.gs"),
+  ]);
+  assert.match(app, /Debt Payoff Planner/);
+  assert.match(app, /Avalanche/);
+  assert.match(app, /Snowball/);
+  assert.match(client, /\/api\/finance\/debts/);
+  assert.match(engine, /simulateDebtPayoff/);
+  assert.match(route, /debt\.plan\.upsert/);
+  assert.match(schema, /debt_payoff_settings/);
+  assert.match(appsScript, /apiUpdateDebtPlanner/);
+});
+
 test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () => {
   const [app, client, css] = await Promise.all([
     source("../app/FinanceApp.tsx"),

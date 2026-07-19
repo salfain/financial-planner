@@ -5,6 +5,7 @@ import { recurringBillDueDate, type NotificationOverview, type NotificationSetti
 import type { LedgerHealthReport } from "./ledger";
 import type { AccountImportItem } from "./account-import";
 import { DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
+import { DEFAULT_DEBT_SETTINGS, type DebtPlan, type DebtPlannerSettings } from "./debt";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -318,6 +319,42 @@ export async function updateFinanceRoadmapSettings(
 ) {
   const raw = await mutation<unknown>("updateRoadmapSettings", "/api/finance/roadmap", { ...settings, requestId }, "PATCH");
   return normalizeRoadmapSettings(raw);
+}
+
+export type FinanceDebtPlanner = { settings: DebtPlannerSettings; debts: DebtPlan[] };
+
+const normalizeDebtPlanner = (value: unknown): FinanceDebtPlanner => {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const rawSettings = source.settings && typeof source.settings === "object" ? source.settings as Record<string, unknown> : {};
+  return {
+    settings: {
+      strategy: rawSettings.strategy === "snowball" ? "snowball" : DEFAULT_DEBT_SETTINGS.strategy,
+      extraMonthlyPayment: Math.max(0, number(rawSettings.extraMonthlyPayment ?? rawSettings.extra_monthly_payment)),
+    },
+    debts: Array.isArray(source.debts) ? source.debts.map((item) => {
+      const debt = item as Record<string, unknown>;
+      return {
+        accountId: text(debt.accountId ?? debt.account_id), name: text(debt.name, "Utang"), balance: number(debt.balance),
+        annualInterestRatePct: number(debt.annualInterestRatePct ?? debt.annual_interest_rate_pct),
+        minimumPayment: number(debt.minimumPayment ?? debt.minimum_payment), dueDay: number(debt.dueDay ?? debt.due_day) || 1,
+      };
+    }) : [],
+  };
+};
+
+export async function loadFinanceDebtPlanner() {
+  const raw = hasAppsScriptBridge() ? await callAppsScript<unknown>("getDebtPlanner", {}) : await webRequest<unknown>("/api/finance/debts");
+  return normalizeDebtPlanner(raw);
+}
+
+export async function updateFinanceDebtPlannerSettings(settings: DebtPlannerSettings, requestId = `debt-settings:${crypto.randomUUID()}`) {
+  const raw = await mutation<unknown>("updateDebtPlanner", "/api/finance/debts", { mode: "settings", ...settings, requestId }, "PATCH");
+  return normalizeDebtPlanner(raw);
+}
+
+export async function upsertFinanceDebtPlan(plan: Omit<DebtPlan, "name" | "balance">, requestId = `debt-plan:${crypto.randomUUID()}`) {
+  const raw = await mutation<unknown>("updateDebtPlanner", "/api/finance/debts", { mode: "debt", ...plan, requestId }, "PATCH");
+  return normalizeDebtPlanner(raw);
 }
 
 export const createFinanceAccount = (payload: Record<string, unknown>) =>

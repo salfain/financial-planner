@@ -169,10 +169,14 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     d1.prepare(`SELECT provider, model, enabled, consent_accepted AS consentAccepted FROM ai_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT enabled, bill_reminder_days AS billReminderDays, budget_warning_percent AS budgetWarningPercent, backup_warning_days AS backupWarningDays, goal_warning_days AS goalWarningDays FROM notification_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT horizon_months AS horizonMonths, income_adjustment_pct AS incomeAdjustmentPct, expense_adjustment_pct AS expenseAdjustmentPct, annual_investment_return_pct AS annualInvestmentReturnPct, annual_inflation_pct AS annualInflationPct, monthly_investment AS monthlyInvestment FROM roadmap_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
+    d1.prepare(`SELECT strategy, extra_monthly_payment AS extraMonthlyPayment FROM debt_payoff_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
+    d1.prepare(`SELECT account_id AS accountId, annual_rate_bps AS annualRateBps, minimum_payment AS minimumPayment, due_day AS dueDay FROM debt_accounts WHERE workspace_id = ? ORDER BY account_id`).bind(workspaceId),
   ]);
   const ai = results[9].results[0] as Record<string, unknown> | undefined;
   const notification = results[10].results[0] as Record<string, unknown> | undefined;
   const roadmap = results[11].results[0] as Record<string, unknown> | undefined;
+  const debtSettings = results[12].results[0] as Record<string, unknown> | undefined;
+  const debtPlans = results[13].results as Record<string, unknown>[];
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -205,6 +209,14 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
         roadmapAnnualInvestmentReturnPct: Number(roadmap.annualInvestmentReturnPct),
         roadmapAnnualInflationPct: Number(roadmap.annualInflationPct),
         roadmapMonthlyInvestment: Number(roadmap.monthlyInvestment),
+      } : {}),
+      ...(debtSettings || debtPlans.length ? {
+        debtStrategy: debtSettings?.strategy === "snowball" ? "snowball" as const : "avalanche" as const,
+        debtExtraMonthlyPayment: Number(debtSettings?.extraMonthlyPayment || 0),
+        debtPlans: debtPlans.map((plan) => ({
+          accountId: String(plan.accountId), annualInterestRatePct: Number(plan.annualRateBps || 0) / 100,
+          minimumPayment: Number(plan.minimumPayment || 0), dueDay: Number(plan.dueDay || 1),
+        })),
       } : {}),
     },
     data: {
@@ -469,7 +481,7 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
     const oldId = text(row, "id") || `missing-${index}`;
     const opening = Math.max(0, integer(row, ["openingBalance", "opening_balance"], integer(row, ["balance", "currentBalance", "current_balance"], 0)));
     const balance = Math.max(0, integer(row, ["balance", "currentBalance", "current_balance"], opening));
-    const allowedTypes = new Set(["Bank", "E-Wallet", "Cash", "Investment", "Credit Card"]);
+    const allowedTypes = new Set(["Bank", "E-Wallet", "Cash", "Investment", "Credit Card", "Paylater", "Loan", "Mortgage"]);
     const type = allowedTypes.has(text(row, "type")) ? text(row, "type") : "Bank";
     statements.push(d1.prepare(
       `INSERT INTO accounts (id, workspace_id, name, type, institution, balance, opening_balance, mask, color, liability, active, created_at, updated_at)
@@ -565,6 +577,25 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id) DO UPDATE SET horizon_months = excluded.horizon_months, income_adjustment_pct = excluded.income_adjustment_pct, expense_adjustment_pct = excluded.expense_adjustment_pct, annual_investment_return_pct = excluded.annual_investment_return_pct, annual_inflation_pct = excluded.annual_inflation_pct, monthly_investment = excluded.monthly_investment, updated_at = excluded.updated_at`,
     ).bind(workspaceId, horizon, bounded(backup.settings.roadmapIncomeAdjustmentPct, -50, 100, 0), bounded(backup.settings.roadmapExpenseAdjustmentPct, -50, 100, 0), bounded(backup.settings.roadmapAnnualInvestmentReturnPct, 0, 30, 6), bounded(backup.settings.roadmapAnnualInflationPct, 0, 30, 3), bounded(backup.settings.roadmapMonthlyInvestment, 0, 1_000_000_000, 0), now, now));
+  }
+
+  if (backup.settings.debtStrategy || backup.settings.debtPlans?.length) {
+    const strategy = backup.settings.debtStrategy === "snowball" ? "snowball" : "avalanche";
+    const extra = Math.max(0, Math.min(1_000_000_000, Math.round(Number(backup.settings.debtExtraMonthlyPayment || 0))));
+    statements.push(d1.prepare(
+      `INSERT INTO debt_payoff_settings (workspace_id, strategy, extra_monthly_payment, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET strategy = excluded.strategy,
+       extra_monthly_payment = excluded.extra_monthly_payment, updated_at = excluded.updated_at`,
+    ).bind(workspaceId, strategy, extra, now, now));
+    (backup.settings.debtPlans ?? []).forEach((plan) => {
+      const mappedAccountId = accountIds.get(plan.accountId);
+      if (!mappedAccountId) return;
+      const rateBps = Math.max(0, Math.min(10000, Math.round(Number(plan.annualInterestRatePct || 0) * 100)));
+      const minimum = Math.max(0, Math.min(1_000_000_000, Math.round(Number(plan.minimumPayment || 0))));
+      const dueDay = Math.max(1, Math.min(31, Math.round(Number(plan.dueDay || 1))));
+      statements.push(d1.prepare(`INSERT INTO debt_accounts (id, workspace_id, account_id, annual_rate_bps, minimum_payment, due_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id, account_id) DO NOTHING`)
+        .bind(`debt-${mappedAccountId}`, workspaceId, mappedAccountId, rateBps, minimum, dueDay, now, now));
+    });
   }
 
   try {

@@ -249,6 +249,15 @@ result = invoke(`apiUpdateRoadmapSettings({ requestId: "roadmap-update-1", horiz
 assert.equal(result.ok, true);
 assert.equal(result.data.horizonMonths, 36);
 assert.equal(JSON.parse(sheets.Settings.find((setting) => setting.key === "roadmap_settings").value).incomeAdjustmentPct, 8);
+result = invoke(`apiUpdateDebtPlanner({ requestId: "debt-settings-1", mode: "settings", strategy: "avalanche", extraMonthlyPayment: 300000 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.settings.extraMonthlyPayment, 300000);
+result = invoke(`apiUpdateDebtPlanner({ requestId: "debt-plan-1", mode: "debt", accountId: "imported-card", annualInterestRatePct: 24.5, minimumPayment: 100000, dueDay: 12 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.debts[0].annualInterestRatePct, 24.5);
+result = invoke(`apiUpdateDebtPlanner({ requestId: "debt-plan-1", mode: "debt", accountId: "imported-card", annualInterestRatePct: 10, minimumPayment: 1, dueDay: 1 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.debts[0].annualInterestRatePct, 24.5);
 add("Categories", {
   id: "cat-food", name: "Makanan", type: "expense", parent_id: "", color: "#16876f",
   icon: "tag", is_active: true, is_default: true, request_id: "",
