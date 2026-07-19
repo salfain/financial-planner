@@ -1,5 +1,5 @@
 export const BACKUP_FORMAT = "vinn-store-backup";
-export const BACKUP_SCHEMA_VERSION = "1.8.0";
+export const BACKUP_SCHEMA_VERSION = "1.9.0";
 export const BACKUP_MAX_RECORDS = 5_000;
 
 export const PORTABLE_COLLECTIONS = [
@@ -43,6 +43,10 @@ export type PortableBackup = {
     debtStrategy?: "avalanche" | "snowball";
     debtExtraMonthlyPayment?: number;
     debtPlans?: Array<{ accountId: string; annualInterestRatePct: number; minimumPayment: number; dueDay: number }>;
+    forecastHorizonDays?: 30 | 60 | 90;
+    forecastMonthlyIncomeOverride?: number;
+    forecastIncomeDay?: number;
+    forecastMinimumCashBuffer?: number;
   };
   data: PortableData;
 };
@@ -188,6 +192,10 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
         const item = object(plan) ?? {};
         return { accountId: text(item.accountId), annualInterestRatePct: Number(item.annualInterestRatePct || 0), minimumPayment: Number(item.minimumPayment || 0), dueDay: Number(item.dueDay || 1) };
       }).filter((plan) => plan.accountId) } : {}),
+      ...([30, 60, 90].includes(Number(settings.forecastHorizonDays)) ? { forecastHorizonDays: Number(settings.forecastHorizonDays) as 30 | 60 | 90 } : {}),
+      ...(Number.isSafeInteger(Number(settings.forecastMonthlyIncomeOverride)) ? { forecastMonthlyIncomeOverride: Math.max(0, Number(settings.forecastMonthlyIncomeOverride)) } : {}),
+      ...(Number.isSafeInteger(Number(settings.forecastIncomeDay)) ? { forecastIncomeDay: Math.max(1, Math.min(28, Number(settings.forecastIncomeDay))) } : {}),
+      ...(Number.isSafeInteger(Number(settings.forecastMinimumCashBuffer)) ? { forecastMinimumCashBuffer: Math.max(0, Number(settings.forecastMinimumCashBuffer)) } : {}),
     },
     data,
   };

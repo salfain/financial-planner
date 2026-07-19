@@ -12,6 +12,7 @@ import type {
 import { accountSummary, budgetSpent, formatIDR, formatMonthLabel, monthlySummary } from "./finance";
 import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 import { addMonthsToPeriod, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "./debt";
+import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
 
 export const REPORT_SECTIONS = [
   "summary",
@@ -22,6 +23,7 @@ export const REPORT_SECTIONS = [
   "bills",
   "goals",
   "roadmap",
+  "forecast",
   "debts",
   "investments",
 ] as const;
@@ -43,6 +45,7 @@ export type FinanceReportInput = {
   sections: ReportSection[];
   roadmapSettings?: RoadmapSettings;
   debtPlanner?: { settings: DebtPlannerSettings; debts: DebtPlan[] };
+  forecastSettings?: CashflowForecastSettings;
   generatedAt?: string;
 };
 
@@ -466,10 +469,26 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
     );
   }
 
+  if (selected(input, "forecast")) {
+    const forecast = buildCashflowForecast({ accounts: input.accounts, transactions: input.transactions, bills: input.bills, settings: input.forecastSettings ?? DEFAULT_CASHFLOW_FORECAST_SETTINGS, asOfDate: generatedAt.slice(0, 10) });
+    sectionTitle("09 - Cashflow Forecast", "Proyeksi likuiditas", "Saldo diproyeksikan dari kas saat ini, pola transaksi, pemasukan utama, dan tagihan rutin. Hasil bukan jaminan arus kas masa depan.");
+    keyValueCards([
+      { label: "Kas sekarang", value: money(forecast.startingBalance, input.privacy) },
+      { label: `Saldo ${input.forecastSettings?.horizonDays ?? 60} hari`, value: money(forecast.endingBalance, input.privacy), tone: forecast.endingBalance >= 0 ? "positive" : "negative" },
+      { label: "Saldo terendah", value: money(forecast.lowestBalance, input.privacy), tone: forecast.firstNegativeDate ? "negative" : undefined },
+    ]);
+    table(["Komponen", "Proyeksi", "Catatan"], [
+      ["Pemasukan", money(forecast.projectedIncome, input.privacy), `Rata-rata ${money(forecast.monthlyIncome, input.privacy)}/bulan`],
+      ["Tagihan rutin", money(forecast.projectedBills, input.privacy), `${input.bills.length} tagihan aktif`],
+      ["Biaya hidup", money(forecast.projectedLivingExpense, input.privacy), `Dari ${forecast.observedMonths} bulan data`],
+      ["Peringatan pertama", forecast.firstNegativeDate ? displayDate(forecast.firstNegativeDate) : forecast.firstBelowBufferDate ? displayDate(forecast.firstBelowBufferDate) : "Tidak ada", forecast.firstNegativeDate ? "Saldo negatif" : forecast.firstBelowBufferDate ? "Di bawah buffer" : "Dalam batas aman"],
+    ], [50, 49, contentWidth - 99]);
+  }
+
   if (selected(input, "debts")) {
     const planner = input.debtPlanner;
     const payoff = planner ? simulateDebtPayoff(planner.debts, planner.settings) : null;
-    sectionTitle("09 - Pelunasan Utang", "Debt Payoff Planner", "Proyeksi menggunakan bunga, cicilan minimum, dan pembayaran ekstra yang tersimpan. Simulasi bukan perubahan otomatis pada transaksi.");
+    sectionTitle("10 - Pelunasan Utang", "Debt Payoff Planner", "Proyeksi menggunakan bunga, cicilan minimum, dan pembayaran ekstra yang tersimpan. Simulasi bukan perubahan otomatis pada transaksi.");
     keyValueCards([
       { label: "Total utang", value: money(payoff?.startingBalance ?? 0, input.privacy), tone: "negative" },
       { label: "Komitmen bulanan", value: money(payoff?.monthlyCommitment ?? 0, input.privacy) },
@@ -483,7 +502,7 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
   }
 
   if (selected(input, "investments")) {
-    sectionTitle("10 - Investasi", "Portofolio investasi", "Harga manual atau transaksi terakhir dapat bersifat delayed dan bukan harga real-time.");
+    sectionTitle("11 - Investasi", "Portofolio investasi", "Harga manual atau transaksi terakhir dapat bersifat delayed dan bukan harga real-time.");
     table(
       ["Aset", "Unit", "Cost basis", "Nilai", "Unrealized P/L"],
       input.investmentAssets.map((asset) => [`${asset.ticker} - ${asset.name}`, asset.units.toLocaleString("id-ID", { maximumFractionDigits: 8 }), money(asset.costBasis, input.privacy), money(asset.marketValue, input.privacy), money(asset.unrealizedPl, input.privacy)]),

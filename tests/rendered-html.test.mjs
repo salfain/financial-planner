@@ -90,6 +90,21 @@ test("Debt Payoff Planner memakai simulasi dan penyimpanan persisten", async () 
   assert.match(appsScript, /apiUpdateDebtPlanner/);
 });
 
+test("Cashflow Forecast memproyeksikan saldo dan menyimpan asumsi", async () => {
+  const [app, client, engine, route, schema, appsScript] = await Promise.all([
+    source("../app/FinanceApp.tsx"), source("../lib/finance-client.ts"), source("../lib/cashflow-forecast.ts"),
+    source("../app/api/finance/forecast/route.ts"), source("../db/schema.ts"), source("../apps-script/DomainService.gs"),
+  ]);
+  assert.match(app, /Cashflow Forecast/);
+  assert.match(app, /Jalur saldo kas/);
+  assert.match(app, /Kalender arus kas/);
+  assert.match(client, /\/api\/finance\/forecast/);
+  assert.match(engine, /buildCashflowForecast/);
+  assert.match(route, /forecast\.settings\.update/);
+  assert.match(schema, /cashflow_forecast_settings/);
+  assert.match(appsScript, /apiUpdateCashflowForecastSettings/);
+});
+
 test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () => {
   const [app, client, css] = await Promise.all([
     source("../app/FinanceApp.tsx"),

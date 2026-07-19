@@ -220,6 +220,50 @@ function apiUpdateDebtPlanner(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function defaultCashflowForecastSettings_() {
+  return { horizonDays: 60, monthlyIncomeOverride: 0, incomeDay: 25, minimumCashBuffer: 2000000 };
+}
+
+function apiCashflowForecastSettings() {
+  try {
+    const raw = settingValue_('cashflow_forecast_settings', '');
+    return ok_(raw ? Object.assign(defaultCashflowForecastSettings_(), parseJsonObject_(raw)) : defaultCashflowForecastSettings_());
+  } catch (error) { return fail_(error); }
+}
+
+function apiUpdateCashflowForecastSettings(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const replay = requestAudit_(requestId);
+      if (replay) {
+        if (String(replay.action) !== 'UPDATE_CASHFLOW_FORECAST' || String(replay.module) !== 'cashflow_forecast') {
+          throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        }
+        return apiCashflowForecastSettings();
+      }
+      function integerInRange_(field, min, max) {
+        const value = Number(payload && payload[field]);
+        if (!Number.isSafeInteger(value) || value < min || value > max) throw createError_('INVALID_FORECAST_SETTING', field + ' tidak valid.');
+        return value;
+      }
+      const horizon = integerInRange_('horizonDays', 30, 90);
+      if ([30, 60, 90].indexOf(horizon) === -1) throw createError_('INVALID_FORECAST_SETTING', 'Horizon harus 30, 60, atau 90 hari.');
+      const settings = {
+        horizonDays: horizon,
+        monthlyIncomeOverride: integerInRange_('monthlyIncomeOverride', 0, 10000000000),
+        incomeDay: integerInRange_('incomeDay', 1, 28),
+        minimumCashBuffer: integerInRange_('minimumCashBuffer', 0, 10000000000)
+      };
+      const beforeRaw = settingValue_('cashflow_forecast_settings', JSON.stringify(defaultCashflowForecastSettings_()));
+      upsertSetting_('cashflow_forecast_settings', JSON.stringify(settings));
+      audit_('UPDATE_CASHFLOW_FORECAST', 'cashflow_forecast', 'settings', requestId, { before: parseJsonObject_(beforeRaw), after: settings });
+      invalidateDashboard_();
+      return ok_(settings, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiCreateAccount(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {

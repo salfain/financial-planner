@@ -9,6 +9,8 @@ function api(action, payload) {
     updateRoadmapSettings: function() { return apiUpdateRoadmapSettings(payload || {}); },
     getDebtPlanner: function() { return apiDebtPlanner(); },
     updateDebtPlanner: function() { return apiUpdateDebtPlanner(payload || {}); },
+    getCashflowForecastSettings: function() { return apiCashflowForecastSettings(); },
+    updateCashflowForecastSettings: function() { return apiUpdateCashflowForecastSettings(payload || {}); },
     createAccount: function() { return apiCreateAccount(payload || {}); },
     importAccounts: function() { return apiImportAccounts(payload || {}); },
     archiveAccount: function() { return apiArchiveAccount(payload || {}); },

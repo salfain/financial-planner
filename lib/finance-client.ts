@@ -6,6 +6,7 @@ import type { LedgerHealthReport } from "./ledger";
 import type { AccountImportItem } from "./account-import";
 import { DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 import { DEFAULT_DEBT_SETTINGS, type DebtPlan, type DebtPlannerSettings } from "./debt";
+import { DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -355,6 +356,27 @@ export async function updateFinanceDebtPlannerSettings(settings: DebtPlannerSett
 export async function upsertFinanceDebtPlan(plan: Omit<DebtPlan, "name" | "balance">, requestId = `debt-plan:${crypto.randomUUID()}`) {
   const raw = await mutation<unknown>("updateDebtPlanner", "/api/finance/debts", { mode: "debt", ...plan, requestId }, "PATCH");
   return normalizeDebtPlanner(raw);
+}
+
+const normalizeCashflowForecastSettings = (value: unknown): CashflowForecastSettings => {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const horizon = number(source.horizonDays ?? source.horizon_days);
+  return {
+    horizonDays: ([30, 60, 90].includes(horizon) ? horizon : DEFAULT_CASHFLOW_FORECAST_SETTINGS.horizonDays) as CashflowForecastSettings["horizonDays"],
+    monthlyIncomeOverride: Math.max(0, number(source.monthlyIncomeOverride ?? source.monthly_income_override)),
+    incomeDay: Math.max(1, Math.min(28, number(source.incomeDay ?? source.income_day) || DEFAULT_CASHFLOW_FORECAST_SETTINGS.incomeDay)),
+    minimumCashBuffer: Math.max(0, number(source.minimumCashBuffer ?? source.minimum_cash_buffer ?? DEFAULT_CASHFLOW_FORECAST_SETTINGS.minimumCashBuffer)),
+  };
+};
+
+export async function loadFinanceCashflowForecastSettings() {
+  const raw = hasAppsScriptBridge() ? await callAppsScript<unknown>("getCashflowForecastSettings", {}) : await webRequest<unknown>("/api/finance/forecast");
+  return normalizeCashflowForecastSettings(raw);
+}
+
+export async function updateFinanceCashflowForecastSettings(settings: CashflowForecastSettings, requestId = `forecast-update:${crypto.randomUUID()}`) {
+  const raw = await mutation<unknown>("updateCashflowForecastSettings", "/api/finance/forecast", { ...settings, requestId }, "PATCH");
+  return normalizeCashflowForecastSettings(raw);
 }
 
 export const createFinanceAccount = (payload: Record<string, unknown>) =>

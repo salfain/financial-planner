@@ -489,6 +489,27 @@ export const debtAccounts = sqliteTable(
   ],
 );
 
+export const cashflowForecastSettings = sqliteTable(
+  "cashflow_forecast_settings",
+  {
+    workspaceId: text("workspace_id")
+      .primaryKey()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    horizonDays: integer("horizon_days").notNull().default(60),
+    monthlyIncomeOverride: integer("monthly_income_override").notNull().default(0),
+    incomeDay: integer("income_day").notNull().default(25),
+    minimumCashBuffer: integer("minimum_cash_buffer").notNull().default(2000000),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    check("cashflow_forecast_horizon_check", sql`${table.horizonDays} IN (30, 60, 90)`),
+    check("cashflow_forecast_income_nonnegative", sql`${table.monthlyIncomeOverride} >= 0`),
+    check("cashflow_forecast_income_day_check", sql`${table.incomeDay} BETWEEN 1 AND 28`),
+    check("cashflow_forecast_buffer_nonnegative", sql`${table.minimumCashBuffer} >= 0`),
+  ],
+);
+
 export const notificationStates = sqliteTable(
   "notification_states",
   {

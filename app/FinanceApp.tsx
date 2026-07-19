@@ -4,6 +4,7 @@ import {
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
+  Activity,
   BarChart3,
   Bell,
   Bot,
@@ -48,6 +49,7 @@ import {
   Trash2,
   TrendingUp,
   TrendingDown,
+  TriangleAlert,
   Undo2,
   Upload,
   UserRound,
@@ -61,6 +63,7 @@ import type { ReportSection } from "../lib/report";
 import type { LedgerHealthReport } from "../lib/ledger";
 import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapScenario, type RoadmapSettings } from "../lib/roadmap";
 import { addMonthsToPeriod, compareDebtStrategies, DEFAULT_DEBT_SETTINGS, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "../lib/debt";
+import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "../lib/cashflow-forecast";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
@@ -110,6 +113,7 @@ import {
   loadFinanceNotifications,
   loadFinanceRoadmapSettings,
   loadFinanceDebtPlanner,
+  loadFinanceCashflowForecastSettings,
   loadFinanceReports,
   loadFinanceSnapshot,
   loadFinanceTransactions,
@@ -132,6 +136,7 @@ import {
   updateFinanceRoadmapSettings,
   updateFinanceDebtPlannerSettings,
   upsertFinanceDebtPlan,
+  updateFinanceCashflowForecastSettings,
   updateFinanceTransaction,
   undoLastFinanceTransactionAction,
   uploadFinanceTransactionReceipt,
@@ -145,6 +150,7 @@ import {
 type PageKey =
   | "dashboard"
   | "roadmap"
+  | "forecast"
   | "debts"
   | "transactions"
   | "accounts"
@@ -167,6 +173,7 @@ const monthLabel = (month: string) => formatMonthLabel(month);
 const navPrimary: { key: PageKey; label: string; icon: LucideIcon }[] = [
   { key: "dashboard", label: "Ringkasan", icon: LayoutDashboard },
   { key: "roadmap", label: "Roadmap", icon: Route },
+  { key: "forecast", label: "Cashflow Forecast", icon: Activity },
   { key: "transactions", label: "Transaksi", icon: ReceiptText },
   { key: "accounts", label: "Akun", icon: WalletCards },
   { key: "budgets", label: "Anggaran", icon: BarChart3 },
@@ -198,6 +205,7 @@ const categoryColors: Record<string, string> = {
 const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: string }> = {
   dashboard: { eyebrow: "Ringkasan", title: "Ringkasan keuangan", subtitle: "Semua angka dihitung dari ledger yang tersimpan." },
   roadmap: { eyebrow: "Perencanaan masa depan", title: "Financial Roadmap", subtitle: "Uji asumsi dan lihat kemungkinan perjalanan finansialmu sebelum mengambil keputusan." },
+  forecast: { eyebrow: "Likuiditas ke depan", title: "Cashflow Forecast", subtitle: "Antisipasi pemasukan, biaya hidup, dan tagihan sebelum saldo kas memasuki zona kritis." },
   transactions: { eyebrow: "Ledger utama", title: "Semua transaksi", subtitle: "Pantau setiap pergerakan uang tanpa menghitung transfer dua kali." },
   accounts: { eyebrow: "6 akun aktif", title: "Akun & saldo", subtitle: "Semua rekening, dompet, kewajiban, dan investasi dalam satu tampilan." },
   budgets: { eyebrow: "Rencana Juli", title: "Anggaran bulanan", subtitle: "Kendalikan pengeluaran sebelum melewati batas yang kamu tentukan." },
@@ -529,6 +537,7 @@ export function FinanceApp() {
   const title = { ...pageTitles[activePage] };
   if (activePage === "dashboard") { title.eyebrow = monthLabel(month); title.title = `Selamat datang, ${profile.name}`; }
   if (activePage === "roadmap") title.eyebrow = `Proyeksi mulai ${monthLabel(month)}`;
+  if (activePage === "forecast") title.eyebrow = "Proyeksi dari hari ini";
   if (activePage === "accounts") title.eyebrow = `${accounts.length} akun aktif`;
   if (activePage === "budgets") title.eyebrow = `Rencana ${monthLabel(month)}`;
   if (activePage === "goals") title.eyebrow = `${goals.length} target aktif`;
@@ -621,13 +630,14 @@ export function FinanceApp() {
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
-            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "debts" && activePage !== "assistant" && activePage !== "settings" && (
+            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "debts" && activePage !== "assistant" && activePage !== "settings" && (
               <button className="primary-button" onClick={openCreateForPage}><Plus size={18} /> {createLabel}</button>
             )}
           </section>
 
           {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setTransactionOpen(true)} />}
           {activePage === "roadmap" && <RoadmapPage month={month} transactions={transactions} accounts={accounts} goals={goals} investmentAssets={investmentAssets} privacy={privacy} onToast={showToast} />}
+          {activePage === "forecast" && <CashflowForecastPage transactions={transactions} accounts={accounts} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "debts" && <DebtPayoffPage month={month} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
           {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onImport={() => setAccountImportOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
@@ -642,7 +652,7 @@ export function FinanceApp() {
       </main>
 
       <nav className="mobile-nav" aria-label="Navigasi seluler">
-        {[navPrimary[0], navPrimary[2], navPrimary[4], navPrimary[5]].map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
+        {navPrimary.filter((item) => ["dashboard", "transactions", "budgets", "goals"].includes(item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
         <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={23} /></button>
       </nav>
 
@@ -943,6 +953,63 @@ function GoalsPage({ goals, privacy, onContribute, onAdd }: { goals: Goal[]; pri
   </div>;
 }
 
+function CashflowForecastPage({ transactions, accounts, bills, privacy, onToast }: { transactions: Transaction[]; accounts: Account[]; bills: Bill[]; privacy: boolean; onToast: (message: string) => void }) {
+  const [settings, setSettings] = useState<CashflowForecastSettings>(DEFAULT_CASHFLOW_FORECAST_SETTINGS);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const asOfDate = today();
+  useEffect(() => {
+    let active = true;
+    loadFinanceCashflowForecastSettings().then((value) => active && setSettings(value))
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Pengaturan forecast tidak dapat dimuat."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+  const forecast = useMemo(() => buildCashflowForecast({ accounts, transactions, bills, settings, asOfDate }), [accounts, transactions, bills, settings, asOfDate]);
+  const cautious = useMemo(() => buildCashflowForecast({ accounts, transactions, bills, settings: { ...settings, monthlyIncomeOverride: Math.round(forecast.monthlyIncome * .9) }, asOfDate }), [accounts, transactions, bills, settings, forecast.monthlyIncome, asOfDate]);
+  const chartWidth = 720; const chartHeight = 210; const padX = 20; const padY = 20;
+  const allBalances = [...forecast.points.map((point) => point.balance), settings.minimumCashBuffer, 0];
+  const minBalance = Math.min(...allBalances); const maxBalance = Math.max(...allBalances, 1); const span = Math.max(1, maxBalance - minBalance);
+  const x = (index: number) => padX + index / Math.max(1, forecast.points.length - 1) * (chartWidth - padX * 2);
+  const y = (balance: number) => padY + (maxBalance - balance) / span * (chartHeight - padY * 2);
+  const line = forecast.points.map((point, index) => `${x(index)},${y(point.balance)}`).join(" ");
+  const events = forecast.points.filter((point) => point.income > 0 || point.bills > 0).slice(0, 10);
+  const status = forecast.firstNegativeDate ? "critical" : forecast.firstBelowBufferDate ? "warning" : "safe";
+  const save = async () => {
+    setSaving(true); setError("");
+    try { setSettings(await updateFinanceCashflowForecastSettings(settings)); onToast("Asumsi cashflow forecast berhasil disimpan."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Pengaturan forecast tidak dapat disimpan."); }
+    finally { setSaving(false); }
+  };
+  if (loading) return <div className="panel settings-empty">Menyiapkan proyeksi arus kas…</div>;
+  return <div className="forecast-layout">
+    <section className={`forecast-hero ${status}`}>
+      <div><span className="card-kicker light">Liquidity runway</span><h2>{status === "safe" ? `Kas aman ${settings.horizonDays} hari` : status === "warning" ? "Buffer kas akan terlewati" : "Saldo berisiko negatif"}</h2><p>{status === "safe" ? `Saldo terendah diproyeksikan tetap di atas buffer pada ${shortDate(forecast.lowestBalanceDate)}.` : status === "warning" ? `Saldo diperkirakan melewati buffer pada ${shortDate(forecast.firstBelowBufferDate!)}.` : `Tanpa penyesuaian, saldo kas diperkirakan negatif mulai ${shortDate(forecast.firstNegativeDate!)}.`}</p></div>
+      <div className="forecast-hero-metrics"><span><small>Saldo kas sekarang</small><Amount value={forecast.startingBalance} privacy={privacy}/></span><span><small>Saldo akhir proyeksi</small><Amount value={forecast.endingBalance} privacy={privacy}/></span><span><small>Saldo terendah</small><Amount value={forecast.lowestBalance} privacy={privacy}/></span></div>
+    </section>
+    {error && <div className="data-alert forecast-error"><span><TriangleAlert size={17}/></span><div><strong>Forecast perlu perhatian</strong><small>{error}</small></div></div>}
+    <section className="panel forecast-chart-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Daily projection</span><h2>Jalur saldo kas</h2></div><span className={`forecast-status ${status}`}>{status === "safe" ? "Aman" : status === "warning" ? "Waspada" : "Kritis"}</span></div>
+      <div className="forecast-chart-wrap"><svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label={`Grafik proyeksi saldo kas ${settings.horizonDays} hari`}><defs><linearGradient id="forecast-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#126b59" stopOpacity=".25"/><stop offset="1" stopColor="#126b59" stopOpacity="0"/></linearGradient></defs><line x1={padX} x2={chartWidth-padX} y1={y(settings.minimumCashBuffer)} y2={y(settings.minimumCashBuffer)} className="forecast-buffer-line"/><polyline points={`${padX},${chartHeight-padY} ${line} ${chartWidth-padX},${chartHeight-padY}`} fill="url(#forecast-area)" stroke="none"/><polyline points={line} fill="none" stroke="#126b59" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>{forecast.points.map((point,index) => (point.income > 0 || point.bills > 0) && <circle key={point.date} cx={x(index)} cy={y(point.balance)} r="4" className={point.income > 0 ? "forecast-income-dot" : "forecast-bill-dot"}/>)}</svg><div className="forecast-chart-axis"><span>{shortDate(asOfDate)}</span><span>Buffer {privacy ? "disamarkan" : formatIDR(settings.minimumCashBuffer, true)}</span><span>{shortDate(forecast.points.at(-1)?.date ?? asOfDate)}</span></div></div>
+      {!forecast.observedMonths && <div className="roadmap-inline-warning"><History size={16}/><span>Belum ada histori transaksi; forecast saat ini hanya memakai saldo dan tagihan tersimpan.</span></div>}
+    </section>
+    <aside className="panel forecast-settings-panel">
+      <span className="card-kicker">Forecast controls</span><h2>Atur asumsi</h2>
+      <div className="forecast-horizon-tabs">{([30,60,90] as const).map((days) => <button key={days} className={settings.horizonDays === days ? "active" : ""} onClick={() => setSettings((value) => ({ ...value, horizonDays: days }))}>{days}<small>hari</small></button>)}</div>
+      <div className="forecast-control-list"><label><span>Pemasukan bulanan <small>{settings.monthlyIncomeOverride ? "manual" : "otomatis"}</small></span><div className="roadmap-money-input"><small>Rp</small><input type="number" min={0} step={100000} value={settings.monthlyIncomeOverride} onChange={(event) => setSettings((value) => ({ ...value, monthlyIncomeOverride: Math.max(0, Number(event.target.value) || 0) }))}/></div><small>Kosongkan atau isi 0 untuk memakai rata-rata {forecast.observedMonths} bulan.</small></label><label><span>Tanggal pemasukan utama</span><input type="number" min={1} max={28} value={settings.incomeDay} onChange={(event) => setSettings((value) => ({ ...value, incomeDay: Math.max(1, Math.min(28, Number(event.target.value) || 1)) }))}/></label><label><span>Buffer kas minimum</span><div className="roadmap-money-input"><small>Rp</small><input type="number" min={0} step={100000} value={settings.minimumCashBuffer} onChange={(event) => setSettings((value) => ({ ...value, minimumCashBuffer: Math.max(0, Number(event.target.value) || 0) }))}/></div></label></div>
+      <button className="primary-button roadmap-save" disabled={saving} onClick={() => void save()}><Check size={16}/>{saving ? "Menyimpan…" : "Simpan asumsi"}</button>
+    </aside>
+    <section className="forecast-summary-grid">
+      <article className="panel"><span className="forecast-summary-icon income"><ArrowDownLeft size={18}/></span><div><small>Pemasukan terproyeksi</small><Amount value={forecast.projectedIncome} privacy={privacy}/><p>Rata-rata bulanan <Amount value={forecast.monthlyIncome} privacy={privacy} compact/></p></div></article>
+      <article className="panel"><span className="forecast-summary-icon bill"><ReceiptText size={18}/></span><div><small>Tagihan terjadwal</small><Amount value={forecast.projectedBills} privacy={privacy}/><p>{bills.length} tagihan rutin aktif</p></div></article>
+      <article className="panel"><span className="forecast-summary-icon spend"><WalletCards size={18}/></span><div><small>Biaya hidup proyeksi</small><Amount value={forecast.projectedLivingExpense} privacy={privacy}/><p>Dari pola transaksi historis</p></div></article>
+      <article className="panel"><span className="forecast-summary-icon scenario"><Scale size={18}/></span><div><small>Skenario hati-hati</small><Amount value={cautious.endingBalance} privacy={privacy}/><p>Pemasukan 10% lebih rendah</p></div></article>
+    </section>
+    <section className="panel forecast-events-panel"><div className="card-title-row"><div><span className="card-kicker">Upcoming cash events</span><h2>Kalender arus kas</h2></div><span className="roadmap-data-badge">{events.length} kejadian terdekat</span></div><div className="forecast-event-list">{events.map((event) => <article key={event.date}><time><strong>{event.date.slice(8,10)}</strong><small>{shortMonth(event.date)}</small></time><span className={event.income ? "forecast-event-icon income" : "forecast-event-icon bill"}>{event.income ? <ArrowDownLeft size={17}/> : <ReceiptText size={17}/>}</span><span><strong>{event.income ? "Pemasukan utama" : "Tagihan rutin"}</strong><small>Saldo setelah kejadian <Amount value={event.balance} privacy={privacy}/></small></span><Amount value={event.income || event.bills} privacy={privacy} className={event.income ? "positive-text" : "negative-text"}/></article>)}{!events.length && <div className="settings-empty">Belum ada pemasukan atau tagihan terjadwal dalam horizon ini.</div>}</div></section>
+  </div>;
+}
+
 const roadmapColors: Record<RoadmapScenario["key"], string> = {
   conservative: "#c76565",
   base: "#126b59",
@@ -1217,6 +1284,7 @@ const reportSectionOptions: Array<{ key: ReportSection; label: string }> = [
   { key: "bills", label: "Tagihan" },
   { key: "goals", label: "Target" },
   { key: "roadmap", label: "Financial Roadmap" },
+  { key: "forecast", label: "Cashflow Forecast" },
   { key: "debts", label: "Pelunasan utang" },
   { key: "investments", label: "Investasi" },
 ];
@@ -1256,6 +1324,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
   const [reports, setReports] = useState<ExportRecord[]>([]);
   const [roadmapReportSettings, setRoadmapReportSettings] = useState<RoadmapSettings>(DEFAULT_ROADMAP_SETTINGS);
   const [debtReportPlanner, setDebtReportPlanner] = useState<{ settings: DebtPlannerSettings; debts: DebtPlan[] }>({ settings: DEFAULT_DEBT_SETTINGS, debts: [] });
+  const [forecastReportSettings, setForecastReportSettings] = useState<CashflowForecastSettings>(DEFAULT_CASHFLOW_FORECAST_SETTINGS);
   const [error, setError] = useState("");
   const monthTransactions = transactions.filter((item) => item.date.startsWith(period) && item.status === "completed");
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
@@ -1280,6 +1349,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
       .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Riwayat laporan tidak dapat dimuat."));
     loadFinanceRoadmapSettings().then((value) => active && setRoadmapReportSettings(value)).catch(() => undefined);
     loadFinanceDebtPlanner().then((value) => active && setDebtReportPlanner({ settings: value.settings, debts: value.debts.map((debt) => ({ ...debt, balance: accounts.find((account) => account.id === debt.accountId)?.balance ?? debt.balance })) })).catch(() => undefined);
+    loadFinanceCashflowForecastSettings().then((value) => active && setForecastReportSettings(value)).catch(() => undefined);
     return () => { active = false; };
   }, [accounts]);
 
@@ -1315,6 +1385,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
         sections,
         roadmapSettings: roadmapReportSettings,
         debtPlanner: debtReportPlanner,
+        forecastSettings: forecastReportSettings,
       });
       const saved = await saveFinanceReport({
         filename: result.filename,

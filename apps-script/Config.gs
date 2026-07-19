@@ -1,6 +1,6 @@
 const VINN_CONFIG = Object.freeze({
   APP_NAME: 'Financial Planner',
-  SCHEMA_VERSION: '1.8.0',
+  SCHEMA_VERSION: '1.9.0',
   TIMEZONE: 'Asia/Jakarta',
   CURRENCY: 'IDR',
   CACHE_SECONDS: 300,

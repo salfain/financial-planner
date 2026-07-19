@@ -171,12 +171,14 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     d1.prepare(`SELECT horizon_months AS horizonMonths, income_adjustment_pct AS incomeAdjustmentPct, expense_adjustment_pct AS expenseAdjustmentPct, annual_investment_return_pct AS annualInvestmentReturnPct, annual_inflation_pct AS annualInflationPct, monthly_investment AS monthlyInvestment FROM roadmap_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT strategy, extra_monthly_payment AS extraMonthlyPayment FROM debt_payoff_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT account_id AS accountId, annual_rate_bps AS annualRateBps, minimum_payment AS minimumPayment, due_day AS dueDay FROM debt_accounts WHERE workspace_id = ? ORDER BY account_id`).bind(workspaceId),
+    d1.prepare(`SELECT horizon_days AS horizonDays, monthly_income_override AS monthlyIncomeOverride, income_day AS incomeDay, minimum_cash_buffer AS minimumCashBuffer FROM cashflow_forecast_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
   ]);
   const ai = results[9].results[0] as Record<string, unknown> | undefined;
   const notification = results[10].results[0] as Record<string, unknown> | undefined;
   const roadmap = results[11].results[0] as Record<string, unknown> | undefined;
   const debtSettings = results[12].results[0] as Record<string, unknown> | undefined;
   const debtPlans = results[13].results as Record<string, unknown>[];
+  const forecast = results[14].results[0] as Record<string, unknown> | undefined;
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -217,6 +219,12 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
           accountId: String(plan.accountId), annualInterestRatePct: Number(plan.annualRateBps || 0) / 100,
           minimumPayment: Number(plan.minimumPayment || 0), dueDay: Number(plan.dueDay || 1),
         })),
+      } : {}),
+      ...(forecast ? {
+        forecastHorizonDays: Number(forecast.horizonDays) as 30 | 60 | 90,
+        forecastMonthlyIncomeOverride: Number(forecast.monthlyIncomeOverride || 0),
+        forecastIncomeDay: Number(forecast.incomeDay || 25),
+        forecastMinimumCashBuffer: Number(forecast.minimumCashBuffer || 0),
       } : {}),
     },
     data: {
@@ -596,6 +604,15 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
       statements.push(d1.prepare(`INSERT INTO debt_accounts (id, workspace_id, account_id, annual_rate_bps, minimum_payment, due_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id, account_id) DO NOTHING`)
         .bind(`debt-${mappedAccountId}`, workspaceId, mappedAccountId, rateBps, minimum, dueDay, now, now));
     });
+  }
+
+  if (backup.settings.forecastHorizonDays !== undefined) {
+    const horizon = [30, 60, 90].includes(Number(backup.settings.forecastHorizonDays)) ? Number(backup.settings.forecastHorizonDays) : 60;
+    const income = Math.max(0, Math.min(10_000_000_000, Math.round(Number(backup.settings.forecastMonthlyIncomeOverride || 0))));
+    const incomeDay = Math.max(1, Math.min(28, Math.round(Number(backup.settings.forecastIncomeDay || 25))));
+    const buffer = Math.max(0, Math.min(10_000_000_000, Math.round(Number(backup.settings.forecastMinimumCashBuffer || 0))));
+    statements.push(d1.prepare(`INSERT INTO cashflow_forecast_settings (workspace_id, horizon_days, monthly_income_override, income_day, minimum_cash_buffer, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET horizon_days = excluded.horizon_days, monthly_income_override = excluded.monthly_income_override, income_day = excluded.income_day, minimum_cash_buffer = excluded.minimum_cash_buffer, updated_at = excluded.updated_at`)
+      .bind(workspaceId, horizon, income, incomeDay, buffer, now, now));
   }
 
   try {
