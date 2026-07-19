@@ -77,7 +77,7 @@ const rootFolder = {
   },
   createFile(blob) { const file = makeFile(blob.name, blob, this); this.files.push(file); return file; },
 };
-makeFile("VINN STORE Finance", makeBlob("spreadsheet", "application/vnd.google-apps.spreadsheet"), rootFolder, "workbook-id");
+makeFile("Financial Planner", makeBlob("spreadsheet", "application/vnd.google-apps.spreadsheet"), rootFolder, "workbook-id");
 const sheetNames = [
   "Settings", "Accounts", "Categories", "Transactions", "Budgets", "Goals",
   "Bills", "Assets", "InvestmentTransactions", "AuditLog", "Trash",
@@ -499,7 +499,7 @@ assert.equal(result.ok, true);
 assert.deepEqual([...result.data.settings.billReminderDays], [3, 1, 0]);
 
 const samplePdf = Buffer.from("%PDF-1.4\nsample").toString("base64");
-result = invoke(`apiSaveReportPdf({ requestId: "report-1", contentBase64: "${samplePdf}", filename: "VINN-STORE_Laporan_2026-07.pdf", period: "2026-07", sections: ["summary"], privacy: false, pageCount: 1 })`);
+result = invoke(`apiSaveReportPdf({ requestId: "report-1", contentBase64: "${samplePdf}", filename: "Financial-Planner_Laporan_2026-07.pdf", period: "2026-07", sections: ["summary"], privacy: false, pageCount: 1 })`);
 assert.equal(result.ok, true);
 assert.equal(result.data.kind, "report");
 result = invoke(`apiListReports()`);
@@ -509,7 +509,7 @@ assert.equal(result.data.reports.length, 1);
 context.migrationSource = {
   format: "vinn-store-backup",
   schemaVersion: "1.4.0",
-  profile: { name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" },
+  profile: { name: "Vinn", storeName: "Financial Planner", currency: "IDR", timezone: "Asia/Jakarta" },
   data: {
     accounts: [{ id: "legacy-cash", name: "Kas Lama", type: "Cash", openingBalance: 250000, balance: 250000, active: true }],
     categories: [], transactions: [], budgets: [], goals: [], bills: [],

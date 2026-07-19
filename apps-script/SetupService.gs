@@ -15,6 +15,14 @@ function setupVinnStore() {
       ['setup_completed', 'true', nowIso_()]
     ].filter(function(row) { return existingKeys.indexOf(row[0]) === -1; });
     if (defaults.length) settingsSheet.getRange(settingsSheet.getLastRow() + 1, 1, defaults.length, 3).setValues(defaults);
+    const appNameSetting = rowsAsObjects_(VINN_CONFIG.SHEETS.SETTINGS).find(function(row) {
+      return String(row.key) === 'app_name';
+    });
+    if (appNameSetting && String(appNameSetting.value).toUpperCase() === 'VINN STORE') {
+      updateObjectRow_(VINN_CONFIG.SHEETS.SETTINGS, appNameSetting._row, {
+        key: 'app_name', value: VINN_CONFIG.APP_NAME, updated_at: nowIso_()
+      });
+    }
     const schemaSetting = rowsAsObjects_(VINN_CONFIG.SHEETS.SETTINGS).find(function(row) {
       return String(row.key) === 'schema_version';
     });

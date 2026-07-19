@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const description = "Financial OS personal dengan transaksi lanjutan, split kategori, impor CSV, lampiran privat, undo, investasi, reminder, laporan, backup, dan migrasi tervalidasi.";
+const description = "Financial planner personal untuk mengelola transaksi, anggaran, target, investasi, laporan, backup, dan analisis keuangan dalam satu tempat.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -11,20 +11,20 @@ export async function generateMetadata(): Promise<Metadata> {
   const baseUrl = `${protocol}://${host}`;
   return {
     metadataBase: new URL(baseUrl),
-    title: "VINN STORE — Financial OS",
+    title: "Financial Planner",
     description,
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
       type: "website",
-      title: "VINN STORE — Financial OS",
+      title: "Financial Planner",
       description,
-      images: [{ url: `${baseUrl}/og-advanced-transactions.png`, width: 1672, height: 942, alt: "VINN STORE Financial OS — Transaksi Lanjutan dengan split kategori, impor CSV, filter, lampiran, dan undo" }],
+      images: [{ url: `${baseUrl}/og-financial-planner.png`, width: 1672, height: 941, alt: "Financial Planner — Keuangan lebih terarah" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "VINN STORE — Financial OS",
+      title: "Financial Planner",
       description,
-      images: [`${baseUrl}/og-advanced-transactions.png`],
+      images: [`${baseUrl}/og-financial-planner.png`],
     },
   };
 }

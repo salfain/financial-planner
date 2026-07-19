@@ -175,7 +175,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
     createdAt: nowIso(),
-    source: { app: "VINN STORE Financial OS", backend: "Cloud database", workspaceId },
+    source: { app: "Financial Planner", backend: "Cloud database", workspaceId },
     profile: {
       name: workspace.name,
       storeName: workspace.storeName,
@@ -213,7 +213,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
 
 export async function createBackup(workspaceId: string, reason = "manual") {
   const backup = await fullBackupDocument(workspaceId);
-  const filename = `VINN-STORE_Backup_${backup.createdAt.replace(/[:.]/g, "-")}.json`;
+  const filename = `Financial-Planner_Backup_${backup.createdAt.replace(/[:.]/g, "-")}.json`;
   const bytes = new TextEncoder().encode(JSON.stringify(backup, null, 2));
   if (bytes.byteLength > MAX_BACKUP_BYTES) throw new ApiError(413, "BACKUP_TOO_LARGE", "Backup melebihi batas 12 MB. Gunakan ekspor per modul.");
   const record = await storeExport(workspaceId, "backup", filename, "application/json", bytes, { reason, schemaVersion: backup.schemaVersion, counts: backupCounts(backup.data) });
@@ -248,7 +248,7 @@ export async function downloadExport(workspaceId: string, exportId: string) {
   return new Response(stored.body ?? await stored.arrayBuffer(), {
     headers: {
       "content-type": row.contentType,
-      "content-disposition": `attachment; filename="${safeName(row.filename, "vinn-store-export").replaceAll('"', "")}"`,
+      "content-disposition": `attachment; filename="${safeName(row.filename, "financial-planner-export").replaceAll('"', "")}"`,
       "cache-control": "private, no-store",
       "x-content-type-options": "nosniff",
     },
@@ -267,7 +267,7 @@ export async function saveReport(
   if (!binary.startsWith("%PDF-")) throw new ApiError(400, "INVALID_PDF", "File laporan bukan PDF yang valid.");
   if (binary.length > MAX_PDF_BYTES) throw new ApiError(413, "PDF_TOO_LARGE", "Ukuran PDF melebihi batas 8 MB.");
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  const filename = safeName(input.filename, `VINN-STORE_Laporan_${input.period}.pdf`, 160).replace(/[^A-Za-z0-9._-]/g, "-");
+  const filename = safeName(input.filename, `Financial-Planner_Laporan_${input.period}.pdf`, 160).replace(/[^A-Za-z0-9._-]/g, "-");
   return storeExport(workspaceId, "report", filename.endsWith(".pdf") ? filename : `${filename}.pdf`, "application/pdf", bytes, { sections: input.sections, privacy: input.privacy, pageCount: Math.max(1, Math.min(100, Math.round(input.pageCount || 1))) }, input.period);
 }
 
@@ -580,7 +580,7 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
     status: "applied",
   };
   const reportBytes = new TextEncoder().encode(JSON.stringify(report, null, 2));
-  await storeExport(workspaceId, "migration_report", `VINN-STORE_Migration_Report_${migrationId}.json`, "application/json", reportBytes, { migrationId, sourceName: job.sourceName });
+  await storeExport(workspaceId, "migration_report", `Financial-Planner_Migration_Report_${migrationId}.json`, "application/json", reportBytes, { migrationId, sourceName: job.sourceName });
   await d1.batch([
     d1.prepare(`UPDATE migration_jobs SET status = 'applied', applied_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ? AND status = 'preview'`).bind(appliedAt, appliedAt, workspaceId, migrationId),
     auditStatement(d1, { workspaceId, action: "migration.apply", entityType: "migration", entityId: migrationId, details: { counts: backupCounts(backup.data), totalRecords: totalBackupRecords(backup.data), balanceDifference: job.balanceDifference }, createdAt: appliedAt }),

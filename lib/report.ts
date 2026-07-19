@@ -63,7 +63,7 @@ function safePdfText(value: unknown, fallback = "-") {
 }
 
 function safeFilenamePart(value: string) {
-  return value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "VINN-STORE";
+  return value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "Financial-Planner";
 }
 
 function money(value: number, privacy: boolean) {
@@ -165,7 +165,7 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.5);
     doc.setTextColor(...MUTED);
-    doc.text(`${safePdfText(input.profile.storeName)} Financial OS`, margin, pageHeight - 8);
+    doc.text(safePdfText(input.profile.storeName), margin, pageHeight - 8);
     doc.text(`Halaman ${page}`, pageWidth - margin, pageHeight - 8, { align: "right" });
   };
 
@@ -278,7 +278,7 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
   doc.text("V", margin + 6.5, 25.3, { align: "center" });
   doc.setFontSize(9);
   doc.setTextColor(214, 239, 229);
-  doc.text("FINANCIAL OS", margin + 18, 20.5);
+  doc.text("FINANCIAL PLANNER", margin + 18, 20.5);
   doc.setFontSize(22);
   doc.setTextColor(255, 255, 255);
   doc.text(safePdfText(input.profile.storeName), margin + 18, 29);
@@ -308,7 +308,7 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
   doc.setTextColor(...MUTED);
   doc.text(`Arus kas ${money(summary.cashflow, input.privacy)}  |  Savings rate ${summary.savingsRate.toFixed(1)}%`, margin + 5, 141);
   doc.setFontSize(7.5);
-  doc.text("Dokumen ini dibuat dari data VINN STORE pada periode yang dipilih. Transfer internal tidak dihitung sebagai income/expense.", margin, 169, { maxWidth: contentWidth });
+  doc.text("Dokumen ini dibuat dari data Financial Planner pada periode yang dipilih. Transfer internal tidak dihitung sebagai income/expense.", margin, 169, { maxWidth: contentWidth });
   y = 188;
 
   if (selected(input, "summary")) {

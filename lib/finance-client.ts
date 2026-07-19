@@ -246,11 +246,12 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
   const source = (raw ?? {}) as Record<string, unknown>;
   const profile = (source.profile ?? {}) as Record<string, unknown>;
   const accounts = ((source.accounts ?? []) as Record<string, unknown>[]).map(normalizeAccount);
+  const legacyStoreName = text(profile.storeName ?? profile.store_name, "Financial Planner");
   return {
     configured: source.configured === undefined ? accounts.length > 0 : bool(source.configured),
     profile: {
       name: text(profile.name, "Vinn"),
-      storeName: text(profile.storeName ?? profile.store_name, "VINN STORE"),
+      storeName: legacyStoreName.toUpperCase() === "VINN STORE" ? "Financial Planner" : legacyStoreName,
       currency: text(profile.currency, "IDR"),
       timezone: text(profile.timezone, "Asia/Jakarta"),
     },

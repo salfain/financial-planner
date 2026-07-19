@@ -348,6 +348,7 @@ test("portable backup menerima format baru dan menolak referensi akun yang rusak
   });
   assert.equal(valid.errors.length, 0);
   assert.equal(valid.backup.data.accounts.length, 1);
+  assert.equal(valid.backup.profile.storeName, "Financial Planner");
 
   const invalid = parsePortableBackup({
     version: 2,
@@ -396,11 +397,11 @@ test("reminder menghitung tagihan bulanan dan mengurutkan peringatan nyata", () 
 test("laporan bulanan menghasilkan PDF nyata dan CSV melindungi formula spreadsheet", () => {
   const input = {
     period: "2026-07",
-    profile: { name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" },
+    profile: { name: "Vinn", storeName: "Financial Planner", currency: "IDR", timezone: "Asia/Jakarta" },
     accounts: [{ id: "cash", name: "Kas", type: "Cash" as const, institution: "", balance: 1_500_000, openingBalance: 1_000_000, mask: "", color: "#16876f" }],
     transactions: [
-      { id: "previous-income", type: "income" as const, date: "2026-06-02", title: "Pendapatan Juni", merchant: "VINN STORE", category: "Pendapatan", accountId: "cash", amount: 800_000, status: "completed" as const },
-      { id: "income", type: "income" as const, date: "2026-07-02", title: "Pendapatan", merchant: "VINN STORE", category: "Pendapatan", accountId: "cash", amount: 1_000_000, status: "completed" as const },
+      { id: "previous-income", type: "income" as const, date: "2026-06-02", title: "Pendapatan Juni", merchant: "Pemberi Kerja", category: "Pendapatan", accountId: "cash", amount: 800_000, status: "completed" as const },
+      { id: "income", type: "income" as const, date: "2026-07-02", title: "Pendapatan", merchant: "Pemberi Kerja", category: "Pendapatan", accountId: "cash", amount: 1_000_000, status: "completed" as const },
       { id: "expense", type: "expense" as const, date: "2026-07-03", title: "=HYPERLINK(\"bad\")", merchant: "Toko", category: "Makanan", accountId: "cash", amount: 500_000, status: "completed" as const },
     ],
     budgets: [{ id: "budget", category: "Makanan", limit: 700_000, color: "#16876f" }],
@@ -414,7 +415,7 @@ test("laporan bulanan menghasilkan PDF nyata dan CSV melindungi formula spreadsh
   assert.equal(new TextDecoder().decode(pdf.bytes.slice(0, 5)), "%PDF-");
   assert.ok(pdf.bytes.length > 5_000);
   assert.ok(pdf.pageCount >= 2);
-  assert.equal(pdf.filename, "VINN-STORE_Laporan_2026-07.pdf");
+  assert.equal(pdf.filename, "Financial-Planner_Laporan_2026-07.pdf");
 
   const csv = buildFinanceCsv(input);
   assert.ok(csv.includes("'=HYPERLINK"));

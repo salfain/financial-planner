@@ -1,6 +1,6 @@
-# VINN STORE — Financial OS
+# Financial Planner
 
-**VINN STORE Financial OS** adalah aplikasi pengelolaan keuangan terpadu dengan ledger persisten untuk transaksi, anggaran, investasi, laporan, backup, migrasi, reminder, dan analisis berbasis AI.
+**Financial Planner** adalah aplikasi perencanaan dan pengelolaan keuangan terpadu dengan ledger persisten untuk transaksi, anggaran, target, investasi, laporan, backup, migrasi, reminder, dan analisis berbasis AI.
 
 ## Menjalankan aplikasi
 
@@ -43,13 +43,13 @@ npm test
 - Tagihan bulanan memakai jatuh tempo berulang dan pilihan reminder H-7, H-3, H-1, atau hari H.
 - Dark mode, privacy mode, UI responsif, reduced-motion, dan label aksesibilitas.
 - Harga investasi menampilkan sumber dan timestamp; harga manual maupun fallback transaksi terakhir tidak diklaim sebagai harga real-time.
-- VINN Insight berbasis Gemini dengan mode read-only, context builder minimal, manifest data yang dikirim, disclaimer, histori persisten, dan kontrol hapus histori.
+- Financial Insight berbasis Gemini dengan mode read-only, context builder minimal, manifest data yang dikirim, disclaimer, histori persisten, dan kontrol hapus histori.
 - OCR struk berbasis Gemini: gambar dikompresi di perangkat, tidak disimpan, hasil divalidasi, dan baru mengisi form setelah pengguna menekan konfirmasi. Transaksi tetap harus dikonfirmasi manual.
 - API key Gemini tersimpan terenkripsi pada D1 atau di User Properties Apps Script; key tidak pernah dikirim kembali ke browser, histori, maupun audit log.
 
 ## Menyiapkan Google Sheets + Apps Script
 
-1. Buat Google Spreadsheet kosong bernama `VINN STORE Finance`.
+1. Buat Google Spreadsheet kosong bernama `Financial Planner`.
 2. Buka **Extensions → Apps Script**.
 3. Jalankan `npm run build:gas`, lalu salin file di folder `apps-script/` ke project Apps Script, atau gunakan `clasp`.
 4. Untuk `clasp`, salin `.clasp.json.example` menjadi `.clasp.json`, lalu isi `scriptId` dari Apps Script Project Settings.
@@ -66,7 +66,7 @@ app/                 React UI dan design system
 lib/                 kalkulasi finansial dan adapter Apps Script
 apps-script/         backend Google Apps Script
 tests/               unit test untuk aturan ledger
-public/               favicon dan social preview VINN STORE
+public/               favicon dan social preview Financial Planner
 ```
 
 ## Cakupan produk

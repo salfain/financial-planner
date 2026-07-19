@@ -189,7 +189,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   bills: { eyebrow: "3 menunggu", title: "Tagihan rutin", subtitle: "Jangan lewatkan jatuh tempo dan hindari pencatatan ganda." },
   investments: { eyebrow: "Portofolio", title: "Portofolio investasi", subtitle: "Pantau unit, cost basis, harga, dan profit/loss tanpa mengubah arus kas operasional." },
   reports: { eyebrow: "Laporan bulanan", title: "Laporan keuangan", subtitle: "Ringkasan siap cetak dengan data yang dapat ditelusuri kembali." },
-  assistant: { eyebrow: "Gemini · read-only", title: "VINN Insight", subtitle: "Tanyakan kondisi keuanganmu dengan konteks terpilih dan kontrol privasi yang jelas." },
+  assistant: { eyebrow: "Gemini · read-only", title: "Financial Insight", subtitle: "Tanyakan kondisi keuanganmu dengan konteks terpilih dan kontrol privasi yang jelas." },
   settings: { eyebrow: "Workspace personal", title: "Pengaturan", subtitle: "Kelola preferensi, keamanan data, backup, dan koneksi Google." },
 };
 
@@ -202,7 +202,7 @@ const shortMonth = (date: string) => validDate(date)
   : "—";
 
 function BrandMark() {
-  return <span className="brand-mark">V</span>;
+  return <span className="brand-mark">FP</span>;
 }
 
 function Amount({ value, privacy, compact = false, className = "" }: { value: number; privacy: boolean; compact?: boolean; className?: string }) {
@@ -248,7 +248,7 @@ export function FinanceApp() {
   const [investmentAssets, setInvestmentAssets] = useState<InvestmentAsset[]>([]);
   const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentTransaction[]>([]);
   const [notificationOverview, setNotificationOverview] = useState<NotificationOverview | null>(null);
-  const [profile, setProfile] = useState<FinanceProfile>({ name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" });
+  const [profile, setProfile] = useState<FinanceProfile>({ name: "Vinn", storeName: "Financial Planner", currency: "IDR", timezone: "Asia/Jakarta" });
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -533,9 +533,9 @@ export function FinanceApp() {
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="sidebar-head">
-          <button className="brand" onClick={() => selectPage("dashboard")} aria-label="Buka dashboard VINN STORE">
+          <button className="brand" onClick={() => selectPage("dashboard")} aria-label="Buka dashboard Financial Planner">
             <BrandMark />
-            <span className="brand-copy"><strong>{profile.storeName}</strong><small>Financial OS</small></span>
+            <span className="brand-copy"><strong>{profile.storeName}</strong><small>Personal Finance</small></span>
           </button>
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Tutup menu"><X size={20} /></button>
         </div>
@@ -758,10 +758,10 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
       </section>
 
       <section className="insight-card">
-        <div className="insight-top"><span><Sparkles size={18} /></span><small>VINN INSIGHT</small></div>
+        <div className="insight-top"><span><Sparkles size={18} /></span><small>FINANCIAL INSIGHT</small></div>
         <h2>Arus kas bulan ini <strong>{monthly.cashflow >= 0 ? "positif" : "perlu perhatian"}</strong>.</h2>
-        <p>{monthly.income > 0 ? `Savings rate berada di ${monthly.savingsRate.toFixed(1)}%. Insight ini dihitung langsung dari transaksi yang tersimpan.` : "Tambahkan pemasukan dan pengeluaran agar VINN dapat menyusun insight berdasarkan ledger-mu."}</p>
-        <button onClick={() => onNavigate("assistant")}>Buka VINN Insight <ArrowRight size={15} /></button>
+        <p>{monthly.income > 0 ? `Savings rate berada di ${monthly.savingsRate.toFixed(1)}%. Insight ini dihitung langsung dari transaksi yang tersimpan.` : "Tambahkan pemasukan dan pengeluaran agar sistem dapat menyusun insight berdasarkan ledger-mu."}</p>
+        <button onClick={() => onNavigate("assistant")}>Buka Financial Insight <ArrowRight size={15} /></button>
       </section>
     </div>
   );
@@ -1106,7 +1106,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
 
   return <div className="report-layout">
     <section className="report-sheet">
-      <div className="report-brand"><BrandMark /><span><strong>{profile.storeName}</strong><small>Financial OS</small></span><div><small>LAPORAN BULANAN</small><strong>{monthLabel(period)}</strong></div></div>
+      <div className="report-brand"><BrandMark /><span><strong>{profile.storeName}</strong><small>Personal Finance</small></span><div><small>LAPORAN BULANAN</small><strong>{monthLabel(period)}</strong></div></div>
       <div className="report-title"><span>Ringkasan eksekutif</span><h2>{reportHeadline}</h2><p>Savings rate tercatat {monthly.savingsRate.toFixed(1)}% dan rasio kewajiban terhadap aset {liabilityRatio.toFixed(1)}%.</p></div>
       <div className="report-metrics"><div><span>Kekayaan bersih</span><Amount value={accountTotals.netWorth} privacy={privacy} /></div><div><span>Arus kas bersih</span><Amount value={monthly.cashflow} privacy={privacy} /></div><div><span>Savings rate</span><strong>{monthly.savingsRate.toFixed(1)}%</strong></div></div>
       <div className="report-section"><span className="card-kicker">Arus kas bulanan</span><div className="report-bars"><div><span>Pemasukan</span><i style={{ width: `${monthly.income / chartMax * 100}%` }} /><Amount value={monthly.income} privacy={privacy} /></div><div><span>Pengeluaran</span><i className="expense-bar" style={{ width: `${monthly.expense / chartMax * 100}%` }} /><Amount value={monthly.expense} privacy={privacy} /></div><div><span>Tabungan</span><i className="saving-bar" style={{ width: `${Math.max(0, monthly.cashflow) / chartMax * 100}%` }} /><Amount value={monthly.cashflow} privacy={privacy} /></div></div></div>
@@ -1165,7 +1165,7 @@ function AssistantPage({ period, onOpenSettings }: { period: string; onOpenSetti
   };
 
   const clearHistory = async () => {
-    if (!messages.length || !window.confirm("Hapus seluruh histori percakapan VINN Insight?")) return;
+    if (!messages.length || !window.confirm("Hapus seluruh histori percakapan Financial Insight?")) return;
     try {
       await clearFinanceAiMessages();
       setMessages([]);
@@ -1182,7 +1182,7 @@ function AssistantPage({ period, onOpenSettings }: { period: string; onOpenSetti
 
   return <div className="assistant-layout">
     <section className="assistant-chat panel">
-      <div className="assistant-banner"><span><Bot size={21} /></span><div><strong>VINN Insight</strong><small>Gemini · {monthLabel(period)} · Read-only</small></div><span className={`online ${ready ? "" : "offline"}`}><i /> {loading ? "Memeriksa" : ready ? "Siap" : "Perlu setup"}</span></div>
+      <div className="assistant-banner"><span><Bot size={21} /></span><div><strong>Financial Insight</strong><small>Gemini · {monthLabel(period)} · Read-only</small></div><span className={`online ${ready ? "" : "offline"}`}><i /> {loading ? "Memeriksa" : ready ? "Siap" : "Perlu setup"}</span></div>
       {!loading && !ready && <div className="ai-setup-callout"><KeyRound size={18} /><div><strong>Aktifkan AI terlebih dahulu</strong><small>Tambahkan API key Gemini dan setujui disclosure privasi di Pengaturan. Key hanya disimpan terenkripsi di server.</small></div><button className="secondary-button" onClick={onOpenSettings}>Buka Pengaturan</button></div>}
       <div className="chat-body" aria-live="polite">
         {!messages.length && <div className="chat-message assistant"><span><Sparkles size={16} /></span><p>Halo! Saya dapat menjelaskan arus kas, anggaran, target, tagihan, dan investasi dari data yang kamu izinkan. Saya tidak dapat mengubah transaksi atau melakukan investasi.</p></div>}
@@ -1191,7 +1191,7 @@ function AssistantPage({ period, onOpenSettings }: { period: string; onOpenSetti
       </div>
       {error && <div className="ai-error" role="alert">{error}</div>}
       <div className="suggestion-chips"><button disabled={!ready || sending} onClick={() => send("Mengapa saldo saya berubah bulan ini?")}>Mengapa saldo berubah?</button><button disabled={!ready || sending} onClick={() => send("Apakah anggaran saya berisiko terlampaui?")}>Risiko anggaran</button><button disabled={!ready || sending} onClick={() => send("Berapa keuntungan investasi yang sudah direalisasikan?")}>Realized P/L</button></div>
-      <form className="chat-input" onSubmit={(event) => { event.preventDefault(); send(); }}><input maxLength={600} disabled={!ready || sending} value={input} onChange={(event) => setInput(event.target.value)} placeholder={ready ? "Tanya tentang kondisi keuanganmu…" : "Aktifkan AI di Pengaturan"} aria-label="Pertanyaan untuk VINN Insight" /><button disabled={!ready || sending || !input.trim()} aria-label="Kirim pertanyaan"><Send size={18} /></button></form>
+      <form className="chat-input" onSubmit={(event) => { event.preventDefault(); send(); }}><input maxLength={600} disabled={!ready || sending} value={input} onChange={(event) => setInput(event.target.value)} placeholder={ready ? "Tanya tentang kondisi keuanganmu…" : "Aktifkan AI di Pengaturan"} aria-label="Pertanyaan untuk Financial Insight" /><button disabled={!ready || sending || !input.trim()} aria-label="Kirim pertanyaan"><Send size={18} /></button></form>
     </section>
     <aside className="assistant-context panel"><div className="assistant-context-head"><span><span className="card-kicker">Data yang dikirim</span><h2>Konteks minimal</h2></span><button className="icon-button small danger" onClick={clearHistory} disabled={!messages.length} aria-label="Hapus histori AI"><Trash2 size={14} /></button></div><p>Backend memilih ringkasan yang relevan dengan pertanyaan—bukan seluruh spreadsheet.</p>{latestContext.map((item) => <div key={item}><span><CircleDollarSign size={17} /> {item}</span><strong>Digunakan</strong></div>)}<div><span><CreditCard size={17} /> PIN, OTP, CVV, nomor kartu lengkap</span><strong className="disabled-text">Tidak pernah</strong></div><small className="ai-disclaimer">Jawaban AI dapat keliru dan bukan pengganti penasihat keuangan profesional. Kamu tetap bertanggung jawab atas keputusan finansial.</small></aside>
   </div>;
@@ -1355,7 +1355,7 @@ function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLab
   const chooseMigrationFile = async (file?: File) => {
     if (!file) return;
     if (file.size > 12 * 1024 * 1024) return setError("File migrasi maksimal 12 MB.");
-    if (!file.name.toLowerCase().endsWith(".json")) return setError("Gunakan file backup JSON VINN STORE.");
+    if (!file.name.toLowerCase().endsWith(".json")) return setError("Gunakan file backup JSON Financial Planner.");
     setWorking("preview");
     setError("");
     try {
@@ -1793,12 +1793,12 @@ function TransactionImportModal({ accounts, categories, saving, onClose, onSubmi
   };
   const downloadTemplate = () => {
     const url = URL.createObjectURL(new Blob([transactionCsvTemplate], { type: "text/csv;charset=utf-8" }));
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "template-transaksi-vinn-store.csv"; anchor.click(); URL.revokeObjectURL(url);
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "template-transaksi-financial-planner.csv"; anchor.click(); URL.revokeObjectURL(url);
   };
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
       <div className="modal-head"><div><span className="card-kicker">Bulk import</span><h2 id="import-title">Impor transaksi CSV</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
-      <div className="import-guide"><FileUp size={22} /><div><strong>Preview dulu, simpan setelah semua baris valid.</strong><p>Kolom wajib: tanggal, jenis, deskripsi, kategori, akun, dan nominal. Nama akun harus sama dengan akun di VINN STORE.</p><button type="button" className="text-button" onClick={downloadTemplate}><Download size={14} /> Unduh template CSV</button></div></div>
+      <div className="import-guide"><FileUp size={22} /><div><strong>Preview dulu, simpan setelah semua baris valid.</strong><p>Kolom wajib: tanggal, jenis, deskripsi, kategori, akun, dan nominal. Nama akun harus sama dengan akun di Financial Planner.</p><button type="button" className="text-button" onClick={downloadTemplate}><Download size={14} /> Unduh template CSV</button></div></div>
       <label className="csv-dropzone"><Upload size={20} /><span><strong>{filename || "Pilih file CSV"}</strong><small>Maksimal 100 transaksi atau 1 MB</small></span><input type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
       {error && <div className="ocr-message"><X size={15} />{error}</div>}
       {preview && <>
@@ -1832,7 +1832,7 @@ function AccountImportModal({ accounts, saving, onClose, onSubmit }: {
   };
   const downloadTemplate = () => {
     const url = URL.createObjectURL(new Blob([accountCsvTemplate], { type: "text/csv;charset=utf-8" }));
-    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "template-akun-vinn-store.csv"; anchor.click(); URL.revokeObjectURL(url);
+    const anchor = document.createElement("a"); anchor.href = url; anchor.download = "template-akun-financial-planner.csv"; anchor.click(); URL.revokeObjectURL(url);
   };
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="account-import-title">
@@ -1851,12 +1851,12 @@ function AccountImportModal({ accounts, saving, onClose, onSubmit }: {
 }
 
 function LoadingWorkspace() {
-  return <main className="workspace-state"><BrandMark /><div className="workspace-spinner" /><h1>Menyiapkan VINN STORE</h1><p>Membaca akun, ledger, anggaran, target, dan tagihan dari penyimpanan utama.</p></main>;
+  return <main className="workspace-state"><BrandMark /><div className="workspace-spinner" /><h1>Menyiapkan Financial Planner</h1><p>Membaca akun, ledger, anggaran, target, dan tagihan dari penyimpanan utama.</p></main>;
 }
 
 function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | null; saving: boolean; onRetry: () => void; onSubmit: (input: SetupWorkspaceInput) => Promise<void> }) {
   const [profileName, setProfileName] = useState("Vinn");
-  const [storeName, setStoreName] = useState("VINN STORE");
+  const [storeName, setStoreName] = useState("Financial Planner");
   const [accountName, setAccountName] = useState("Rekening Utama");
   const [accountType, setAccountType] = useState("Bank");
   const [institution, setInstitution] = useState("");
@@ -1865,7 +1865,7 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
     event.preventDefault();
     await onSubmit({
       profileName: profileName.trim() || "Vinn",
-      storeName: storeName.trim() || "VINN STORE",
+      storeName: storeName.trim() || "Financial Planner",
       currency: "IDR",
       timezone: "Asia/Jakarta",
       accounts: [{ name: accountName.trim(), type: accountType, institution: institution.trim(), openingBalance: Number(openingBalance.replace(/\D/g, "") || 0), color: "#126b59" }],
@@ -1873,7 +1873,7 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
   };
   return <main className="setup-shell">
     <section className="setup-copy">
-      <div className="brand setup-brand"><BrandMark /><span className="brand-copy"><strong>VINN STORE</strong><small>Financial OS</small></span></div>
+      <div className="brand setup-brand"><BrandMark /><span className="brand-copy"><strong>Financial Planner</strong><small>Personal Finance</small></span></div>
       <span className="setup-kicker"><ShieldCheck size={15} /> Setup aman dan dapat dijalankan ulang</span>
       <h1>Mulai dari data keuanganmu sendiri.</h1>
       <p>Tambahkan akun utama untuk memulai. Seluruh dashboard akan dihitung otomatis dari transaksi yang kamu catat.</p>
@@ -1894,7 +1894,7 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
           <label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Contoh: Bank BCA" /></label>
           <label><span>Saldo awal</span><input value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="0" /></label>
         </div>
-        <button className="primary-button setup-submit" disabled={saving}>{saving ? "Menyiapkan workspace…" : "Buat workspace VINN STORE"}<ArrowRight size={17} /></button>
+        <button className="primary-button setup-submit" disabled={saving}>{saving ? "Menyiapkan workspace…" : "Buat Financial Planner"}<ArrowRight size={17} /></button>
         <small className="setup-footnote"><ShieldCheck size={14} /> PIN, OTP, CVV, dan password bank tidak pernah diminta.</small>
       </form>
     </section>

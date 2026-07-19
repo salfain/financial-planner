@@ -1,7 +1,7 @@
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
-    .setTitle(VINN_CONFIG.APP_NAME + ' — Financial OS')
+    .setTitle(VINN_CONFIG.APP_NAME)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
@@ -12,7 +12,7 @@ function include(filename) {
 
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('VINN STORE')
+    .createMenu('Financial Planner')
     .addItem('Jalankan Setup', 'setupVinnStore')
     .addItem('Periksa Struktur', 'apiHealthCheck')
     .addSeparator()

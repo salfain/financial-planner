@@ -223,7 +223,7 @@ export function serializeWorkspace(row: WorkspaceRow | null, workspaceId: string
     return {
       id: workspaceId,
       name: "Vinn",
-      storeName: "VINN STORE",
+      storeName: "Financial Planner",
       currency: "IDR",
       timezone: "Asia/Jakarta",
       configured: false,
@@ -232,7 +232,11 @@ export function serializeWorkspace(row: WorkspaceRow | null, workspaceId: string
       updatedAt: null,
     };
   }
-  return { ...row, configured: Boolean(row.configured) };
+  return {
+    ...row,
+    storeName: row.storeName.toUpperCase() === "VINN STORE" ? "Financial Planner" : row.storeName,
+    configured: Boolean(row.configured),
+  };
 }
 
 export const serializeAccount = (row: AccountRow) => ({
@@ -379,7 +383,7 @@ export const serializeInvestmentTransaction = (row: InvestmentTransactionRow) =>
 });
 
 export async function getWorkspace(workspaceId: string): Promise<WorkspaceRow | null> {
-  return getD1()
+  const row = await getD1()
     .prepare(
       `SELECT id, profile_name AS name, store_name AS storeName, currency, timezone, configured,
               configured_at AS configuredAt, created_at AS createdAt, updated_at AS updatedAt
@@ -387,6 +391,10 @@ export async function getWorkspace(workspaceId: string): Promise<WorkspaceRow | 
     )
     .bind(workspaceId)
     .first<WorkspaceRow>();
+  return row ? {
+    ...row,
+    storeName: row.storeName.toUpperCase() === "VINN STORE" ? "Financial Planner" : row.storeName,
+  } : null;
 }
 
 export async function requireWorkspace(workspaceId: string): Promise<WorkspaceRow> {
@@ -395,7 +403,7 @@ export async function requireWorkspace(workspaceId: string): Promise<WorkspaceRo
     throw new ApiError(
       409,
       "WORKSPACE_NOT_CONFIGURED",
-      "Selesaikan setup VINN STORE sebelum menyimpan data.",
+      "Selesaikan setup Financial Planner sebelum menyimpan data.",
     );
   }
   return workspace;

@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     }
 
     const storeName =
-      payload.storeName === undefined ? "VINN STORE" : requiredString(payload, "storeName", 100);
+      payload.storeName === undefined ? "Financial Planner" : requiredString(payload, "storeName", 100);
     const profileName =
       payload.profileName === undefined && payload.name === undefined
         ? "Vinn"

@@ -162,7 +162,7 @@ function GasHost() {
 const rootElement = document.getElementById("root");
 
 if (!rootElement) {
-  throw new Error("Elemen #root untuk VINN STORE tidak ditemukan.");
+  throw new Error("Elemen #root untuk Financial Planner tidak ditemukan.");
 }
 
 createRoot(rootElement).render(<GasHost />);

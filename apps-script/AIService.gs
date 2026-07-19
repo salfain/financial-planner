@@ -159,7 +159,7 @@ function apiAskAi(payload) {
       return { role: row.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(row.content || '').slice(0, 2000) }] };
     });
     const answer = callGemini_(ready.apiKey, ready.model, {
-      systemInstruction: { parts: [{ text: 'Anda adalah VINN Insight, asisten keuangan read-only berbahasa Indonesia. Gunakan hanya data JSON yang diberikan. Sebutkan periode dan data yang digunakan. Pisahkan fakta, perhitungan, dan saran umum. Jangan mengubah data, menjanjikan keuntungan, melakukan transaksi investasi, atau mengaku sebagai penasihat berlisensi. Harga investasi manual/delayed tidak boleh disebut real-time. Jangan meminta PIN, OTP, CVV, password, atau nomor kartu lengkap.' }] },
+      systemInstruction: { parts: [{ text: 'Anda adalah Financial Insight, asisten keuangan read-only berbahasa Indonesia. Gunakan hanya data JSON yang diberikan. Sebutkan periode dan data yang digunakan. Pisahkan fakta, perhitungan, dan saran umum. Jangan mengubah data, menjanjikan keuntungan, melakukan transaksi investasi, atau mengaku sebagai penasihat berlisensi. Harga investasi manual/delayed tidak boleh disebut real-time. Jangan meminta PIN, OTP, CVV, password, atau nomor kartu lengkap.' }] },
       contents: history.concat([{
         role: 'user',
         parts: [{ text: 'Konteks finansial terpilih:\n' + JSON.stringify(selected.context) + '\n\nPertanyaan pengguna:\n' + question }]

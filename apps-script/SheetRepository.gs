@@ -1,6 +1,6 @@
 function getWorkbook_() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  if (!spreadsheet) throw createError_('WORKBOOK_NOT_FOUND', 'Buka script dari Google Sheets VINN STORE.');
+  if (!spreadsheet) throw createError_('WORKBOOK_NOT_FOUND', 'Buka script dari Google Sheets Financial Planner.');
   return spreadsheet;
 }
 

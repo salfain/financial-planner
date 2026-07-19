@@ -147,13 +147,13 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
     schemaVersion: text(root.schemaVersion ?? root.version, "legacy"),
     createdAt: Number.isNaN(new Date(createdAt).getTime()) ? new Date().toISOString() : new Date(createdAt).toISOString(),
     source: {
-      app: text(source.app, "VINN STORE"),
+      app: text(source.app, "Financial Planner").replace(/^VINN STORE(?: Financial OS)?$/i, "Financial Planner"),
       backend: text(source.backend, text(root.backend, "portable-json")),
       ...(text(source.workspaceId) ? { workspaceId: text(source.workspaceId) } : {}),
     },
     profile: {
       name: text(profile.name, "Vinn").slice(0, 100),
-      storeName: text(profile.storeName ?? profile.store_name, "VINN STORE").slice(0, 100),
+      storeName: text(profile.storeName ?? profile.store_name, "Financial Planner").replace(/^VINN STORE$/i, "Financial Planner").slice(0, 100),
       currency: text(profile.currency, "IDR").toUpperCase().slice(0, 3),
       timezone: text(profile.timezone, "Asia/Jakarta").slice(0, 80),
     },

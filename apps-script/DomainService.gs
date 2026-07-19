@@ -7,7 +7,7 @@ function apiSetupWorkspace(payload) {
       const existingAccounts = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS)
         .filter(function(row) { return row.is_active !== false && String(row.is_active).toLowerCase() !== 'false'; });
       if (existingAccounts.length) {
-        throw createError_('ALREADY_CONFIGURED', 'Workspace VINN STORE sudah dikonfigurasi.');
+        throw createError_('ALREADY_CONFIGURED', 'Workspace Financial Planner sudah dikonfigurasi.');
       }
 
       const profileName = String(payload.profileName || 'Vinn').trim().slice(0, 80);

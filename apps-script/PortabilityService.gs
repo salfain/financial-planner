@@ -1,6 +1,6 @@
 const VINN_PORTABILITY_HISTORY_KEY = 'VINN_PORTABILITY_HISTORY';
 const VINN_BACKUP_SCHEDULE_KEY = 'VINN_BACKUP_SCHEDULE';
-const VINN_PORTABILITY_FOLDER = 'VINN STORE Files';
+const VINN_PORTABILITY_FOLDER = 'Financial Planner Files';
 
 function portabilityFolder_() {
   const workbook = getWorkbook_();
@@ -49,7 +49,7 @@ function apiSaveReportPdf(payload) {
     if (!base64 || base64.length > 12000000) throw createError_('INVALID_PDF', 'Isi PDF kosong atau terlalu besar.');
     const bytes = Utilities.base64Decode(base64);
     if (bytes.length < 5 || String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]) !== '%PDF-') throw createError_('INVALID_PDF', 'File laporan bukan PDF yang valid.');
-    const filename = String(payload.filename || ('VINN-STORE_Laporan_' + period + '.pdf')).replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 160);
+    const filename = String(payload.filename || ('Financial-Planner_Laporan_' + period + '.pdf')).replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 160);
     const file = portabilityFolder_().createFile(Utilities.newBlob(bytes, 'application/pdf', filename));
     const record = recordPortability_(portabilityExportRecord_(file, 'report', {
       sections: sections, privacy: truthy_(payload.privacy), pageCount: pageCount
@@ -370,7 +370,7 @@ function apiApplyMigration(payload) {
       }
       const appliedAt = nowIso_();
       const report = { migrationId: id, sourceName: item.sourceName, sourceSchemaVersion: item.sourceSchemaVersion, targetSchemaVersion: VINN_CONFIG.SCHEMA_VERSION, appliedAt: appliedAt, counts: validation.counts, totalRecords: validation.totalRecords, balanceDifference: validation.balanceDifference, warnings: validation.warnings, status: 'applied' };
-      const reportFile = portabilityFolder_().createFile(Utilities.newBlob(JSON.stringify(report, null, 2), 'application/json', 'VINN-STORE_Migration_Report_' + id + '.json'));
+      const reportFile = portabilityFolder_().createFile(Utilities.newBlob(JSON.stringify(report, null, 2), 'application/json', 'Financial-Planner_Migration_Report_' + id + '.json'));
       item.status = 'applied'; item.appliedAt = appliedAt; item.reportDownloadUrl = reportFile.getUrl();
       savePortabilityHistory_(history);
       audit_('MIGRATION_APPLY', 'migration', id, String(payload.requestId || id_('req')), report);

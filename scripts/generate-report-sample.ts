@@ -6,15 +6,15 @@ const outputDirectory = resolve("output/pdf");
 const report = generateFinancePdf({
   period: "2026-07",
   generatedAt: "2026-07-18T03:00:00.000Z",
-  profile: { name: "Vinn", storeName: "VINN STORE", currency: "IDR", timezone: "Asia/Jakarta" },
+  profile: { name: "Vinn", storeName: "Financial Planner", currency: "IDR", timezone: "Asia/Jakarta" },
   accounts: [
     { id: "bank", name: "Bank Operasional", type: "Bank", institution: "Bank Indonesia", balance: 12_500_000, openingBalance: 10_000_000, mask: "•• 8842", color: "#16876f" },
     { id: "cash", name: "Kas", type: "Cash", institution: "", balance: 1_200_000, openingBalance: 1_500_000, mask: "", color: "#4e79c7" },
   ],
   transactions: [
-    { id: "previous-income", type: "income", date: "2026-06-02", title: "Pendapatan Juni", merchant: "VINN STORE", category: "Pendapatan", accountId: "bank", amount: 4_200_000, status: "completed" },
+    { id: "previous-income", type: "income", date: "2026-06-02", title: "Pendapatan Juni", merchant: "Pemberi Kerja", category: "Pendapatan", accountId: "bank", amount: 4_200_000, status: "completed" },
     { id: "previous-expense", type: "expense", date: "2026-06-06", title: "Belanja Juni", merchant: "VINN Mart", category: "Makanan", accountId: "bank", amount: 1_100_000, status: "completed" },
-    { id: "income", type: "income", date: "2026-07-02", title: "Pendapatan usaha", merchant: "VINN STORE", category: "Pendapatan", accountId: "bank", amount: 5_000_000, status: "completed" },
+    { id: "income", type: "income", date: "2026-07-02", title: "Pendapatan bulanan", merchant: "Pemberi Kerja", category: "Pendapatan", accountId: "bank", amount: 5_000_000, status: "completed" },
     { id: "food", type: "expense", date: "2026-07-05", title: "Belanja operasional", merchant: "VINN Mart", category: "Makanan", accountId: "bank", amount: 1_250_000, status: "completed" },
     { id: "internet", type: "expense", date: "2026-07-12", title: "Internet", merchant: "Provider", category: "Tagihan", accountId: "bank", amount: 350_000, status: "completed" },
   ],
@@ -38,6 +38,6 @@ const report = generateFinancePdf({
 });
 
 await mkdir(outputDirectory, { recursive: true });
-const outputPath = resolve(outputDirectory, "VINN-STORE_Laporan_2026-07_sample.pdf");
+const outputPath = resolve(outputDirectory, "Financial-Planner_Laporan_2026-07_sample.pdf");
 await writeFile(outputPath, report.bytes);
 console.log(`${outputPath}\n${report.pageCount} pages\n${report.bytes.byteLength} bytes`);

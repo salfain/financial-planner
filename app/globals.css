@@ -109,7 +109,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 30; width: 248px; display: flex; flex-direction: column; padding: 22px 16px 16px; background: var(--surface); border-right: 1px solid var(--border-soft); }
 .sidebar-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 27px; }
 .brand { display: flex; align-items: center; gap: 11px; border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; }
-.brand-mark { display: grid; place-items: center; width: 37px; height: 37px; color: #fff; font-weight: 800; font-size: 17px; border-radius: 11px 11px 11px 4px; background: linear-gradient(145deg, #17856e, #0d5748); box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 7px 16px rgba(18,107,89,.22); }
+.brand-mark { display: grid; place-items: center; width: 37px; height: 37px; color: #fff; font-weight: 800; font-size: 12px; letter-spacing: -.04em; border-radius: 11px 11px 11px 4px; background: linear-gradient(145deg, #17856e, #0d5748); box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 7px 16px rgba(18,107,89,.22); }
 .brand-copy { display: grid; }
 .brand-copy strong { font-size: 13px; letter-spacing: .085em; line-height: 1.25; }
 .brand-copy small { color: var(--text-faint); font-size: 10px; letter-spacing: .04em; }

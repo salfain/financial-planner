@@ -4,22 +4,24 @@ import test from "node:test";
 
 const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
-test("shell menggunakan identitas VINN STORE dan locale Indonesia", async () => {
+test("shell menggunakan identitas Financial Planner dan locale Indonesia", async () => {
   const [page, layout] = await Promise.all([
     source("../app/page.tsx"),
     source("../app/layout.tsx"),
   ]);
 
   assert.match(page, /<FinanceApp\s*\/>/);
-  assert.match(layout, /VINN STORE — Financial OS/);
+  assert.match(layout, /title: "Financial Planner"/);
   assert.match(layout, /<html lang="id"/);
-  assert.match(layout, /\/og-advanced-transactions\.png/);
+  assert.match(layout, /\/og-financial-planner\.png/);
   assert.doesNotMatch(layout, /Starter Project|Your site is taking shape/);
 });
 
 test("copy produk tidak menampilkan bahasa dokumen pengembangan", async () => {
   const app = await source("../app/FinanceApp.tsx");
   assert.doesNotMatch(app, /tahap integrasi berikutnya|Impor CSV · segera|transaksi contoh/i);
+  assert.doesNotMatch(app, /VINN STORE|VINN Insight/i);
+  assert.match(app, /Financial Planner/);
   assert.match(app, /Pencatatan tagihan/);
   assert.match(app, /Konfirmasi manual/);
 });
