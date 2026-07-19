@@ -40,6 +40,22 @@ test("UI pengaturan menyediakan pemeriksaan dan repair ledger terkonfirmasi", as
   assert.match(route, /LEDGER_CHANGED/);
 });
 
+test("profil pemilik dapat diubah dan disimpan secara persisten", async () => {
+  const [app, client, route, appsScript] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../app/api/finance/profile/route.ts"),
+    source("../apps-script/DomainService.gs"),
+  ]);
+  assert.match(app, /Profil pemilik/);
+  assert.match(app, /Simpan nama/);
+  assert.match(app, /laporan, backup, dan ekspor/);
+  assert.match(client, /\/api\/finance\/profile/);
+  assert.match(route, /profile\.update/);
+  assert.match(appsScript, /apiUpdateProfile/);
+  assert.match(appsScript, /UPDATE_PROFILE/);
+});
+
 test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () => {
   const [app, client, css] = await Promise.all([
     source("../app/FinanceApp.tsx"),

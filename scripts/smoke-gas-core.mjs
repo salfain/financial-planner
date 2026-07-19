@@ -14,7 +14,7 @@ const sources = readdirSync(appsScriptDirectory)
 const combinedSource = sources.join("\n");
 for (const action of [
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
-  "importAccounts",
+  "importAccounts", "updateProfile",
   "updateTransaction", "reconcileAccount", "listAuditLogs",
   "inspectLedger", "repairLedger",
   "createInvestmentAsset", "updateInvestmentAsset", "createInvestmentTrade",
@@ -232,6 +232,15 @@ result = invoke(`apiImportAccounts({ requestId: "account-import-duplicate", acco
 assert.equal(result.ok, false);
 assert.equal(result.error.code, "DUPLICATE_ACCOUNT_NAME");
 assert.equal(sheets.Accounts.length, accountCountBeforeImport + 2);
+result = invoke(`apiUpdateProfile({ requestId: "profile-update-1", name: "Pemilik Baru" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.profileName, "Pemilik Baru");
+assert.equal(sheets.Settings.find((setting) => setting.key === "profile_name").value, "Pemilik Baru");
+result = invoke(`apiUpdateProfile({ requestId: "profile-update-1", name: "Tidak Ditulis Ulang" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.duplicate, true);
+assert.equal(result.data.profileName, "Pemilik Baru");
+assert.equal(sheets.Settings.find((setting) => setting.key === "profile_name").value, "Pemilik Baru");
 add("Categories", {
   id: "cat-food", name: "Makanan", type: "expense", parent_id: "", color: "#16876f",
   icon: "tag", is_active: true, is_default: true, request_id: "",

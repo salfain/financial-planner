@@ -48,6 +48,7 @@ import {
   TrendingUp,
   Undo2,
   Upload,
+  UserRound,
   WalletCards,
   X,
   type LucideIcon,
@@ -121,6 +122,7 @@ import {
   updateFinanceInvestmentAsset,
   updateFinanceNotificationSettings,
   updateFinanceNotificationStates,
+  updateFinanceProfile,
   updateFinanceTransaction,
   undoLastFinanceTransactionAction,
   uploadFinanceTransactionReceipt,
@@ -447,6 +449,11 @@ export function FinanceApp() {
     await runMutation(() => archiveFinanceCategory(categoryId), "Kategori berhasil diarsipkan.");
   };
 
+  const saveOwnerProfile = async (name: string) => runMutation(
+    () => updateFinanceProfile(name),
+    "Nama pemilik berhasil diperbarui.",
+  );
+
   const saveInvestmentAsset = async (payload: Record<string, unknown>, asset?: InvestmentAsset, requestId?: string) => runMutation(
     () => asset
       ? updateFinanceInvestmentAsset(asset.id, { ...payload, expectedUpdatedAt: asset.updatedAt }, requestId)
@@ -611,7 +618,7 @@ export function FinanceApp() {
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
-          {activePage === "settings" && <SettingsPage darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} onRefresh={refreshData} />}
+          {activePage === "settings" && <SettingsPage profile={profile} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} onRefresh={refreshData} />}
         </div>
       </main>
 
@@ -1421,7 +1428,9 @@ function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLab
   </section>;
 }
 
-function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, auditLogs, backendLabel, notificationSettings, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onToast, onRefresh }: {
+function SettingsPage({ profile, saving, darkMode, setDarkMode, privacy, setPrivacy, categories, auditLogs, backendLabel, notificationSettings, onSaveProfile, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onToast, onRefresh }: {
+  profile: FinanceProfile;
+  saving: boolean;
   darkMode: boolean;
   setDarkMode: (value: boolean) => void;
   privacy: boolean;
@@ -1430,6 +1439,7 @@ function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, 
   auditLogs: AuditLog[];
   backendLabel: string;
   notificationSettings: NotificationSettings;
+  onSaveProfile: (name: string) => Promise<boolean>;
   onSaveNotificationSettings: (settings: NotificationSettings) => Promise<NotificationSettings>;
   onAddCategory: () => void;
   onEditCategory: (category: FinanceCategory) => void;
@@ -1439,6 +1449,7 @@ function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, 
 }) {
   const editableCategories = categories.filter((category) => category.active && (category.type === "income" || category.type === "expense"));
   return <div className="settings-layout">
+    <OwnerProfilePanel key={profile.name} profile={profile} saving={saving} onSave={onSaveProfile} />
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
     <NotificationSettingsPanel key={`${notificationSettings.enabled}-${notificationSettings.billReminderDays.join(",")}-${notificationSettings.budgetWarningPercent}-${notificationSettings.backupWarningDays}-${notificationSettings.goalWarningDays}`} settings={notificationSettings} onSave={onSaveNotificationSettings} onToast={onToast} />
@@ -1448,6 +1459,43 @@ function SettingsPage({ darkMode, setDarkMode, privacy, setPrivacy, categories, 
     <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
     <section className="panel settings-section"><div className="settings-title"><span><History size={20} /></span><div><h2>Audit trail</h2><p>20 aktivitas terbaru yang tercatat di workspace.</p></div></div><div className="audit-list">{auditLogs.slice(0, 20).map((log) => <div key={log.id}><span><strong>{log.action.replaceAll("_", " ")}</strong><small>{log.module}{log.entityId ? ` · ${log.entityId.slice(0, 18)}` : ""}</small></span><time>{log.createdAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(log.createdAt)) : "—"}</time></div>)}{!auditLogs.length && <div className="settings-empty">Belum ada aktivitas yang tercatat.</div>}</div></section>
   </div>;
+}
+
+function OwnerProfilePanel({ profile, saving, onSave }: {
+  profile: FinanceProfile;
+  saving: boolean;
+  onSave: (name: string) => Promise<boolean>;
+}) {
+  const [name, setName] = useState(profile.name);
+
+  const normalizedName = name.trim();
+  const hasChanged = normalizedName !== profile.name;
+  const initials = normalizedName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "FP";
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!normalizedName || !hasChanged || saving) return;
+    await onSave(normalizedName);
+  };
+
+  return <section className="panel settings-section settings-wide owner-profile-panel">
+    <div className="settings-title"><span><UserRound size={20} /></span><div><h2>Profil pemilik</h2><p>Nama pemilik digunakan pada sapaan, laporan, backup, dan ekspor.</p></div></div>
+    <form className="owner-profile-form" onSubmit={submit}>
+      <span className="owner-avatar" aria-hidden="true">{initials}</span>
+      <label>
+        <span>Nama pemilik</span>
+        <input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} autoComplete="name" required aria-describedby="owner-name-help" />
+        <small id="owner-name-help">Perubahan nama tidak mengubah akun, saldo, maupun riwayat transaksi.</small>
+      </label>
+      <button className="primary-button" type="submit" disabled={saving || !normalizedName || !hasChanged}><Check size={16} /> {saving ? "Menyimpan…" : "Simpan nama"}</button>
+    </form>
+  </section>;
 }
 
 function LedgerHealthPanel({ privacy, onToast, onRefresh }: { privacy: boolean; onToast: (message: string) => void; onRefresh: () => Promise<void> }) {

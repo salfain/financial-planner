@@ -279,6 +279,16 @@ export async function setupFinanceWorkspace(input: SetupWorkspaceInput, month: s
   return normalizeSnapshot(raw, month);
 }
 
+export const updateFinanceProfile = (
+  name: string,
+  requestId = `profile-update:${crypto.randomUUID()}`,
+) => mutation<{ profileName: string; replayed?: boolean; duplicate?: boolean }>(
+  "updateProfile",
+  "/api/finance/profile",
+  { name, requestId },
+  "PATCH",
+);
+
 export const createFinanceAccount = (payload: Record<string, unknown>) =>
   mutation("createAccount", "/api/finance/accounts", payload);
 

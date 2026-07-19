@@ -2,6 +2,8 @@
 
 **Financial Planner** adalah aplikasi perencanaan dan pengelolaan keuangan terpadu dengan ledger persisten untuk transaksi, anggaran, target, investasi, laporan, backup, migrasi, reminder, dan analisis berbasis AI.
 
+Nama pemilik dapat diubah kapan saja dari **Pengaturan → Profil pemilik**. Perubahan tersimpan pada backend utama, tercatat di audit trail, dan digunakan pada sapaan, laporan, backup, serta ekspor berikutnya.
+
 ## Menjalankan aplikasi
 
 Persyaratan: Node.js 22 atau lebih baru.

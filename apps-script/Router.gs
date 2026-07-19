@@ -4,6 +4,7 @@ function api(action, payload) {
     health: function() { return apiHealthCheck(); },
     bootstrap: function() { return apiGetBootstrap(payload && payload.month); },
     setupWorkspace: function() { return apiSetupWorkspace(payload || {}); },
+    updateProfile: function() { return apiUpdateProfile(payload || {}); },
     createAccount: function() { return apiCreateAccount(payload || {}); },
     importAccounts: function() { return apiImportAccounts(payload || {}); },
     archiveAccount: function() { return apiArchiveAccount(payload || {}); },

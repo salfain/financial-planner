@@ -46,6 +46,39 @@ function apiSetupWorkspace(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function apiUpdateProfile(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const replay = requestAudit_(requestId);
+      if (replay) {
+        if (String(replay.action) !== 'UPDATE_PROFILE' || String(replay.module) !== 'profile') {
+          throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        }
+        const replayDetails = parseJsonObject_(replay.details_json);
+        const replayName = replayDetails.after && replayDetails.after.name
+          ? String(replayDetails.after.name)
+          : String(settingValue_('profile_name', 'Vinn'));
+        return ok_({ profileName: replayName, duplicate: true }, requestId);
+      }
+
+      const name = String(payload && payload.name || '').trim();
+      if (!name || name.length > 80) {
+        throw createError_('INVALID_PROFILE_NAME', 'Nama pemilik wajib diisi dan maksimal 80 karakter.');
+      }
+
+      const previousName = String(settingValue_('profile_name', 'Vinn'));
+      upsertSetting_('profile_name', name);
+      audit_('UPDATE_PROFILE', 'profile', 'owner', requestId, {
+        before: { name: previousName },
+        after: { name: name }
+      });
+      invalidateDashboard_();
+      return ok_({ profileName: name, duplicate: false }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiCreateAccount(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {
