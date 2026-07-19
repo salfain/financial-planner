@@ -79,6 +79,63 @@ function apiUpdateProfile(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function defaultRoadmapSettings_() {
+  return {
+    horizonMonths: 24,
+    incomeAdjustmentPct: 0,
+    expenseAdjustmentPct: 0,
+    annualInvestmentReturnPct: 6,
+    annualInflationPct: 3,
+    monthlyInvestment: 0
+  };
+}
+
+function apiRoadmapSettings() {
+  try {
+    const raw = settingValue_('roadmap_settings', '');
+    return ok_(raw ? Object.assign(defaultRoadmapSettings_(), parseJsonObject_(raw)) : defaultRoadmapSettings_());
+  } catch (error) { return fail_(error); }
+}
+
+function apiUpdateRoadmapSettings(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const replay = requestAudit_(requestId);
+      if (replay) {
+        if (String(replay.action) !== 'UPDATE_ROADMAP' || String(replay.module) !== 'roadmap') {
+          throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        }
+        return apiRoadmapSettings();
+      }
+      function integerInRange_(field, min, max) {
+        const value = Number(payload && payload[field]);
+        if (!Number.isSafeInteger(value) || value < min || value > max) {
+          throw createError_('INVALID_ROADMAP_SETTING', field + ' harus antara ' + min + ' dan ' + max + '.');
+        }
+        return value;
+      }
+      const horizon = integerInRange_('horizonMonths', 12, 60);
+      if ([12, 24, 36, 60].indexOf(horizon) === -1) throw createError_('INVALID_ROADMAP_SETTING', 'Horizon harus 12, 24, 36, atau 60 bulan.');
+      const settings = {
+        horizonMonths: horizon,
+        incomeAdjustmentPct: integerInRange_('incomeAdjustmentPct', -50, 100),
+        expenseAdjustmentPct: integerInRange_('expenseAdjustmentPct', -50, 100),
+        annualInvestmentReturnPct: integerInRange_('annualInvestmentReturnPct', 0, 30),
+        annualInflationPct: integerInRange_('annualInflationPct', 0, 30),
+        monthlyInvestment: integerInRange_('monthlyInvestment', 0, 1000000000)
+      };
+      const before = settingValue_('roadmap_settings', JSON.stringify(defaultRoadmapSettings_()));
+      upsertSetting_('roadmap_settings', JSON.stringify(settings));
+      audit_('UPDATE_ROADMAP', 'roadmap', 'financial-plan', requestId, {
+        before: parseJsonObject_(before), after: settings
+      });
+      invalidateDashboard_();
+      return ok_(settings, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiCreateAccount(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {

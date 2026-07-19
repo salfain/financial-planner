@@ -408,7 +408,7 @@ test("laporan bulanan menghasilkan PDF nyata dan CSV melindungi formula spreadsh
     goals: [{ id: "goal", name: "Dana darurat", target: 5_000_000, current: 1_000_000, deadline: "2026-12-31", color: "#16876f", icon: "target" }],
     bills: [{ id: "bill", name: "Internet", amount: 300_000, dueDate: "2026-07-20", category: "Tagihan", accountId: "cash", paid: false }],
     categories: [], investmentAssets: [], investmentTransactions: [], privacy: false,
-    sections: ["summary", "cashflow", "categories", "accounts", "budgets", "bills", "goals", "investments"] as const,
+    sections: ["summary", "cashflow", "categories", "accounts", "budgets", "bills", "goals", "roadmap", "investments"] as const,
     generatedAt: "2026-07-18T03:00:00.000Z",
   };
   const pdf = generateFinancePdf({ ...input, sections: [...input.sections] });

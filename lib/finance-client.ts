@@ -4,6 +4,7 @@ import type { BackupOverview, BackupSchedule, ExportRecord, MigrationPreview } f
 import { recurringBillDueDate, type NotificationOverview, type NotificationSettings } from "./notifications";
 import type { LedgerHealthReport } from "./ledger";
 import type { AccountImportItem } from "./account-import";
+import { DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -288,6 +289,36 @@ export const updateFinanceProfile = (
   { name, requestId },
   "PATCH",
 );
+
+const normalizeRoadmapSettings = (value: unknown): RoadmapSettings => {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const horizon = number(source.horizonMonths ?? source.horizon_months);
+  return {
+    horizonMonths: ([12, 24, 36, 60].includes(horizon) ? horizon : DEFAULT_ROADMAP_SETTINGS.horizonMonths) as RoadmapSettings["horizonMonths"],
+    incomeAdjustmentPct: number(source.incomeAdjustmentPct ?? source.income_adjustment_pct ?? DEFAULT_ROADMAP_SETTINGS.incomeAdjustmentPct),
+    expenseAdjustmentPct: number(source.expenseAdjustmentPct ?? source.expense_adjustment_pct ?? DEFAULT_ROADMAP_SETTINGS.expenseAdjustmentPct),
+    annualInvestmentReturnPct: number(source.annualInvestmentReturnPct ?? source.annual_investment_return_pct ?? DEFAULT_ROADMAP_SETTINGS.annualInvestmentReturnPct),
+    annualInflationPct: number(source.annualInflationPct ?? source.annual_inflation_pct ?? DEFAULT_ROADMAP_SETTINGS.annualInflationPct),
+    monthlyInvestment: number(source.monthlyInvestment ?? source.monthly_investment ?? DEFAULT_ROADMAP_SETTINGS.monthlyInvestment),
+  };
+};
+
+export async function loadFinanceRoadmapSettings() {
+  const raw = hasAppsScriptBridge()
+    ? await callAppsScript<unknown>("getRoadmapSettings", {})
+    : await webRequest<unknown>("/api/finance/roadmap");
+  return normalizeRoadmapSettings(raw);
+}
+
+export async function updateFinanceRoadmapSettings(
+  settings: RoadmapSettings,
+  requestId = `roadmap-update:${crypto.randomUUID()}`,
+) {
+  const raw = await mutation<unknown>("updateRoadmapSettings", "/api/finance/roadmap", { ...settings, requestId }, "PATCH");
+  return normalizeRoadmapSettings(raw);
+}
 
 export const createFinanceAccount = (payload: Record<string, unknown>) =>
   mutation("createAccount", "/api/finance/accounts", payload);

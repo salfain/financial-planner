@@ -5,6 +5,8 @@ function api(action, payload) {
     bootstrap: function() { return apiGetBootstrap(payload && payload.month); },
     setupWorkspace: function() { return apiSetupWorkspace(payload || {}); },
     updateProfile: function() { return apiUpdateProfile(payload || {}); },
+    getRoadmapSettings: function() { return apiRoadmapSettings(); },
+    updateRoadmapSettings: function() { return apiUpdateRoadmapSettings(payload || {}); },
     createAccount: function() { return apiCreateAccount(payload || {}); },
     importAccounts: function() { return apiImportAccounts(payload || {}); },
     archiveAccount: function() { return apiArchiveAccount(payload || {}); },

@@ -34,6 +34,7 @@ import {
   Pencil,
   Plus,
   ReceiptText,
+  Route,
   Search,
   Send,
   Settings,
@@ -57,6 +58,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import type { ReportSection } from "../lib/report";
 import type { LedgerHealthReport } from "../lib/ledger";
+import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapScenario, type RoadmapSettings } from "../lib/roadmap";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
@@ -104,6 +106,7 @@ import {
   loadFinanceMigrations,
   loadFinanceLedgerHealth,
   loadFinanceNotifications,
+  loadFinanceRoadmapSettings,
   loadFinanceReports,
   loadFinanceSnapshot,
   loadFinanceTransactions,
@@ -123,6 +126,7 @@ import {
   updateFinanceNotificationSettings,
   updateFinanceNotificationStates,
   updateFinanceProfile,
+  updateFinanceRoadmapSettings,
   updateFinanceTransaction,
   undoLastFinanceTransactionAction,
   uploadFinanceTransactionReceipt,
@@ -135,6 +139,7 @@ import {
 
 type PageKey =
   | "dashboard"
+  | "roadmap"
   | "transactions"
   | "accounts"
   | "budgets"
@@ -155,6 +160,7 @@ const monthLabel = (month: string) => formatMonthLabel(month);
 
 const navPrimary: { key: PageKey; label: string; icon: LucideIcon }[] = [
   { key: "dashboard", label: "Ringkasan", icon: LayoutDashboard },
+  { key: "roadmap", label: "Roadmap", icon: Route },
   { key: "transactions", label: "Transaksi", icon: ReceiptText },
   { key: "accounts", label: "Akun", icon: WalletCards },
   { key: "budgets", label: "Anggaran", icon: BarChart3 },
@@ -184,6 +190,7 @@ const categoryColors: Record<string, string> = {
 
 const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: string }> = {
   dashboard: { eyebrow: "Ringkasan", title: "Ringkasan keuangan", subtitle: "Semua angka dihitung dari ledger yang tersimpan." },
+  roadmap: { eyebrow: "Perencanaan masa depan", title: "Financial Roadmap", subtitle: "Uji asumsi dan lihat kemungkinan perjalanan finansialmu sebelum mengambil keputusan." },
   transactions: { eyebrow: "Ledger utama", title: "Semua transaksi", subtitle: "Pantau setiap pergerakan uang tanpa menghitung transfer dua kali." },
   accounts: { eyebrow: "6 akun aktif", title: "Akun & saldo", subtitle: "Semua rekening, dompet, kewajiban, dan investasi dalam satu tampilan." },
   budgets: { eyebrow: "Rencana Juli", title: "Anggaran bulanan", subtitle: "Kendalikan pengeluaran sebelum melewati batas yang kamu tentukan." },
@@ -513,6 +520,7 @@ export function FinanceApp() {
 
   const title = { ...pageTitles[activePage] };
   if (activePage === "dashboard") { title.eyebrow = monthLabel(month); title.title = `Selamat datang, ${profile.name}`; }
+  if (activePage === "roadmap") title.eyebrow = `Proyeksi mulai ${monthLabel(month)}`;
   if (activePage === "accounts") title.eyebrow = `${accounts.length} akun aktif`;
   if (activePage === "budgets") title.eyebrow = `Rencana ${monthLabel(month)}`;
   if (activePage === "goals") title.eyebrow = `${goals.length} target aktif`;
@@ -604,12 +612,13 @@ export function FinanceApp() {
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
-            {activePage !== "dashboard" && activePage !== "assistant" && activePage !== "settings" && (
+            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "assistant" && activePage !== "settings" && (
               <button className="primary-button" onClick={openCreateForPage}><Plus size={18} /> {createLabel}</button>
             )}
           </section>
 
           {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setTransactionOpen(true)} />}
+          {activePage === "roadmap" && <RoadmapPage month={month} transactions={transactions} accounts={accounts} goals={goals} investmentAssets={investmentAssets} privacy={privacy} onToast={showToast} />}
           {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
           {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onImport={() => setAccountImportOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} />}
@@ -623,7 +632,7 @@ export function FinanceApp() {
       </main>
 
       <nav className="mobile-nav" aria-label="Navigasi seluler">
-        {[navPrimary[0], navPrimary[1], navPrimary[3], navPrimary[4]].map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
+        {[navPrimary[0], navPrimary[2], navPrimary[4], navPrimary[5]].map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
         <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={23} /></button>
       </nav>
 
@@ -924,6 +933,115 @@ function GoalsPage({ goals, privacy, onContribute, onAdd }: { goals: Goal[]; pri
   </div>;
 }
 
+const roadmapColors: Record<RoadmapScenario["key"], string> = {
+  conservative: "#c76565",
+  base: "#126b59",
+  optimistic: "#5574b8",
+};
+
+function RoadmapChart({ scenarios, privacy }: { scenarios: RoadmapScenario[]; privacy: boolean }) {
+  const width = 760;
+  const height = 270;
+  const padding = { top: 18, right: 20, bottom: 34, left: 24 };
+  const allValues = scenarios.flatMap((scenario) => scenario.points.map((point) => point.netWorth));
+  const minimum = Math.min(...allValues, 0);
+  const maximum = Math.max(...allValues, 1);
+  const span = Math.max(1, maximum - minimum);
+  const x = (index: number, total: number) => padding.left + (index / Math.max(1, total - 1)) * (width - padding.left - padding.right);
+  const y = (value: number) => padding.top + (1 - (value - minimum) / span) * (height - padding.top - padding.bottom);
+  const basePoints = scenarios.find((scenario) => scenario.key === "base")?.points ?? [];
+  const labelIndexes = [...new Set([0, Math.floor((basePoints.length - 1) / 2), basePoints.length - 1])].filter((index) => index >= 0);
+
+  return <div className="roadmap-chart-wrap">
+    <div className="roadmap-chart-legend">{scenarios.map((scenario) => <span key={scenario.key}><i style={{ background: roadmapColors[scenario.key] }} />{scenario.label}</span>)}</div>
+    <svg className="roadmap-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Grafik proyeksi kekayaan bersih untuk tiga skenario">
+      {[0, .25, .5, .75, 1].map((ratio) => <line key={ratio} x1={padding.left} x2={width - padding.right} y1={padding.top + ratio * (height - padding.top - padding.bottom)} y2={padding.top + ratio * (height - padding.top - padding.bottom)} className="roadmap-grid-line" />)}
+      {scenarios.map((scenario) => <polyline key={scenario.key} points={scenario.points.map((point, index) => `${x(index, scenario.points.length)},${y(point.netWorth)}`).join(" ")} fill="none" stroke={roadmapColors[scenario.key]} strokeWidth={scenario.key === "base" ? 4 : 2.4} strokeLinecap="round" strokeLinejoin="round" opacity={scenario.key === "base" ? 1 : .78} />)}
+      {labelIndexes.map((index) => <text key={index} x={x(index, basePoints.length)} y={height - 8} textAnchor={index === 0 ? "start" : index === basePoints.length - 1 ? "end" : "middle"} className="roadmap-axis-label">{basePoints[index]?.month}</text>)}
+    </svg>
+    <span className="roadmap-chart-scale">Rentang proyeksi {privacy ? "disembunyikan" : `${formatIDR(minimum, true)} – ${formatIDR(maximum, true)}`}</span>
+  </div>;
+}
+
+function RoadmapPage({ month, transactions, accounts, goals, investmentAssets, privacy, onToast }: {
+  month: string;
+  transactions: Transaction[];
+  accounts: Account[];
+  goals: Goal[];
+  investmentAssets: InvestmentAsset[];
+  privacy: boolean;
+  onToast: (message: string) => void;
+}) {
+  const [settings, setSettings] = useState<RoadmapSettings>(DEFAULT_ROADMAP_SETTINGS);
+  const [savedSettings, setSavedSettings] = useState<RoadmapSettings>(DEFAULT_ROADMAP_SETTINGS);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const investmentMarketValue = investmentAssets.reduce((sum, asset) => sum + asset.marketValue, 0);
+  const roadmap = useMemo(() => buildFinancialRoadmap({ transactions, accounts, goals, investmentMarketValue, settings, asOfMonth: month }), [transactions, accounts, goals, investmentMarketValue, settings, month]);
+  const baseScenario = roadmap.scenarios.find((scenario) => scenario.key === "base")!;
+  const assumptionsChanged = JSON.stringify(settings) !== JSON.stringify(savedSettings);
+
+  useEffect(() => {
+    let active = true;
+    loadFinanceRoadmapSettings()
+      .then((value) => { if (active) { setSettings(value); setSavedSettings(value); } })
+      .catch((reason) => { if (active) setSettingsError(reason instanceof Error ? reason.message : "Asumsi tersimpan tidak dapat dimuat."); })
+      .finally(() => { if (active) setLoadingSettings(false); });
+    return () => { active = false; };
+  }, []);
+
+  const saveSettings = async () => {
+    setSavingSettings(true); setSettingsError("");
+    try {
+      const saved = await updateFinanceRoadmapSettings(settings);
+      setSettings(saved); setSavedSettings(saved);
+      onToast("Asumsi Financial Roadmap berhasil disimpan.");
+    } catch (reason) {
+      setSettingsError(reason instanceof Error ? reason.message : "Asumsi Roadmap tidak dapat disimpan.");
+    } finally { setSavingSettings(false); }
+  };
+
+  const update = <K extends keyof RoadmapSettings>(field: K, value: RoadmapSettings[K]) => setSettings((current) => ({ ...current, [field]: value }));
+
+  return <div className="roadmap-layout">
+    <section className="roadmap-hero">
+      <div><span className="card-kicker light">Rencana utama · {settings.horizonMonths} bulan</span><h2><Amount value={baseScenario.finalNetWorth} privacy={privacy} /></h2><p>Estimasi kekayaan bersih pada {formatMonthLabel(baseScenario.points.at(-1)?.month ?? month)} berdasarkan data dan asumsi saat ini.</p></div>
+      <div className="roadmap-hero-metrics"><span><small>Posisi sekarang</small><Amount value={roadmap.baseline.startingNetWorth} privacy={privacy} /></span><span><small>Potensi perubahan</small><Amount value={baseScenario.growth} privacy={privacy} className={baseScenario.growth >= 0 ? "positive-light" : "negative-light"} /></span><span><small>Arus kas rata-rata</small><Amount value={roadmap.baseline.monthlySurplus} privacy={privacy} /></span></div>
+    </section>
+
+    <section className="panel roadmap-chart-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Scenario engine</span><h2>Tiga kemungkinan perjalanan</h2></div><span className="roadmap-data-badge">{roadmap.observedMonths ? `${roadmap.observedMonths} bulan data` : "Menunggu data transaksi"}</span></div>
+      <RoadmapChart scenarios={roadmap.scenarios} privacy={privacy} />
+      {!roadmap.observedMonths && <div className="roadmap-inline-warning"><History size={16} /><span>Tambahkan transaksi pemasukan dan pengeluaran agar proyeksi memakai pola keuangan nyata.</span></div>}
+    </section>
+
+    <aside className="panel roadmap-control-panel">
+      <div className="settings-title"><span><Route size={20} /></span><div><h2>Asumsi rencana</h2><p>Ubah angka untuk menjalankan simulasi secara langsung.</p></div></div>
+      <div className="roadmap-control-list">
+        <label><span>Horizon perencanaan</span><select value={settings.horizonMonths} onChange={(event) => update("horizonMonths", Number(event.target.value) as RoadmapSettings["horizonMonths"])}><option value={12}>12 bulan</option><option value={24}>24 bulan</option><option value={36}>36 bulan</option><option value={60}>60 bulan</option></select></label>
+        <label><span>Perubahan pendapatan <strong>{settings.incomeAdjustmentPct > 0 ? "+" : ""}{settings.incomeAdjustmentPct}%</strong></span><input type="range" min={-50} max={100} step={1} value={settings.incomeAdjustmentPct} onChange={(event) => update("incomeAdjustmentPct", Number(event.target.value))} /></label>
+        <label><span>Perubahan pengeluaran <strong>{settings.expenseAdjustmentPct > 0 ? "+" : ""}{settings.expenseAdjustmentPct}%</strong></span><input type="range" min={-50} max={100} step={1} value={settings.expenseAdjustmentPct} onChange={(event) => update("expenseAdjustmentPct", Number(event.target.value))} /></label>
+        <label><span>Inflasi tahunan <strong>{settings.annualInflationPct}%</strong></span><input type="range" min={0} max={15} step={1} value={settings.annualInflationPct} onChange={(event) => update("annualInflationPct", Number(event.target.value))} /></label>
+        <label><span>Imbal hasil investasi <strong>{settings.annualInvestmentReturnPct}%</strong></span><input type="range" min={0} max={30} step={1} value={settings.annualInvestmentReturnPct} onChange={(event) => update("annualInvestmentReturnPct", Number(event.target.value))} /></label>
+        <label><span>Investasi rutin per bulan</span><div className="roadmap-money-input"><small>Rp</small><input type="number" min={0} max={1_000_000_000} step={100_000} value={settings.monthlyInvestment} onChange={(event) => update("monthlyInvestment", Math.max(0, Math.min(1_000_000_000, Number(event.target.value) || 0)))} /></div></label>
+      </div>
+      {settingsError && <div className="roadmap-setting-error">{settingsError}</div>}
+      <button className="primary-button roadmap-save" onClick={saveSettings} disabled={loadingSettings || savingSettings || !assumptionsChanged}><Check size={16} /> {savingSettings ? "Menyimpan…" : loadingSettings ? "Memuat asumsi…" : assumptionsChanged ? "Simpan asumsi" : "Asumsi tersimpan"}</button>
+      <small className="roadmap-disclaimer">Proyeksi adalah simulasi, bukan jaminan hasil investasi atau kondisi finansial masa depan.</small>
+    </aside>
+
+    <section className="roadmap-scenario-grid">
+      {roadmap.scenarios.map((scenario) => <article className={`panel roadmap-scenario ${scenario.key}`} key={scenario.key}><span className="roadmap-scenario-dot" style={{ background: roadmapColors[scenario.key] }} /><div><small>{scenario.label}</small><h3><Amount value={scenario.finalNetWorth} privacy={privacy} /></h3><p>{scenario.description}</p></div><dl><div><dt>Perubahan</dt><dd><Amount value={scenario.growth} privacy={privacy} compact /></dd></div><div><dt>Bulan defisit</dt><dd>{scenario.deficitMonths}</dd></div></dl>{scenario.firstDeficitMonth && <span className="roadmap-risk"><ShieldCheck size={14} /> Defisit pertama diperkirakan {formatMonthLabel(scenario.firstDeficitMonth)}</span>}</article>)}
+    </section>
+
+    <section className="panel roadmap-goal-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Goal forecast</span><h2>Kesiapan target finansial</h2></div><span className="roadmap-data-badge">Prioritas berdasarkan deadline</span></div>
+      <div className="roadmap-goal-list">{roadmap.goalForecasts.map((goal) => <div key={goal.id}><span className={goal.onTrack ? "roadmap-goal-icon on-track" : "roadmap-goal-icon at-risk"}>{goal.onTrack ? <CheckCircle2 size={17} /> : <Clock3 size={17} />}</span><span><strong>{goal.name}</strong><small>Sisa <Amount value={goal.remaining} privacy={privacy} /> · kebutuhan <Amount value={goal.recommendedMonthly} privacy={privacy} compact />/bulan</small></span><span><small>Perkiraan</small><strong className={goal.onTrack ? "positive-text" : "warning-text"}>{goal.projectedMonth ? formatMonthLabel(goal.projectedMonth) : "Belum terjangkau"}</strong></span></div>)}{!roadmap.goalForecasts.length && <div className="settings-empty">Semua target sudah tercapai atau belum ada target aktif.</div>}</div>
+    </section>
+  </div>;
+}
+
 function BillsPage({ bills, accounts, privacy, onPay, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; onPay: (bill: Bill) => void; onAdd: () => void }) {
   const pending = bills.filter((bill) => !bill.paid);
   return <div className="content-stack">
@@ -1001,6 +1119,7 @@ const reportSectionOptions: Array<{ key: ReportSection; label: string }> = [
   { key: "budgets", label: "Anggaran" },
   { key: "bills", label: "Tagihan" },
   { key: "goals", label: "Target" },
+  { key: "roadmap", label: "Financial Roadmap" },
   { key: "investments", label: "Investasi" },
 ];
 
@@ -1037,6 +1156,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
   const [maskPdf, setMaskPdf] = useState(privacy);
   const [generating, setGenerating] = useState(false);
   const [reports, setReports] = useState<ExportRecord[]>([]);
+  const [roadmapReportSettings, setRoadmapReportSettings] = useState<RoadmapSettings>(DEFAULT_ROADMAP_SETTINGS);
   const [error, setError] = useState("");
   const monthTransactions = transactions.filter((item) => item.date.startsWith(period) && item.status === "completed");
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
@@ -1059,6 +1179,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
     loadFinanceReports()
       .then((result) => active && setReports(result.reports))
       .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Riwayat laporan tidak dapat dimuat."));
+    loadFinanceRoadmapSettings().then((value) => active && setRoadmapReportSettings(value)).catch(() => undefined);
     return () => { active = false; };
   }, []);
 
@@ -1092,6 +1213,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
         investmentTransactions,
         privacy: maskPdf,
         sections,
+        roadmapSettings: roadmapReportSettings,
       });
       const saved = await saveFinanceReport({
         filename: result.filename,

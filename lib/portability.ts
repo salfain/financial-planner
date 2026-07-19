@@ -1,5 +1,5 @@
 export const BACKUP_FORMAT = "vinn-store-backup";
-export const BACKUP_SCHEMA_VERSION = "1.6.0";
+export const BACKUP_SCHEMA_VERSION = "1.7.0";
 export const BACKUP_MAX_RECORDS = 5_000;
 
 export const PORTABLE_COLLECTIONS = [
@@ -34,6 +34,12 @@ export type PortableBackup = {
     notificationBudgetWarningPercent?: number;
     notificationBackupWarningDays?: number;
     notificationGoalWarningDays?: number;
+    roadmapHorizonMonths?: number;
+    roadmapIncomeAdjustmentPct?: number;
+    roadmapExpenseAdjustmentPct?: number;
+    roadmapAnnualInvestmentReturnPct?: number;
+    roadmapAnnualInflationPct?: number;
+    roadmapMonthlyInvestment?: number;
   };
   data: PortableData;
 };

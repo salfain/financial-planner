@@ -10,6 +10,7 @@ import type {
   Transaction,
 } from "./finance";
 import { accountSummary, budgetSpent, formatIDR, formatMonthLabel, monthlySummary } from "./finance";
+import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 
 export const REPORT_SECTIONS = [
   "summary",
@@ -19,6 +20,7 @@ export const REPORT_SECTIONS = [
   "budgets",
   "bills",
   "goals",
+  "roadmap",
   "investments",
 ] as const;
 
@@ -37,6 +39,7 @@ export type FinanceReportInput = {
   investmentTransactions: InvestmentTransaction[];
   privacy: boolean;
   sections: ReportSection[];
+  roadmapSettings?: RoadmapSettings;
   generatedAt?: string;
 };
 
@@ -404,8 +407,64 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
     );
   }
 
+  if (selected(input, "roadmap")) {
+    const roadmap = buildFinancialRoadmap({
+      transactions: input.transactions,
+      accounts: input.accounts,
+      goals: input.goals,
+      investmentMarketValue: investmentValue,
+      settings: input.roadmapSettings ?? DEFAULT_ROADMAP_SETTINGS,
+      asOfMonth: input.period,
+    });
+    sectionTitle("08 - Financial Roadmap", "Proyeksi kekayaan bersih", "Simulasi menggunakan pola arus kas hingga enam bulan terakhir dan asumsi yang tersimpan. Hasil bukan jaminan kondisi masa depan.");
+    keyValueCards(roadmap.scenarios.map((scenario) => ({
+      label: `${scenario.label} - ${input.roadmapSettings?.horizonMonths ?? DEFAULT_ROADMAP_SETTINGS.horizonMonths} bulan`,
+      value: money(scenario.finalNetWorth, input.privacy),
+      tone: scenario.growth >= 0 ? "positive" as const : "negative" as const,
+    })));
+
+    ensureSpace(67);
+    const chartTop = y + 2;
+    const chartHeight = 52;
+    const chartBottom = chartTop + chartHeight;
+    const values = roadmap.scenarios.flatMap((scenario) => scenario.points.map((point) => point.netWorth));
+    const chartMin = Math.min(...values, 0);
+    const chartMaxValue = Math.max(...values, 1);
+    const chartSpan = Math.max(1, chartMaxValue - chartMin);
+    doc.setDrawColor(...BORDER);
+    [0, .5, 1].forEach((ratio) => doc.line(margin, chartTop + chartHeight * ratio, pageWidth - margin, chartTop + chartHeight * ratio));
+    const lineColors: Record<string, readonly [number, number, number]> = { conservative: [199, 101, 101], base: BRAND, optimistic: [85, 116, 184] };
+    roadmap.scenarios.forEach((scenario) => {
+      const color = lineColors[scenario.key];
+      doc.setDrawColor(color[0], color[1], color[2]);
+      doc.setLineWidth(scenario.key === "base" ? 1.1 : .6);
+      scenario.points.slice(1).forEach((point, index) => {
+        const previous = scenario.points[index];
+        const x1 = margin + index / Math.max(1, scenario.points.length - 1) * contentWidth;
+        const x2 = margin + (index + 1) / Math.max(1, scenario.points.length - 1) * contentWidth;
+        const y1 = chartBottom - (previous.netWorth - chartMin) / chartSpan * chartHeight;
+        const y2 = chartBottom - (point.netWorth - chartMin) / chartSpan * chartHeight;
+        doc.line(x1, y1, x2, y2);
+      });
+    });
+    doc.setLineWidth(.2);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.8);
+    doc.setTextColor(...MUTED);
+    const basePoints = roadmap.scenarios.find((scenario) => scenario.key === "base")?.points ?? [];
+    doc.text(basePoints[0]?.month ?? input.period, margin, chartBottom + 5);
+    doc.text(basePoints.at(-1)?.month ?? input.period, pageWidth - margin, chartBottom + 5, { align: "right" });
+    y = chartBottom + 11;
+
+    table(
+      ["Target", "Sisa", "Kebutuhan/bln", "Perkiraan", "Status"],
+      roadmap.goalForecasts.map((goal) => [goal.name, money(goal.remaining, input.privacy), money(goal.recommendedMonthly, input.privacy), goal.projectedMonth ? formatMonthLabel(goal.projectedMonth) : "Belum terjangkau", goal.onTrack ? "Sesuai rencana" : "Perlu penyesuaian"]),
+      [43, 34, 38, 38, contentWidth - 153],
+    );
+  }
+
   if (selected(input, "investments")) {
-    sectionTitle("08 - Investasi", "Portofolio investasi", "Harga manual atau transaksi terakhir dapat bersifat delayed dan bukan harga real-time.");
+    sectionTitle("09 - Investasi", "Portofolio investasi", "Harga manual atau transaksi terakhir dapat bersifat delayed dan bukan harga real-time.");
     table(
       ["Aset", "Unit", "Cost basis", "Nilai", "Unrealized P/L"],
       input.investmentAssets.map((asset) => [`${asset.ticker} - ${asset.name}`, asset.units.toLocaleString("id-ID", { maximumFractionDigits: 8 }), money(asset.costBasis, input.privacy), money(asset.marketValue, input.privacy), money(asset.unrealizedPl, input.privacy)]),

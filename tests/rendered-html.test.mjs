@@ -56,6 +56,25 @@ test("profil pemilik dapat diubah dan disimpan secara persisten", async () => {
   assert.match(appsScript, /UPDATE_PROFILE/);
 });
 
+test("Financial Roadmap menyediakan simulasi tiga skenario dan asumsi persisten", async () => {
+  const [app, client, engine, route, schema] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../lib/roadmap.ts"),
+    source("../app/api/finance/roadmap/route.ts"),
+    source("../db/schema.ts"),
+  ]);
+  assert.match(app, /Financial Roadmap/);
+  assert.match(app, /Tiga kemungkinan perjalanan/);
+  assert.match(engine, /Konservatif/);
+  assert.match(engine, /Optimistis/);
+  assert.match(app, /Kesiapan target finansial/);
+  assert.match(client, /\/api\/finance\/roadmap/);
+  assert.match(engine, /buildFinancialRoadmap/);
+  assert.match(route, /roadmap\.update/);
+  assert.match(schema, /roadmap_settings/);
+});
+
 test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () => {
   const [app, client, css] = await Promise.all([
     source("../app/FinanceApp.tsx"),

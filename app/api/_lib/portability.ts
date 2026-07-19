@@ -168,9 +168,11 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     d1.prepare(`SELECT id, asset_id AS assetId, account_id AS accountId, date, type, units_micro AS unitsMicro, price_per_unit AS pricePerUnit, gross_amount AS grossAmount, fee, tax, net_amount AS netAmount, average_cost_after AS averageCostAfter, remaining_units_micro AS remainingUnitsMicro, realized_pl AS realizedPl, linked_cash_transaction_id AS linkedCashTransactionId, linked_adjustment_transaction_id AS linkedAdjustmentTransactionId, note, created_at AS createdAt, updated_at AS updatedAt FROM investment_transactions WHERE workspace_id = ? ORDER BY date, created_at, id`).bind(workspaceId),
     d1.prepare(`SELECT provider, model, enabled, consent_accepted AS consentAccepted FROM ai_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT enabled, bill_reminder_days AS billReminderDays, budget_warning_percent AS budgetWarningPercent, backup_warning_days AS backupWarningDays, goal_warning_days AS goalWarningDays FROM notification_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
+    d1.prepare(`SELECT horizon_months AS horizonMonths, income_adjustment_pct AS incomeAdjustmentPct, expense_adjustment_pct AS expenseAdjustmentPct, annual_investment_return_pct AS annualInvestmentReturnPct, annual_inflation_pct AS annualInflationPct, monthly_investment AS monthlyInvestment FROM roadmap_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
   ]);
   const ai = results[9].results[0] as Record<string, unknown> | undefined;
   const notification = results[10].results[0] as Record<string, unknown> | undefined;
+  const roadmap = results[11].results[0] as Record<string, unknown> | undefined;
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -195,6 +197,14 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
         notificationBudgetWarningPercent: Number(notification.budgetWarningPercent),
         notificationBackupWarningDays: Number(notification.backupWarningDays),
         notificationGoalWarningDays: Number(notification.goalWarningDays),
+      } : {}),
+      ...(roadmap ? {
+        roadmapHorizonMonths: Number(roadmap.horizonMonths),
+        roadmapIncomeAdjustmentPct: Number(roadmap.incomeAdjustmentPct),
+        roadmapExpenseAdjustmentPct: Number(roadmap.expenseAdjustmentPct),
+        roadmapAnnualInvestmentReturnPct: Number(roadmap.annualInvestmentReturnPct),
+        roadmapAnnualInflationPct: Number(roadmap.annualInflationPct),
+        roadmapMonthlyInvestment: Number(roadmap.monthlyInvestment),
       } : {}),
     },
     data: {
@@ -545,6 +555,16 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id) DO UPDATE SET enabled = excluded.enabled, bill_reminder_days = excluded.bill_reminder_days, budget_warning_percent = excluded.budget_warning_percent, backup_warning_days = excluded.backup_warning_days, goal_warning_days = excluded.goal_warning_days, updated_at = excluded.updated_at`,
     ).bind(workspaceId, backup.settings.notificationEnabled === false ? 0 : 1, JSON.stringify(reminderDays.length ? reminderDays : [7, 3, 1, 0]), backup.settings.notificationBudgetWarningPercent ?? 75, backup.settings.notificationBackupWarningDays ?? 7, backup.settings.notificationGoalWarningDays ?? 30, now, now));
+  }
+
+  if (backup.settings.roadmapHorizonMonths !== undefined) {
+    const horizon = [12, 24, 36, 60].includes(Number(backup.settings.roadmapHorizonMonths)) ? Number(backup.settings.roadmapHorizonMonths) : 24;
+    const bounded = (value: number | undefined, min: number, max: number, fallback: number) => Number.isSafeInteger(value) ? Math.max(min, Math.min(max, Number(value))) : fallback;
+    statements.push(d1.prepare(
+      `INSERT INTO roadmap_settings (workspace_id, horizon_months, income_adjustment_pct, expense_adjustment_pct, annual_investment_return_pct, annual_inflation_pct, monthly_investment, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(workspace_id) DO UPDATE SET horizon_months = excluded.horizon_months, income_adjustment_pct = excluded.income_adjustment_pct, expense_adjustment_pct = excluded.expense_adjustment_pct, annual_investment_return_pct = excluded.annual_investment_return_pct, annual_inflation_pct = excluded.annual_inflation_pct, monthly_investment = excluded.monthly_investment, updated_at = excluded.updated_at`,
+    ).bind(workspaceId, horizon, bounded(backup.settings.roadmapIncomeAdjustmentPct, -50, 100, 0), bounded(backup.settings.roadmapExpenseAdjustmentPct, -50, 100, 0), bounded(backup.settings.roadmapAnnualInvestmentReturnPct, 0, 30, 6), bounded(backup.settings.roadmapAnnualInflationPct, 0, 30, 3), bounded(backup.settings.roadmapMonthlyInvestment, 0, 1_000_000_000, 0), now, now));
   }
 
   try {

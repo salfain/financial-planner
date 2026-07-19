@@ -4,6 +4,8 @@
 
 Nama pemilik dapat diubah kapan saja dari **Pengaturan → Profil pemilik**. Perubahan tersimpan pada backend utama, tercatat di audit trail, dan digunakan pada sapaan, laporan, backup, serta ekspor berikutnya.
 
+**Financial Roadmap** memproyeksikan kekayaan bersih hingga 60 bulan melalui skenario konservatif, utama, dan optimistis. Asumsi pendapatan, pengeluaran, inflasi, imbal hasil, dan investasi rutin dapat disimulasikan lalu disimpan; kesiapan target dan risiko bulan defisit dihitung dari ledger aktif.
+
 ## Menjalankan aplikasi
 
 Persyaratan: Node.js 22 atau lebih baru.

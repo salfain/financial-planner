@@ -71,6 +71,13 @@
       "when": 1784391999074,
       "tag": "0009_serious_sentinels",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784444975263,
+      "tag": "0010_elite_supernaut",
+      "breakpoints": true
     }
   ]
 }

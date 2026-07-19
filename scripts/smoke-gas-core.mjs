@@ -14,7 +14,7 @@ const sources = readdirSync(appsScriptDirectory)
 const combinedSource = sources.join("\n");
 for (const action of [
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
-  "importAccounts", "updateProfile",
+  "importAccounts", "updateProfile", "getRoadmapSettings", "updateRoadmapSettings",
   "updateTransaction", "reconcileAccount", "listAuditLogs",
   "inspectLedger", "repairLedger",
   "createInvestmentAsset", "updateInvestmentAsset", "createInvestmentTrade",
@@ -241,6 +241,14 @@ assert.equal(result.ok, true);
 assert.equal(result.data.duplicate, true);
 assert.equal(result.data.profileName, "Pemilik Baru");
 assert.equal(sheets.Settings.find((setting) => setting.key === "profile_name").value, "Pemilik Baru");
+result = invoke(`apiUpdateRoadmapSettings({ requestId: "roadmap-update-1", horizonMonths: 36, incomeAdjustmentPct: 8, expenseAdjustmentPct: -4, annualInvestmentReturnPct: 7, annualInflationPct: 3, monthlyInvestment: 1500000 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.horizonMonths, 36);
+assert.equal(result.data.monthlyInvestment, 1500000);
+result = invoke(`apiUpdateRoadmapSettings({ requestId: "roadmap-update-1", horizonMonths: 12, incomeAdjustmentPct: 0, expenseAdjustmentPct: 0, annualInvestmentReturnPct: 0, annualInflationPct: 0, monthlyInvestment: 0 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.horizonMonths, 36);
+assert.equal(JSON.parse(sheets.Settings.find((setting) => setting.key === "roadmap_settings").value).incomeAdjustmentPct, 8);
 add("Categories", {
   id: "cat-food", name: "Makanan", type: "expense", parent_id: "", color: "#16876f",
   icon: "tag", is_active: true, is_default: true, request_id: "",

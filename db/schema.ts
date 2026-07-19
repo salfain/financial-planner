@@ -422,6 +422,31 @@ export const notificationSettings = sqliteTable("notification_settings", {
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const roadmapSettings = sqliteTable(
+  "roadmap_settings",
+  {
+    workspaceId: text("workspace_id")
+      .primaryKey()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    horizonMonths: integer("horizon_months").notNull().default(24),
+    incomeAdjustmentPct: integer("income_adjustment_pct").notNull().default(0),
+    expenseAdjustmentPct: integer("expense_adjustment_pct").notNull().default(0),
+    annualInvestmentReturnPct: integer("annual_investment_return_pct").notNull().default(6),
+    annualInflationPct: integer("annual_inflation_pct").notNull().default(3),
+    monthlyInvestment: integer("monthly_investment").notNull().default(0),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    check("roadmap_horizon_check", sql`${table.horizonMonths} IN (12, 24, 36, 60)`),
+    check("roadmap_income_adjustment_check", sql`${table.incomeAdjustmentPct} BETWEEN -50 AND 100`),
+    check("roadmap_expense_adjustment_check", sql`${table.expenseAdjustmentPct} BETWEEN -50 AND 100`),
+    check("roadmap_return_check", sql`${table.annualInvestmentReturnPct} BETWEEN 0 AND 30`),
+    check("roadmap_inflation_check", sql`${table.annualInflationPct} BETWEEN 0 AND 30`),
+    check("roadmap_monthly_investment_nonnegative", sql`${table.monthlyInvestment} >= 0`),
+  ],
+);
+
 export const notificationStates = sqliteTable(
   "notification_states",
   {
