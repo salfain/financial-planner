@@ -43,3 +43,5 @@ next-env.d.ts
 /.codex-d1-smoke.*.log
 /outputs/
 /work/
+node_modules/
+package-lock.json
