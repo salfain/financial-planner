@@ -28,6 +28,7 @@ import {
   Landmark,
   KeyRound,
   LayoutDashboard,
+  LogOut,
   Menu,
   Moon,
   MoreHorizontal,
@@ -93,6 +94,7 @@ import {
 } from "../lib/finance";
 import {
   FinanceProfile,
+  FinanceSecurityStatus,
   SetupWorkspaceInput,
   askFinanceAi,
   archiveFinanceAccount,
@@ -122,6 +124,7 @@ import {
   loadFinanceEmergencyFundSettings,
   loadFinanceRecurringTemplates,
   loadFinanceReports,
+  loadFinanceSecurity,
   loadFinanceSnapshot,
   loadFinanceTransactions,
   loadFinanceAiMessages,
@@ -1848,6 +1851,7 @@ function SettingsPage({ profile, saving, darkMode, setDarkMode, privacy, setPriv
   const editableCategories = categories.filter((category) => category.active && (category.type === "income" || category.type === "expense"));
   return <div className="settings-layout">
     <OwnerProfilePanel key={profile.name} profile={profile} saving={saving} onSave={onSaveProfile} />
+    <SecurityAccessPanel privacy={privacy} />
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
     <NotificationSettingsPanel key={`${notificationSettings.enabled}-${notificationSettings.billReminderDays.join(",")}-${notificationSettings.budgetWarningPercent}-${notificationSettings.backupWarningDays}-${notificationSettings.goalWarningDays}`} settings={notificationSettings} onSave={onSaveNotificationSettings} onToast={onToast} />
@@ -1857,6 +1861,39 @@ function SettingsPage({ profile, saving, darkMode, setDarkMode, privacy, setPriv
     <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
     <section className="panel settings-section"><div className="settings-title"><span><History size={20} /></span><div><h2>Audit trail</h2><p>20 aktivitas terbaru yang tercatat di workspace.</p></div></div><div className="audit-list">{auditLogs.slice(0, 20).map((log) => <div key={log.id}><span><strong>{log.action.replaceAll("_", " ")}</strong><small>{log.module}{log.entityId ? ` · ${log.entityId.slice(0, 18)}` : ""}</small></span><time>{log.createdAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(log.createdAt)) : "—"}</time></div>)}{!auditLogs.length && <div className="settings-empty">Belum ada aktivitas yang tercatat.</div>}</div></section>
   </div>;
+}
+
+function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
+  const [status, setStatus] = useState<FinanceSecurityStatus | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    loadFinanceSecurity()
+      .then((value) => active && setStatus(value))
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Status keamanan tidak dapat dimuat."));
+    return () => { active = false; };
+  }, []);
+
+  const accountLabel = status?.email
+    ? privacy
+      ? status.email.replace(/^(.{1,2}).*(@.*)$/, "$1••••$2")
+      : status.email
+    : status?.displayName ?? "Sesi pemilik";
+
+  return <section className="panel settings-section settings-wide security-access-panel">
+    <div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Keamanan & akses</h2><p>Identitas, isolasi workspace, dan perlindungan respons aplikasi.</p></div><span className="security-badge"><CheckCircle2 size={13} /> Terlindungi</span></div>
+    {error && <div className="portability-error" role="alert">{error}</div>}
+    {!status && !error && <div className="settings-empty">Memeriksa keamanan sesi…</div>}
+    {status && <>
+      <div className="security-status-grid">
+        <article><span><KeyRound size={18} /></span><div><small>Identitas aktif</small><strong>{accountLabel}</strong><p>{status.provider} · {status.sessionState === "local_preview" ? "mode pengembangan" : "sesi terverifikasi"}</p></div></article>
+        <article><span><UserRound size={18} /></span><div><small>Kontrol akses</small><strong>{status.accessMode === "owner_only" ? "Hanya pemilik" : "Dikelola deployment"}</strong><p>{status.accessMode === "owner_only" ? "Pengunjung lain tidak dapat membuka workspace privat ini." : "Akses mengikuti pengguna yang diizinkan pada deployment Google Apps Script."}</p></div></article>
+        <article><span><Database size={18} /></span><div><small>Isolasi data</small><strong>Dikunci di server</strong><p>ID workspace dari browser tidak dapat mengalihkan akses data.</p></div></article>
+      </div>
+      <div className="security-account-row"><span><ShieldCheck size={17} /><span><strong>Proteksi respons aktif</strong><small>API tidak disimpan di cache dan halaman dibatasi dari embedding pihak lain.</small></span></span>{status.signOutUrl && <a className="secondary-button" href={status.signOutUrl}><LogOut size={15} /> Keluar dari sesi</a>}</div>
+    </>}
+  </section>;
 }
 
 function OwnerProfilePanel({ profile, saving, onSave }: {

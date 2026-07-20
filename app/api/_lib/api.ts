@@ -108,12 +108,23 @@ export function resolveWorkspaceId(
   payload?: Record<string, unknown>,
 ): string {
   const url = new URL(request.url);
-  const value =
+  const requestedValue =
     payload?.workspaceId ??
     request.headers.get("X-Workspace-Id") ??
-    url.searchParams.get("workspaceId") ??
-    DEFAULT_WORKSPACE_ID;
-  return validateId(value, "workspaceId");
+    url.searchParams.get("workspaceId");
+
+  if (requestedValue !== undefined && requestedValue !== null) {
+    const requestedWorkspaceId = validateId(requestedValue, "workspaceId");
+    if (requestedWorkspaceId !== DEFAULT_WORKSPACE_ID) {
+      throw new ApiError(
+        403,
+        "WORKSPACE_ACCESS_DENIED",
+        "Workspace tidak dapat dipilih dari permintaan pengguna.",
+      );
+    }
+  }
+
+  return DEFAULT_WORKSPACE_ID;
 }
 
 export function validateId(value: unknown, field = "id"): string {

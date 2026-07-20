@@ -56,6 +56,23 @@ test("profil pemilik dapat diubah dan disimpan secara persisten", async () => {
   assert.match(appsScript, /UPDATE_PROFILE/);
 });
 
+test("pengaturan menampilkan keamanan owner-only dan isolasi workspace", async () => {
+  const [app, client, route, api, worker] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../app/api/finance/security/route.ts"),
+    source("../app/api/_lib/api.ts"),
+    source("../worker/index.ts"),
+  ]);
+  assert.match(app, /Keamanan & akses/);
+  assert.match(app, /Hanya pemilik/);
+  assert.match(app, /Dikunci di server/);
+  assert.match(client, /\/api\/finance\/security/);
+  assert.match(route, /owner_only/);
+  assert.match(api, /WORKSPACE_ACCESS_DENIED/);
+  assert.match(worker, /applySecurityHeaders/);
+});
+
 test("Financial Roadmap menyediakan simulasi tiga skenario dan asumsi persisten", async () => {
   const [app, client, engine, route, schema] = await Promise.all([
     source("../app/FinanceApp.tsx"),

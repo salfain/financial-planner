@@ -18,6 +18,17 @@ export type FinanceProfile = {
   timezone: string;
 };
 
+export type FinanceSecurityStatus = {
+  authenticated: boolean;
+  displayName: string | null;
+  email: string | null;
+  provider: string;
+  accessMode: "owner_only" | "deployment_managed";
+  workspaceIsolation: "server_enforced";
+  sessionState: "verified" | "local_preview" | "protected";
+  signOutUrl: string | null;
+};
+
 export type FinanceSnapshot = {
   configured: boolean;
   profile: FinanceProfile;
@@ -717,3 +728,16 @@ export const updateFinanceNotificationStates = (notificationIds: string[], actio
 );
 
 export const financeBackendLabel = () => hasAppsScriptBridge() ? "Google Sheets" : "Cloud database";
+
+export const loadFinanceSecurity = (): Promise<FinanceSecurityStatus> => hasAppsScriptBridge()
+  ? Promise.resolve({
+      authenticated: true,
+      displayName: "Pemilik Google Apps Script",
+      email: null,
+      provider: "Google Apps Script",
+      accessMode: "deployment_managed",
+      workspaceIsolation: "server_enforced",
+      sessionState: "verified",
+      signOutUrl: null,
+    })
+  : webRequest<FinanceSecurityStatus>("/api/finance/security");
