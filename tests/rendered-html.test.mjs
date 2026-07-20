@@ -60,14 +60,14 @@ test("pengaturan menampilkan keamanan owner-only dan isolasi workspace", async (
   const [app, client, route, api, worker] = await Promise.all([
     source("../app/FinanceApp.tsx"),
     source("../lib/finance-client.ts"),
-    source("../app/api/finance/security/route.ts"),
+    source("../app/api/finance/access-status/route.ts"),
     source("../app/api/_lib/api.ts"),
     source("../worker/index.ts"),
   ]);
   assert.match(app, /Keamanan & akses/);
   assert.match(app, /Hanya pemilik/);
   assert.match(app, /Dikunci di server/);
-  assert.match(client, /\/api\/finance\/security/);
+  assert.match(client, /\/api\/finance\/access-status/);
   assert.match(route, /owner_only/);
   assert.match(api, /WORKSPACE_ACCESS_DENIED/);
   assert.match(worker, /applySecurityHeaders/);

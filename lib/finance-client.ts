@@ -740,4 +740,4 @@ export const loadFinanceSecurity = (): Promise<FinanceSecurityStatus> => hasApps
       sessionState: "verified",
       signOutUrl: null,
     })
-  : webRequest<FinanceSecurityStatus>("/api/finance/security");
+  : webRequest<FinanceSecurityStatus>("/api/finance/access-status");
