@@ -228,3 +228,18 @@ test("notification center memakai engine, status persisten, dan pengaturan remin
   assert.match(schema, /notification_states/);
   assert.doesNotMatch(app, /pendingBills\.slice\(0, 1\)/);
 });
+
+test("transaksi rutin dan subscription memakai jadwal persisten serta konfirmasi ledger", async () => {
+  const [app, client, route, confirmRoute, schema, gas] = await Promise.all([
+    source("../app/FinanceApp.tsx"), source("../lib/finance-client.ts"), source("../app/api/finance/recurring/route.ts"),
+    source("../app/api/finance/recurring/[id]/confirm/route.ts"), source("../db/schema.ts"), source("../apps-script/RecurringService.gs"),
+  ]);
+  assert.match(app, /Transaksi rutin & langganan/);
+  assert.match(app, /Catat ke ledger/);
+  assert.match(app, /Subscription/);
+  assert.match(client, /\/api\/finance\/recurring/);
+  assert.match(route, /recurring_templates/);
+  assert.match(confirmRoute, /createTransaction/);
+  assert.match(schema, /recurringTemplates/);
+  assert.match(gas, /apiConfirmRecurring/);
+});

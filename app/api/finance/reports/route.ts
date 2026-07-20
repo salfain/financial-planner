@@ -1,7 +1,7 @@
 import { ApiError, booleanValue, monthPeriod, readJsonObject, requiredString, resolveWorkspaceId, routeError } from "../../_lib/api";
 import { listExports, saveReport } from "../../_lib/portability";
 
-const reportSections = new Set(["summary", "cashflow", "categories", "accounts", "budgets", "bills", "goals", "roadmap", "forecast", "emergency", "debts", "investments"]);
+const reportSections = new Set(["summary", "cashflow", "categories", "accounts", "budgets", "bills", "goals", "roadmap", "forecast", "emergency", "debts", "investments", "recurring"]);
 
 export async function GET(request: Request) {
   try {

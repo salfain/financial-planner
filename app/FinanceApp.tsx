@@ -35,6 +35,7 @@ import {
   Pencil,
   Plus,
   ReceiptText,
+  Repeat2,
   Route,
   Search,
   Send,
@@ -66,6 +67,7 @@ import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapScenario, 
 import { addMonthsToPeriod, compareDebtStrategies, DEFAULT_DEBT_SETTINGS, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "../lib/debt";
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "../lib/cashflow-forecast";
 import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "../lib/emergency-fund";
+import { buildRecurringOverview, type RecurringTemplate } from "../lib/recurring";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
@@ -105,6 +107,7 @@ import {
   createFinanceInvestmentAsset,
   createFinanceInvestmentTrade,
   createFinanceTransaction,
+  createFinanceRecurringTemplate,
   deleteFinanceTransaction,
   deleteFinanceTransactionReceipt,
   financeBackendLabel,
@@ -117,6 +120,7 @@ import {
   loadFinanceDebtPlanner,
   loadFinanceCashflowForecastSettings,
   loadFinanceEmergencyFundSettings,
+  loadFinanceRecurringTemplates,
   loadFinanceReports,
   loadFinanceSnapshot,
   loadFinanceTransactions,
@@ -141,6 +145,8 @@ import {
   upsertFinanceDebtPlan,
   updateFinanceCashflowForecastSettings,
   updateFinanceEmergencyFundSettings,
+  confirmFinanceRecurring,
+  setFinanceRecurringActive,
   updateFinanceTransaction,
   undoLastFinanceTransactionAction,
   uploadFinanceTransactionReceipt,
@@ -162,6 +168,7 @@ type PageKey =
   | "budgets"
   | "goals"
   | "bills"
+  | "recurring"
   | "investments"
   | "reports"
   | "assistant"
@@ -185,6 +192,7 @@ const navPrimary: { key: PageKey; label: string; icon: LucideIcon }[] = [
   { key: "budgets", label: "Anggaran", icon: BarChart3 },
   { key: "goals", label: "Target", icon: Target },
   { key: "bills", label: "Tagihan", icon: CalendarDays },
+  { key: "recurring", label: "Transaksi Rutin", icon: Repeat2 },
   { key: "debts", label: "Pelunasan Utang", icon: TrendingDown },
   { key: "investments", label: "Investasi", icon: TrendingUp },
 ];
@@ -218,6 +226,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   budgets: { eyebrow: "Rencana Juli", title: "Anggaran bulanan", subtitle: "Kendalikan pengeluaran sebelum melewati batas yang kamu tentukan." },
   goals: { eyebrow: "3 target aktif", title: "Target finansial", subtitle: "Lihat kemajuan dan kebutuhan kontribusi bulanan untuk setiap tujuan." },
   bills: { eyebrow: "3 menunggu", title: "Tagihan rutin", subtitle: "Jangan lewatkan jatuh tempo dan hindari pencatatan ganda." },
+  recurring: { eyebrow: "Recurring tracker", title: "Transaksi rutin & langganan", subtitle: "Rencanakan pemasukan, biaya tetap, dan renewal tanpa mencatat saldo secara otomatis." },
   debts: { eyebrow: "Strategi pelunasan", title: "Debt Payoff Planner", subtitle: "Bandingkan metode avalanche dan snowball, lalu lihat kapan kamu bisa bebas utang." },
   investments: { eyebrow: "Portofolio", title: "Portofolio investasi", subtitle: "Pantau unit, cost basis, harga, dan profit/loss tanpa mengubah arus kas operasional." },
   reports: { eyebrow: "Laporan bulanan", title: "Laporan keuangan", subtitle: "Ringkasan siap cetak dengan data yang dapat ditelusuri kembali." },
@@ -638,7 +647,7 @@ export function FinanceApp() {
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
-            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "debts" && activePage !== "assistant" && activePage !== "settings" && (
+            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "debts" && activePage !== "recurring" && activePage !== "assistant" && activePage !== "settings" && (
               <button className="primary-button" onClick={openCreateForPage}><Plus size={18} /> {createLabel}</button>
             )}
           </section>
@@ -653,6 +662,7 @@ export function FinanceApp() {
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} />}
           {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onContribute={contributeGoal} onAdd={() => setGoalOpen(true)} />}
           {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onAdd={() => setBillOpen(true)} />}
+          {activePage === "recurring" && <RecurringPage accounts={accounts} categories={categories} privacy={privacy} onRefresh={refreshData} onToast={showToast} />}
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
@@ -1236,6 +1246,62 @@ function DebtPlanModal({ account, plan, saving, onClose, onSubmit }: { account: 
   </SimpleModal>;
 }
 
+function RecurringPage({ accounts, categories, privacy, onRefresh, onToast }: { accounts: Account[]; categories: FinanceCategory[]; privacy: boolean; onRefresh: () => Promise<void>; onToast: (message: string) => void }) {
+  const [templates, setTemplates] = useState<RecurringTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState("");
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  const load = async () => { const rows = await loadFinanceRecurringTemplates(); setTemplates(rows); return rows; };
+  useEffect(() => { let active = true; loadFinanceRecurringTemplates().then((rows) => active && setTemplates(rows)).catch((reason) => active && setError(reason instanceof Error ? reason.message : "Jadwal tidak dapat dimuat.")).finally(() => active && setLoading(false)); return () => { active = false; }; }, []);
+  const overview = useMemo(() => buildRecurringOverview(templates, today()), [templates]);
+  const frequencyLabel: Record<RecurringTemplate["frequency"], string> = { weekly: "Mingguan", monthly: "Bulanan", quarterly: "3 bulanan", yearly: "Tahunan" };
+  const save = async (payload: Omit<RecurringTemplate, "id" | "lastPostedDate" | "updatedAt">) => {
+    setWorking("create"); setError("");
+    try { await createFinanceRecurringTemplate(payload); await load(); setOpen(false); onToast("Jadwal transaksi rutin berhasil dibuat."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Jadwal tidak dapat disimpan."); }
+    finally { setWorking(""); }
+  };
+  const confirm = async (item: RecurringTemplate) => {
+    if (!window.confirm(`Catat ${item.name} sebesar ${formatIDR(item.amount)} pada ledger tanggal ${shortDate(item.nextDueDate)}?`)) return;
+    setWorking(item.id); setError("");
+    try { const updated = await confirmFinanceRecurring(item.id, item.nextDueDate); setTemplates((rows) => rows.map((row) => row.id === item.id ? updated : row)); await onRefresh(); onToast("Transaksi rutin masuk ke ledger dan jadwal berikutnya sudah dibuat."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Transaksi rutin tidak dapat dikonfirmasi."); }
+    finally { setWorking(""); }
+  };
+  const toggle = async (item: RecurringTemplate) => {
+    setWorking(item.id); setError("");
+    try { const updated = await setFinanceRecurringActive(item.id, !item.active); setTemplates((rows) => rows.map((row) => row.id === item.id ? updated : row)); onToast(updated.active ? "Jadwal diaktifkan kembali." : "Jadwal dinonaktifkan."); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Status jadwal tidak dapat diubah."); }
+    finally { setWorking(""); }
+  };
+  return <div className="content-stack recurring-page">
+    <div className="summary-strip">
+      <div><span>Pemasukan rutin / bulan</span><Amount value={overview.monthlyIncome} privacy={privacy}/><small>Nilai ekuivalen bulanan</small></div>
+      <div><span>Komitmen / bulan</span><Amount value={overview.monthlyExpense} privacy={privacy}/><small>Belum mengubah saldo</small></div>
+      <div><span>Langganan / tahun</span><Amount value={overview.annualSubscriptions} privacy={privacy}/><small>{templates.filter((item) => item.active && item.isSubscription).length} subscription aktif</small></div>
+      <div><span>30 hari ke depan</span><strong>{overview.upcomingCount} jadwal</strong><small className={overview.overdueCount ? "negative-text" : "positive-text"}>{overview.overdueCount ? `${overview.overdueCount} terlambat` : "Tidak ada yang terlambat"}</small></div>
+    </div>
+    <section className="panel recurring-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Renewal calendar</span><h2>Jadwal aktif</h2></div><button className="primary-button" onClick={() => setOpen(true)}><Plus size={16}/> Tambah jadwal</button></div>
+      <div className="recurring-safety"><ShieldCheck size={17}/><span><strong>Konfirmasi manual.</strong> Jadwal hanya menjadi transaksi dan mengubah saldo setelah tombol “Catat ke ledger” ditekan.</span></div>
+      {error && <div className="portability-error" role="alert">{error}</div>}
+      {loading ? <div className="settings-empty">Memuat transaksi rutin…</div> : templates.length ? <div className="recurring-list">{templates.map((item) => {
+        const account = accounts.find((value) => value.id === item.accountId);
+        const overdue = item.active && item.nextDueDate < today();
+        return <article key={item.id} className={!item.active ? "inactive" : overdue ? "overdue" : ""}>
+          <span className={`recurring-icon ${item.type}`}><Repeat2 size={18}/></span>
+          <span className="recurring-main"><strong>{item.name}{item.isSubscription && <small>Subscription</small>}</strong><small>{item.category} · {account?.name ?? "Akun tidak ditemukan"} · {frequencyLabel[item.frequency]}</small></span>
+          <span className="recurring-due"><small>{overdue ? "Terlambat" : "Jadwal berikutnya"}</small><strong>{shortDate(item.nextDueDate)}</strong></span>
+          <span className={`recurring-amount ${item.type}`}><small>{item.type === "income" ? "Pemasukan" : "Pengeluaran"}</small><Amount value={item.amount} privacy={privacy}/></span>
+          <span className="recurring-actions"><button className="secondary-button" onClick={() => toggle(item)} disabled={working === item.id}>{item.active ? "Jeda" : "Aktifkan"}</button>{item.active && <button className="primary-button" onClick={() => confirm(item)} disabled={working === item.id}><CheckCircle2 size={14}/>{working === item.id ? "Mencatat…" : "Catat ke ledger"}</button>}</span>
+        </article>;
+      })}</div> : <div className="empty-state"><Repeat2 size={30}/><h3>Belum ada transaksi rutin</h3><p>Tambahkan gaji, sewa, internet, software, atau langganan lain untuk melihat komitmen bulanan dan kalender renewal.</p><button className="primary-button" onClick={() => setOpen(true)}><Plus size={16}/> Buat jadwal pertama</button></div>}
+    </section>
+    {open && <RecurringModal accounts={accounts} categories={categories} saving={working === "create"} onClose={() => setOpen(false)} onSubmit={save}/>}
+  </div>;
+}
+
 function BillsPage({ bills, accounts, privacy, onPay, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; onPay: (bill: Bill) => void; onAdd: () => void }) {
   const pending = bills.filter((bill) => !bill.paid);
   return <div className="content-stack">
@@ -1318,6 +1384,7 @@ const reportSectionOptions: Array<{ key: ReportSection; label: string }> = [
   { key: "emergency", label: "Dana darurat" },
   { key: "debts", label: "Pelunasan utang" },
   { key: "investments", label: "Investasi" },
+  { key: "recurring", label: "Transaksi rutin & subscription" },
 ];
 
 const downloadBrowserFile = (blob: Blob, filename: string) => {
@@ -1357,6 +1424,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
   const [debtReportPlanner, setDebtReportPlanner] = useState<{ settings: DebtPlannerSettings; debts: DebtPlan[] }>({ settings: DEFAULT_DEBT_SETTINGS, debts: [] });
   const [forecastReportSettings, setForecastReportSettings] = useState<CashflowForecastSettings>(DEFAULT_CASHFLOW_FORECAST_SETTINGS);
   const [emergencyReportSettings, setEmergencyReportSettings] = useState<EmergencyFundSettings>(DEFAULT_EMERGENCY_FUND_SETTINGS);
+  const [recurringReportTemplates, setRecurringReportTemplates] = useState<RecurringTemplate[]>([]);
   const [error, setError] = useState("");
   const monthTransactions = transactions.filter((item) => item.date.startsWith(period) && item.status === "completed");
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
@@ -1383,6 +1451,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
     loadFinanceDebtPlanner().then((value) => active && setDebtReportPlanner({ settings: value.settings, debts: value.debts.map((debt) => ({ ...debt, balance: accounts.find((account) => account.id === debt.accountId)?.balance ?? debt.balance })) })).catch(() => undefined);
     loadFinanceCashflowForecastSettings().then((value) => active && setForecastReportSettings(value)).catch(() => undefined);
     loadFinanceEmergencyFundSettings().then((value) => active && setEmergencyReportSettings(value)).catch(() => undefined);
+    loadFinanceRecurringTemplates().then((value) => active && setRecurringReportTemplates(value)).catch(() => undefined);
     return () => { active = false; };
   }, [accounts]);
 
@@ -1420,6 +1489,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
         debtPlanner: debtReportPlanner,
         forecastSettings: forecastReportSettings,
         emergencyFundSettings: emergencyReportSettings,
+        recurringTemplates: recurringReportTemplates,
       });
       const saved = await saveFinanceReport({
         filename: result.filename,
@@ -2306,6 +2376,26 @@ function GoalModal({ saving, onClose, onSubmit }: { saving: boolean; onClose: ()
   const [deadline, setDeadline] = useState(nextYear.toISOString().slice(0, 10));
   return <SimpleModal title="Target finansial" kicker="Goal tracking" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), targetAmount: Number(targetAmount || 0), target: Number(targetAmount || 0), currentAmount: Number(currentAmount || 0), current: Number(currentAmount || 0), deadline, color: "#126b59", icon: "target" }); }}>
     <div className="form-grid"><label><span>Nama target</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Dana Darurat" required autoFocus /></label><label><span>Deadline</span><input type="date" min={today()} value={deadline} onChange={(event) => setDeadline(event.target.value)} required /></label><label><span>Nominal target</span><input value={targetAmount} onChange={(event) => setTargetAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Dana terkumpul</span><input value={currentAmount} onChange={(event) => setCurrentAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[0-9]+" /></label></div>
+  </SimpleModal>;
+}
+
+function RecurringModal({ accounts, categories, saving, onClose, onSubmit }: { accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Omit<RecurringTemplate, "id" | "lastPostedDate" | "updatedAt">) => Promise<void> }) {
+  const cashAccounts = accounts.filter((item) => item.type !== "Investment");
+  const [type, setType] = useState<"income" | "expense">("expense");
+  const relevantCategories = useMemo(() => categories.filter((item) => item.active && item.type === type), [categories, type]);
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState(categories.find((item) => item.active && item.type === "expense")?.name ?? "");
+  const [accountId, setAccountId] = useState(cashAccounts[0]?.id ?? "");
+  const [frequency, setFrequency] = useState<RecurringTemplate["frequency"]>("monthly");
+  const [startDate, setStartDate] = useState(today());
+  const [isSubscription, setIsSubscription] = useState(false);
+  const changeType = (next: "income" | "expense") => { setType(next); setCategory(categories.find((item) => item.active && item.type === next)?.name ?? ""); if (next === "income") setIsSubscription(false); };
+  return <SimpleModal title="Jadwal transaksi rutin" kicker="Recurring planner" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), type, amount: Number(amount || 0), category, accountId, frequency, startDate, nextDueDate: startDate, isSubscription: type === "expense" && isSubscription, active: true }); }}>
+    <div className="transaction-type-tabs recurring-type-tabs"><button type="button" className={type === "expense" ? "active" : ""} onClick={() => changeType("expense")}><ArrowUpRight size={14}/> Pengeluaran</button><button type="button" className={type === "income" ? "active" : ""} onClick={() => changeType("income")}><ArrowDownLeft size={14}/> Pemasukan</button></div>
+    <div className="form-grid recurring-form"><label><span>Nama jadwal</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Netflix atau Gaji" required autoFocus/></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required/></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{relevantCategories.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select><ChevronDown size={15}/></label><label><span>Akun</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{cashAccounts.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={15}/></label><label><span>Frekuensi</span><select value={frequency} onChange={(event) => setFrequency(event.target.value as RecurringTemplate["frequency"])}><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="quarterly">3 bulanan</option><option value="yearly">Tahunan</option></select><ChevronDown size={15}/></label><label><span>Tanggal pertama</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required/></label></div>
+    {type === "expense" && <label className="recurring-subscription-check"><input type="checkbox" checked={isSubscription} onChange={(event) => setIsSubscription(event.target.checked)}/><span><strong>Tandai sebagai subscription</strong><small>Masuk perhitungan biaya langganan bulanan dan tahunan.</small></span></label>}
+    {!cashAccounts.length && <div className="ocr-message"><WalletCards size={15}/>Tambahkan akun terlebih dahulu.</div>}
   </SimpleModal>;
 }
 

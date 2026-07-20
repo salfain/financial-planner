@@ -14,6 +14,7 @@ import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings }
 import { addMonthsToPeriod, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "./debt";
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
 import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "./emergency-fund";
+import { buildRecurringOverview, type RecurringTemplate } from "./recurring";
 
 export const REPORT_SECTIONS = [
   "summary",
@@ -28,6 +29,7 @@ export const REPORT_SECTIONS = [
   "emergency",
   "debts",
   "investments",
+  "recurring",
 ] as const;
 
 export type ReportSection = (typeof REPORT_SECTIONS)[number];
@@ -49,6 +51,7 @@ export type FinanceReportInput = {
   debtPlanner?: { settings: DebtPlannerSettings; debts: DebtPlan[] };
   forecastSettings?: CashflowForecastSettings;
   emergencyFundSettings?: EmergencyFundSettings;
+  recurringTemplates?: RecurringTemplate[];
   generatedAt?: string;
 };
 
@@ -524,6 +527,17 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
       { label: "Realized P/L periode", value: money(realized, input.privacy), tone: realized >= 0 ? "positive" : "negative" },
       { label: "Jumlah aset", value: String(input.investmentAssets.length) },
     ]);
+  }
+
+  if (selected(input, "recurring")) {
+    const recurring = buildRecurringOverview(input.recurringTemplates ?? [], generatedAt.slice(0, 10));
+    sectionTitle("13 - Transaksi Rutin", "Recurring & subscription tracker", "Jadwal bersifat perencanaan dan hanya mengubah ledger setelah dikonfirmasi pengguna.");
+    keyValueCards([
+      { label: "Pemasukan rutin / bulan", value: money(recurring.monthlyIncome, input.privacy), tone: "positive" },
+      { label: "Komitmen / bulan", value: money(recurring.monthlyExpense, input.privacy), tone: "negative" },
+      { label: "Subscription / tahun", value: money(recurring.annualSubscriptions, input.privacy) },
+    ]);
+    table(["Jadwal", "Jenis", "Frekuensi", "Berikutnya", "Nominal"], (input.recurringTemplates ?? []).map((item) => [item.name, item.type === "income" ? "Pemasukan" : item.isSubscription ? "Subscription" : "Pengeluaran", item.frequency, displayDate(item.nextDueDate), money(item.amount, input.privacy)]), [48, 30, 27, 36, contentWidth - 141]);
   }
 
   ensureSpace(30);

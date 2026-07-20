@@ -41,7 +41,7 @@ function apiSaveReportPdf(payload) {
     const base64 = String(payload.contentBase64 || '');
     const period = String(payload.period || '');
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw createError_('INVALID_PERIOD', 'Periode laporan tidak valid.');
-    const allowedSections = ['summary', 'cashflow', 'categories', 'accounts', 'budgets', 'bills', 'goals', 'roadmap', 'forecast', 'emergency', 'debts', 'investments'];
+    const allowedSections = ['summary', 'cashflow', 'categories', 'accounts', 'budgets', 'bills', 'goals', 'roadmap', 'forecast', 'emergency', 'debts', 'investments', 'recurring'];
     const sections = Array.isArray(payload.sections) ? payload.sections.map(String) : [];
     if (!sections.length || sections.length > allowedSections.length || sections.some(function(item, index) { return allowedSections.indexOf(item) === -1 || sections.indexOf(item) !== index; })) throw createError_('INVALID_REPORT_SECTIONS', 'Bagian laporan tidak valid atau terduplikasi.');
     const pageCount = Number(payload.pageCount);
@@ -135,7 +135,8 @@ function portableSourceGs_(value) {
     budgets: rows('budgets', 'Budgets'), goals: rows('goals', 'Goals'), bills: rows('bills', 'Bills'),
     investmentAssets: rows('investmentAssets', 'investment_assets', 'assets', 'Assets'),
     investmentPositions: rows('investmentPositions', 'investment_positions', 'positions', 'Positions'),
-    investmentTransactions: rows('investmentTransactions', 'investment_transactions', 'InvestmentTransactions')
+    investmentTransactions: rows('investmentTransactions', 'investment_transactions', 'InvestmentTransactions'),
+    recurringTemplates: rows('recurringTemplates', 'recurring_templates', 'Recurring')
   };
 }
 
@@ -152,7 +153,7 @@ function validatePortableGs_(backup) {
   const warnings = [];
   const errors = [];
   const counts = {};
-  const collections = ['accounts', 'categories', 'transactions', 'budgets', 'goals', 'bills', 'investmentAssets', 'investmentPositions', 'investmentTransactions'];
+  const collections = ['accounts', 'categories', 'transactions', 'budgets', 'goals', 'bills', 'investmentAssets', 'investmentPositions', 'investmentTransactions', 'recurringTemplates'];
   let totalRecords = 0;
   collections.forEach(function(key) {
     counts[key] = backup[key].length;
@@ -184,6 +185,11 @@ function validatePortableGs_(backup) {
     const accountId = String(portableValueGs_(row, ['accountId', 'account_id'], ''));
     if (!accountId) errors.push('Tagihan baris ' + (index + 1) + ' tidak memiliki akun pembayaran.');
     else if (!accountIds[accountId]) errors.push('Tagihan baris ' + (index + 1) + ' merujuk akun yang tidak ada.');
+  });
+  backup.recurringTemplates.forEach(function(row, index) {
+    const accountId = String(portableValueGs_(row, ['accountId', 'account_id'], ''));
+    if (!accountId) errors.push('Transaksi rutin baris ' + (index + 1) + ' tidak memiliki akun.');
+    else if (!accountIds[accountId]) errors.push('Transaksi rutin baris ' + (index + 1) + ' merujuk akun yang tidak ada.');
   });
   backup.investmentAssets.forEach(function(row, index) {
     const accountId = String(portableValueGs_(row, ['accountId', 'account_id'], ''));
@@ -349,6 +355,7 @@ function apiApplyMigration(payload) {
       appendObjects_(VINN_CONFIG.SHEETS.BUDGETS, backup.budgets.map(function(row, index) { return { id: id_('budget'), month: String(portableValueGs_(row, ['period', 'month'], now.slice(0, 7))), category: String(portableValueGs_(row, ['category'], 'Lainnya')), limit_amount: Math.max(1, Math.round(portableNumberGs_(row, ['amountLimit', 'amount_limit', 'limit', 'limitAmount', 'limit_amount'], 1))), rollover: false, created_at: now, updated_at: now }; }));
       appendObjects_(VINN_CONFIG.SHEETS.GOALS, backup.goals.map(function(row, index) { return { id: id_('goal'), name: String(portableValueGs_(row, ['name'], 'Target migrasi ' + (index + 1))).slice(0, 100), target_amount: Math.max(1, Math.round(portableNumberGs_(row, ['target', 'targetAmount', 'target_amount'], 1))), current_amount: Math.max(0, Math.round(portableNumberGs_(row, ['current', 'currentAmount', 'current_amount'], 0))), deadline: String(portableValueGs_(row, ['deadline'], now.slice(0, 10))), account_id: '', color: String(portableValueGs_(row, ['color'], '#16876f')), icon: String(portableValueGs_(row, ['icon'], 'target')), status: 'active', created_at: now, updated_at: now }; }));
       appendObjects_(VINN_CONFIG.SHEETS.BILLS, backup.bills.map(function(row, index) { return { id: id_('bill'), name: String(portableValueGs_(row, ['name'], 'Tagihan migrasi ' + (index + 1))).slice(0, 100), amount: Math.max(1, Math.round(portableNumberGs_(row, ['amount'], 1))), category: String(portableValueGs_(row, ['category'], 'Tagihan')), account_id: accountIds[String(portableValueGs_(row, ['accountId', 'account_id'], ''))], frequency: String(portableValueGs_(row, ['frequency'], 'monthly')), due_date: String(portableValueGs_(row, ['dueDate', 'due_date'], now.slice(0, 10))), reminder_days: String(portableValueGs_(row, ['reminderDays', 'reminder_days'], '7,3,1,0')), status: 'active', last_paid_period: String(portableValueGs_(row, ['lastPaidPeriod', 'last_paid_period'], '')), created_at: now, updated_at: now }; }));
+      appendObjects_(VINN_CONFIG.SHEETS.RECURRING, backup.recurringTemplates.map(function(row, index) { const oldId = portableIdGs_(row) || ('missing-' + index); return { id: id_('recurring'), request_id: 'migration:' + id + ':' + oldId, name: String(portableValueGs_(row, ['name'], 'Transaksi rutin migrasi ' + (index + 1))).slice(0, 120), type: String(row.type || '') === 'income' ? 'income' : 'expense', amount: Math.max(1, Math.round(portableNumberGs_(row, ['amount'], 1))), category: String(portableValueGs_(row, ['category'], 'Lainnya')).slice(0, 100), account_id: accountIds[String(portableValueGs_(row, ['accountId', 'account_id'], ''))], frequency: String(portableValueGs_(row, ['frequency'], 'monthly')), start_date: String(portableValueGs_(row, ['startDate', 'start_date'], now.slice(0, 10))), next_due_date: String(portableValueGs_(row, ['nextDueDate', 'next_due_date'], now.slice(0, 10))), is_subscription: portableBoolGs_(row, ['isSubscription', 'is_subscription']), is_active: row.active === undefined || portableBoolGs_(row, ['active', 'is_active']), last_posted_date: String(portableValueGs_(row, ['lastPostedDate', 'last_posted_date'], '')), created_at: now, updated_at: now }; }));
       appendObjects_(VINN_CONFIG.SHEETS.ASSETS, backup.investmentAssets.map(function(row, index) { const oldId = portableIdGs_(row) || ('missing-' + index); const manualPrice = Math.max(0, Math.round(portableNumberGs_(row, ['manualPrice', 'manual_price'], 0))); return { id: assetIds[oldId], request_id: 'migration:' + id + ':' + oldId, account_id: accountIds[String(portableValueGs_(row, ['accountId', 'account_id'], ''))], ticker: String(portableValueGs_(row, ['ticker'], 'MIG' + (index + 1))).toUpperCase(), name: String(portableValueGs_(row, ['name'], 'Aset migrasi')), asset_class: String(portableValueGs_(row, ['assetClass', 'asset_class'], 'Custom')), exchange: String(portableValueGs_(row, ['exchange'], '')), currency: String(portableValueGs_(row, ['currency'], VINN_CONFIG.CURRENCY)), manual_price: manualPrice || '', latest_price_cache: Math.max(0, Math.round(portableNumberGs_(row, ['latestPriceCache', 'latest_price_cache', 'marketPrice'], manualPrice))), price_source: String(portableValueGs_(row, ['priceSource', 'price_source'], manualPrice ? 'manual' : 'unavailable')), price_status: String(portableValueGs_(row, ['priceStatus', 'price_status'], manualPrice ? 'manual' : 'unavailable')), price_updated_at: String(portableValueGs_(row, ['priceUpdatedAt', 'price_updated_at'], '')), is_active: row.active === undefined || portableBoolGs_(row, ['active']), created_at: now, updated_at: now }; }));
       const realizedTotals = {};
       appendObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX, backup.investmentTransactions.map(function(row, index) {

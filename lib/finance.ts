@@ -100,6 +100,8 @@ export interface Bill {
   lastPaidPeriod?: string | null;
 }
 
+export type { RecurringFrequency, RecurringOverview, RecurringTemplate } from "./recurring";
+
 export interface FinanceCategory {
   id: string;
   name: string;

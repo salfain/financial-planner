@@ -1,5 +1,5 @@
 export const BACKUP_FORMAT = "vinn-store-backup";
-export const BACKUP_SCHEMA_VERSION = "1.10.0";
+export const BACKUP_SCHEMA_VERSION = "1.11.0";
 export const BACKUP_MAX_RECORDS = 5_000;
 
 export const PORTABLE_COLLECTIONS = [
@@ -12,6 +12,7 @@ export const PORTABLE_COLLECTIONS = [
   "investmentAssets",
   "investmentPositions",
   "investmentTransactions",
+  "recurringTemplates",
 ] as const;
 
 export type PortableCollection = (typeof PORTABLE_COLLECTIONS)[number];
@@ -109,6 +110,7 @@ const emptyData = (): PortableData => ({
   investmentAssets: [],
   investmentPositions: [],
   investmentTransactions: [],
+  recurringTemplates: [],
 });
 
 const object = (value: unknown): PortableRecord | null => value && typeof value === "object" && !Array.isArray(value)
@@ -154,6 +156,7 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
   data.investmentAssets = collection(rawData, "investmentAssets", "investment_assets", "assets", "Assets");
   data.investmentPositions = collection(rawData, "investmentPositions", "investment_positions", "positions", "Positions");
   data.investmentTransactions = collection(rawData, "investmentTransactions", "investment_transactions", "InvestmentTransactions");
+  data.recurringTemplates = collection(rawData, "recurringTemplates", "recurring_templates", "Recurring");
 
   const profile = object(root.profile) ?? {};
   const source = object(root.source) ?? {};
@@ -237,6 +240,11 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
     const accountId = refOf(row, "accountId", "account_id");
     if (!accountId) errors.push(`Tagihan baris ${index + 1} tidak memiliki akun pembayaran.`);
     else if (!accountIds.has(accountId)) errors.push(`Tagihan baris ${index + 1} merujuk akun yang tidak ada.`);
+  });
+  data.recurringTemplates.forEach((row, index) => {
+    const accountId = refOf(row, "accountId", "account_id");
+    if (!accountId) errors.push(`Transaksi rutin baris ${index + 1} tidak memiliki akun.`);
+    else if (!accountIds.has(accountId)) errors.push(`Transaksi rutin baris ${index + 1} merujuk akun yang tidak ada.`);
   });
   data.investmentAssets.forEach((row, index) => {
     const accountId = refOf(row, "accountId", "account_id");

@@ -22,6 +22,7 @@ for (const action of [
   "createBackup", "backupOverview", "updateBackupSchedule", "listReports", "saveReportPdf",
   "migrationHistory", "previewMigration", "applyMigration", "cancelMigration",
   "notificationOverview", "updateNotificationSettings", "updateNotificationState",
+  "listRecurring", "createRecurring", "updateRecurring", "confirmRecurring",
 ]) {
   assert.match(combinedSource, new RegExp(`\\b${action}\\s*:`), `Router action ${action} is missing`);
 }
@@ -80,7 +81,7 @@ const rootFolder = {
 makeFile("Financial Planner", makeBlob("spreadsheet", "application/vnd.google-apps.spreadsheet"), rootFolder, "workbook-id");
 const sheetNames = [
   "Settings", "Accounts", "Categories", "Transactions", "Budgets", "Goals",
-  "Bills", "Assets", "InvestmentTransactions", "AuditLog", "Trash",
+  "Bills", "Recurring", "Assets", "InvestmentTransactions", "AuditLog", "Trash",
   "AIChat",
   "NotificationStates",
 ];

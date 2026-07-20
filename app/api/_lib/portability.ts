@@ -173,6 +173,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     d1.prepare(`SELECT account_id AS accountId, annual_rate_bps AS annualRateBps, minimum_payment AS minimumPayment, due_day AS dueDay FROM debt_accounts WHERE workspace_id = ? ORDER BY account_id`).bind(workspaceId),
     d1.prepare(`SELECT horizon_days AS horizonDays, monthly_income_override AS monthlyIncomeOverride, income_day AS incomeDay, minimum_cash_buffer AS minimumCashBuffer FROM cashflow_forecast_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT target_months AS targetMonths, monthly_expense_override AS monthlyExpenseOverride, monthly_contribution AS monthlyContribution, account_ids_json AS accountIdsJson FROM emergency_fund_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
+    d1.prepare(`SELECT id, name, type, amount, category, account_id AS accountId, frequency, start_date AS startDate, next_due_date AS nextDueDate, is_subscription AS isSubscription, active, last_posted_date AS lastPostedDate, created_at AS createdAt, updated_at AS updatedAt FROM recurring_templates WHERE workspace_id = ? ORDER BY next_due_date, id`).bind(workspaceId),
   ]);
   const ai = results[9].results[0] as Record<string, unknown> | undefined;
   const notification = results[10].results[0] as Record<string, unknown> | undefined;
@@ -245,6 +246,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
       investmentAssets: results[6].results as PortableRecord[],
       investmentPositions: results[7].results as PortableRecord[],
       investmentTransactions: results[8].results as PortableRecord[],
+      recurringTemplates: results[16].results as PortableRecord[],
     },
   };
 }
@@ -487,6 +489,7 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
   const budgetIds = mappedIds(backup.data.budgets, "mig-budget");
   const goalIds = mappedIds(backup.data.goals, "mig-goal");
   const billIds = mappedIds(backup.data.bills, "mig-bill");
+  const recurringIds = mappedIds(backup.data.recurringTemplates, "mig-recurring");
   const assetIds = mappedIds(backup.data.investmentAssets, "mig-asset");
   const investmentTransactionIds = mappedIds(backup.data.investmentTransactions, "mig-investment-tx");
   const transferGroups = new Map<string, string>();
@@ -549,6 +552,14 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
     const oldAccount = text(row, "accountId", "account_id");
     const reminders = text(row, "reminderDays", "reminder_days") || "7,3,1,0";
     statements.push(d1.prepare(`INSERT INTO bills (id, workspace_id, name, amount, due_date, category, account_id, frequency, reminder_days, paid, paid_at, last_paid_period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(billIds.get(oldId), workspaceId, safeName(text(row, "name"), `Tagihan migrasi ${index + 1}`, 100), Math.max(1, integer(row, ["amount"], 1)), validDate(text(row, "dueDate", "due_date"), now.slice(0, 10)), safeName(text(row, "category"), "Tagihan", 100), accountIds.get(oldAccount), "monthly", reminders, bool(row, "paid") ? 1 : 0, text(row, "paidAt", "paid_at") || null, text(row, "lastPaidPeriod", "last_paid_period") || null, now, now));
+  });
+
+  backup.data.recurringTemplates.forEach((row, index) => {
+    const oldId = text(row, "id") || `missing-${index}`;
+    const oldAccount = text(row, "accountId", "account_id");
+    const frequency = ["weekly", "monthly", "quarterly", "yearly"].includes(text(row, "frequency")) ? text(row, "frequency") : "monthly";
+    const startDate = validDate(text(row, "startDate", "start_date"), now.slice(0, 10));
+    statements.push(d1.prepare(`INSERT INTO recurring_templates (id, workspace_id, name, type, amount, category, account_id, frequency, start_date, next_due_date, is_subscription, active, last_posted_date, request_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(recurringIds.get(oldId), workspaceId, safeName(text(row, "name"), `Transaksi rutin migrasi ${index + 1}`, 120), text(row, "type") === "income" ? "income" : "expense", Math.max(1, integer(row, ["amount"], 1)), safeName(text(row, "category"), "Lainnya", 100), accountIds.get(oldAccount), frequency, startDate, validDate(text(row, "nextDueDate", "next_due_date"), startDate), bool(row, "isSubscription", "is_subscription") ? 1 : 0, row.active === undefined || bool(row, "active", "is_active") ? 1 : 0, text(row, "lastPostedDate", "last_posted_date") || null, `migration:${migrationId}:${oldId}`, now, now));
   });
 
   const positionsByAsset = new Map(backup.data.investmentPositions.map((row) => [text(row, "assetId", "asset_id"), row]));
@@ -634,6 +645,7 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
     await runChunks(statements);
   } catch (error) {
     const cleanup: D1PreparedStatement[] = [
+      ...[...recurringIds.values()].map((id) => d1.prepare(`DELETE FROM recurring_templates WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id)),
       ...[...investmentTransactionIds.values()].map((id) => d1.prepare(`DELETE FROM investment_transactions WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id)),
       ...[...assetIds.values()].map((id) => d1.prepare(`DELETE FROM investment_positions WHERE workspace_id = ? AND asset_id = ?`).bind(workspaceId, id)),
       ...[...assetIds.values()].map((id) => d1.prepare(`DELETE FROM investment_assets WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id)),

@@ -1,6 +1,6 @@
 const VINN_CONFIG = Object.freeze({
   APP_NAME: 'Financial Planner',
-  SCHEMA_VERSION: '1.10.0',
+  SCHEMA_VERSION: '1.11.0',
   TIMEZONE: 'Asia/Jakarta',
   CURRENCY: 'IDR',
   CACHE_SECONDS: 300,
@@ -12,6 +12,7 @@ const VINN_CONFIG = Object.freeze({
     BUDGETS: 'Budgets',
     GOALS: 'Goals',
     BILLS: 'Bills',
+    RECURRING: 'Recurring',
     ASSETS: 'Assets',
     INVESTMENT_TX: 'InvestmentTransactions',
     AI_CHAT: 'AIChat',
@@ -27,6 +28,7 @@ const VINN_CONFIG = Object.freeze({
     Budgets: ['id', 'month', 'category', 'limit_amount', 'rollover', 'created_at', 'updated_at'],
     Goals: ['id', 'name', 'target_amount', 'current_amount', 'deadline', 'account_id', 'color', 'icon', 'status', 'created_at', 'updated_at'],
     Bills: ['id', 'name', 'amount', 'category', 'account_id', 'frequency', 'due_date', 'reminder_days', 'status', 'last_paid_period', 'created_at', 'updated_at'],
+    Recurring: ['id', 'request_id', 'name', 'type', 'amount', 'category', 'account_id', 'frequency', 'start_date', 'next_due_date', 'is_subscription', 'is_active', 'last_posted_date', 'created_at', 'updated_at'],
     Assets: ['id', 'request_id', 'account_id', 'ticker', 'name', 'asset_class', 'exchange', 'currency', 'manual_price', 'latest_price_cache', 'price_source', 'price_status', 'price_updated_at', 'is_active', 'created_at', 'updated_at'],
     InvestmentTransactions: ['id', 'request_id', 'date', 'type', 'asset_id', 'account_id', 'units', 'price_per_unit', 'gross_amount', 'fee', 'tax', 'net_amount', 'average_cost_after', 'remaining_units_after', 'cost_basis_after', 'realized_pl', 'realized_pl_total', 'linked_cash_transaction_id', 'linked_adjustment_transaction_id', 'note', 'created_at', 'updated_at'],
     AIChat: ['id', 'role', 'content', 'period', 'context_manifest_json', 'created_at'],

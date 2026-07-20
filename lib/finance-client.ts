@@ -8,6 +8,7 @@ import { DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 import { DEFAULT_DEBT_SETTINGS, type DebtPlan, type DebtPlannerSettings } from "./debt";
 import { DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
 import { DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "./emergency-fund";
+import type { RecurringTemplate } from "./recurring";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -392,6 +393,43 @@ export async function loadFinanceEmergencyFundSettings() {
 export async function updateFinanceEmergencyFundSettings(settings: EmergencyFundSettings, requestId = `emergency-fund:${crypto.randomUUID()}`) {
   const raw = await mutation<unknown>("updateEmergencyFundSettings", "/api/finance/emergency-fund", { ...settings, requestId }, "PATCH");
   return normalizeEmergencyFundSettings(raw);
+}
+
+const normalizeRecurringTemplate = (value: unknown): RecurringTemplate => {
+  const row = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return {
+    id: text(row.id), name: text(row.name, "Transaksi rutin"), type: text(row.type) === "income" ? "income" : "expense",
+    amount: Math.max(0, number(row.amount)), category: text(row.category, "Lainnya"), accountId: text(row.accountId ?? row.account_id),
+    frequency: (["weekly", "monthly", "quarterly", "yearly"].includes(text(row.frequency)) ? text(row.frequency) : "monthly") as RecurringTemplate["frequency"],
+    startDate: text(row.startDate ?? row.start_date).slice(0, 10), nextDueDate: text(row.nextDueDate ?? row.next_due_date).slice(0, 10),
+    isSubscription: bool(row.isSubscription ?? row.is_subscription), active: row.active === undefined ? true : bool(row.active),
+    lastPostedDate: text(row.lastPostedDate ?? row.last_posted_date) || null, updatedAt: text(row.updatedAt ?? row.updated_at) || undefined,
+  };
+};
+
+export async function loadFinanceRecurringTemplates() {
+  const raw = hasAppsScriptBridge() ? await callAppsScript<unknown>("listRecurring", {}) : await webRequest<unknown>("/api/finance/recurring");
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const rows = Array.isArray(source.templates) ? source.templates : Array.isArray(source.items) ? source.items : [];
+  return rows.map(normalizeRecurringTemplate);
+}
+
+export async function createFinanceRecurringTemplate(payload: Omit<RecurringTemplate, "id" | "lastPostedDate" | "updatedAt">, requestId = `recurring-create:${crypto.randomUUID()}`) {
+  const raw = await mutation<unknown>("createRecurring", "/api/finance/recurring", { ...payload, requestId });
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return normalizeRecurringTemplate(source.template ?? raw);
+}
+
+export async function setFinanceRecurringActive(id: string, active: boolean, requestId = `recurring-status:${id}:${active}:${crypto.randomUUID()}`) {
+  const raw = await mutation<unknown>("updateRecurring", "/api/finance/recurring", { id, active, requestId }, "PATCH");
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return normalizeRecurringTemplate(source.template ?? raw);
+}
+
+export async function confirmFinanceRecurring(id: string, dueDate: string, requestId = `recurring:${id}:${dueDate}`) {
+  const raw = await mutation<unknown>("confirmRecurring", `/api/finance/recurring/${encodeURIComponent(id)}/confirm`, { id, dueDate, requestId });
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  return normalizeRecurringTemplate(source.template ?? raw);
 }
 
 export const createFinanceAccount = (payload: Record<string, unknown>) =>

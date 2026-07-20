@@ -207,6 +207,35 @@ export const bills = sqliteTable(
   ],
 );
 
+export const recurringTemplates = sqliteTable(
+  "recurring_templates",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type").notNull(),
+    amount: integer("amount").notNull(),
+    category: text("category").notNull(),
+    accountId: text("account_id").notNull().references(() => accounts.id),
+    frequency: text("frequency").notNull(),
+    startDate: text("start_date").notNull(),
+    nextDueDate: text("next_due_date").notNull(),
+    isSubscription: integer("is_subscription", { mode: "boolean" }).notNull().default(false),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    lastPostedDate: text("last_posted_date"),
+    requestId: text("request_id").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("recurring_templates_workspace_request_uidx").on(table.workspaceId, table.requestId),
+    index("recurring_templates_workspace_due_idx").on(table.workspaceId, table.active, table.nextDueDate),
+    check("recurring_templates_type_check", sql`${table.type} IN ('income', 'expense')`),
+    check("recurring_templates_amount_positive", sql`${table.amount} > 0`),
+    check("recurring_templates_frequency_check", sql`${table.frequency} IN ('weekly', 'monthly', 'quarterly', 'yearly')`),
+  ],
+);
+
 export const investmentAssets = sqliteTable(
   "investment_assets",
   {
