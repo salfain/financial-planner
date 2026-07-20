@@ -13,6 +13,7 @@ import { accountSummary, budgetSpent, formatIDR, formatMonthLabel, monthlySummar
 import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 import { addMonthsToPeriod, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "./debt";
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
+import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "./emergency-fund";
 
 export const REPORT_SECTIONS = [
   "summary",
@@ -24,6 +25,7 @@ export const REPORT_SECTIONS = [
   "goals",
   "roadmap",
   "forecast",
+  "emergency",
   "debts",
   "investments",
 ] as const;
@@ -46,6 +48,7 @@ export type FinanceReportInput = {
   roadmapSettings?: RoadmapSettings;
   debtPlanner?: { settings: DebtPlannerSettings; debts: DebtPlan[] };
   forecastSettings?: CashflowForecastSettings;
+  emergencyFundSettings?: EmergencyFundSettings;
   generatedAt?: string;
 };
 
@@ -485,10 +488,17 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
     ], [50, 49, contentWidth - 99]);
   }
 
+  if (selected(input, "emergency")) {
+    const emergency = buildEmergencyFundPlan({ accounts: input.accounts, transactions: input.transactions, settings: input.emergencyFundSettings ?? DEFAULT_EMERGENCY_FUND_SETTINGS, asOfMonth: input.period });
+    sectionTitle("10 - Dana Darurat", "Financial Safety", "Target dihitung dari pola pengeluaran dan akun likuid yang dipilih pengguna.");
+    keyValueCards([{ label: "Safety score", value: `${emergency.safetyScore}/100` }, { label: "Coverage", value: `${emergency.coverageMonths.toFixed(1)} bulan` }, { label: "Target", value: money(emergency.targetAmount, input.privacy) }]);
+    table(["Dana tersedia", "Kekurangan", "Kontribusi/bln", "Perkiraan selesai"], [[money(emergency.currentFund, input.privacy), money(emergency.gap, input.privacy), money(input.emergencyFundSettings?.monthlyContribution ?? 0, input.privacy), emergency.projectedMonth ? formatMonthLabel(emergency.projectedMonth) : "Belum tersedia"]], [45,45,45,contentWidth-135]);
+  }
+
   if (selected(input, "debts")) {
     const planner = input.debtPlanner;
     const payoff = planner ? simulateDebtPayoff(planner.debts, planner.settings) : null;
-    sectionTitle("10 - Pelunasan Utang", "Debt Payoff Planner", "Proyeksi menggunakan bunga, cicilan minimum, dan pembayaran ekstra yang tersimpan. Simulasi bukan perubahan otomatis pada transaksi.");
+    sectionTitle("11 - Pelunasan Utang", "Debt Payoff Planner", "Proyeksi menggunakan bunga, cicilan minimum, dan pembayaran ekstra yang tersimpan. Simulasi bukan perubahan otomatis pada transaksi.");
     keyValueCards([
       { label: "Total utang", value: money(payoff?.startingBalance ?? 0, input.privacy), tone: "negative" },
       { label: "Komitmen bulanan", value: money(payoff?.monthlyCommitment ?? 0, input.privacy) },
@@ -502,7 +512,7 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
   }
 
   if (selected(input, "investments")) {
-    sectionTitle("11 - Investasi", "Portofolio investasi", "Harga manual atau transaksi terakhir dapat bersifat delayed dan bukan harga real-time.");
+    sectionTitle("12 - Investasi", "Portofolio investasi", "Harga manual atau transaksi terakhir dapat bersifat delayed dan bukan harga real-time.");
     table(
       ["Aset", "Unit", "Cost basis", "Nilai", "Unrealized P/L"],
       input.investmentAssets.map((asset) => [`${asset.ticker} - ${asset.name}`, asset.units.toLocaleString("id-ID", { maximumFractionDigits: 8 }), money(asset.costBasis, input.privacy), money(asset.marketValue, input.privacy), money(asset.unrealizedPl, input.privacy)]),

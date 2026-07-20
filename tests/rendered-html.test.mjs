@@ -105,6 +105,21 @@ test("Cashflow Forecast memproyeksikan saldo dan menyimpan asumsi", async () => 
   assert.match(appsScript, /apiUpdateCashflowForecastSettings/);
 });
 
+test("Emergency Fund Planner menghitung safety score dan menyimpan akun dana", async () => {
+  const [app, client, engine, route, schema, appsScript] = await Promise.all([
+    source("../app/FinanceApp.tsx"), source("../lib/finance-client.ts"), source("../lib/emergency-fund.ts"),
+    source("../app/api/finance/emergency-fund/route.ts"), source("../db/schema.ts"), source("../apps-script/DomainService.gs"),
+  ]);
+  assert.match(app, /Emergency Fund Planner/);
+  assert.match(app, /Financial safety score/i);
+  assert.match(app, /Progress perlindungan/);
+  assert.match(client, /\/api\/finance\/emergency-fund/);
+  assert.match(engine, /buildEmergencyFundPlan/);
+  assert.match(route, /emergency_fund\.settings\.update/);
+  assert.match(schema, /emergency_fund_settings/);
+  assert.match(appsScript, /apiUpdateEmergencyFundSettings/);
+});
+
 test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () => {
   const [app, client, css] = await Promise.all([
     source("../app/FinanceApp.tsx"),

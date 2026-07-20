@@ -52,6 +52,7 @@ import {
   TriangleAlert,
   Undo2,
   Upload,
+  Umbrella,
   UserRound,
   WalletCards,
   X,
@@ -64,6 +65,7 @@ import type { LedgerHealthReport } from "../lib/ledger";
 import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapScenario, type RoadmapSettings } from "../lib/roadmap";
 import { addMonthsToPeriod, compareDebtStrategies, DEFAULT_DEBT_SETTINGS, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "../lib/debt";
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "../lib/cashflow-forecast";
+import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "../lib/emergency-fund";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
@@ -114,6 +116,7 @@ import {
   loadFinanceRoadmapSettings,
   loadFinanceDebtPlanner,
   loadFinanceCashflowForecastSettings,
+  loadFinanceEmergencyFundSettings,
   loadFinanceReports,
   loadFinanceSnapshot,
   loadFinanceTransactions,
@@ -137,6 +140,7 @@ import {
   updateFinanceDebtPlannerSettings,
   upsertFinanceDebtPlan,
   updateFinanceCashflowForecastSettings,
+  updateFinanceEmergencyFundSettings,
   updateFinanceTransaction,
   undoLastFinanceTransactionAction,
   uploadFinanceTransactionReceipt,
@@ -151,6 +155,7 @@ type PageKey =
   | "dashboard"
   | "roadmap"
   | "forecast"
+  | "emergency"
   | "debts"
   | "transactions"
   | "accounts"
@@ -174,6 +179,7 @@ const navPrimary: { key: PageKey; label: string; icon: LucideIcon }[] = [
   { key: "dashboard", label: "Ringkasan", icon: LayoutDashboard },
   { key: "roadmap", label: "Roadmap", icon: Route },
   { key: "forecast", label: "Cashflow Forecast", icon: Activity },
+  { key: "emergency", label: "Dana Darurat", icon: Umbrella },
   { key: "transactions", label: "Transaksi", icon: ReceiptText },
   { key: "accounts", label: "Akun", icon: WalletCards },
   { key: "budgets", label: "Anggaran", icon: BarChart3 },
@@ -206,6 +212,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   dashboard: { eyebrow: "Ringkasan", title: "Ringkasan keuangan", subtitle: "Semua angka dihitung dari ledger yang tersimpan." },
   roadmap: { eyebrow: "Perencanaan masa depan", title: "Financial Roadmap", subtitle: "Uji asumsi dan lihat kemungkinan perjalanan finansialmu sebelum mengambil keputusan." },
   forecast: { eyebrow: "Likuiditas ke depan", title: "Cashflow Forecast", subtitle: "Antisipasi pemasukan, biaya hidup, dan tagihan sebelum saldo kas memasuki zona kritis." },
+  emergency: { eyebrow: "Financial safety", title: "Emergency Fund Planner", subtitle: "Ukur ketahanan finansial dan bangun dana darurat dengan target yang realistis." },
   transactions: { eyebrow: "Ledger utama", title: "Semua transaksi", subtitle: "Pantau setiap pergerakan uang tanpa menghitung transfer dua kali." },
   accounts: { eyebrow: "6 akun aktif", title: "Akun & saldo", subtitle: "Semua rekening, dompet, kewajiban, dan investasi dalam satu tampilan." },
   budgets: { eyebrow: "Rencana Juli", title: "Anggaran bulanan", subtitle: "Kendalikan pengeluaran sebelum melewati batas yang kamu tentukan." },
@@ -538,6 +545,7 @@ export function FinanceApp() {
   if (activePage === "dashboard") { title.eyebrow = monthLabel(month); title.title = `Selamat datang, ${profile.name}`; }
   if (activePage === "roadmap") title.eyebrow = `Proyeksi mulai ${monthLabel(month)}`;
   if (activePage === "forecast") title.eyebrow = "Proyeksi dari hari ini";
+  if (activePage === "emergency") title.eyebrow = "Perlindungan finansial";
   if (activePage === "accounts") title.eyebrow = `${accounts.length} akun aktif`;
   if (activePage === "budgets") title.eyebrow = `Rencana ${monthLabel(month)}`;
   if (activePage === "goals") title.eyebrow = `${goals.length} target aktif`;
@@ -630,7 +638,7 @@ export function FinanceApp() {
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
-            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "debts" && activePage !== "assistant" && activePage !== "settings" && (
+            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "debts" && activePage !== "assistant" && activePage !== "settings" && (
               <button className="primary-button" onClick={openCreateForPage}><Plus size={18} /> {createLabel}</button>
             )}
           </section>
@@ -638,6 +646,7 @@ export function FinanceApp() {
           {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setTransactionOpen(true)} />}
           {activePage === "roadmap" && <RoadmapPage month={month} transactions={transactions} accounts={accounts} goals={goals} investmentAssets={investmentAssets} privacy={privacy} onToast={showToast} />}
           {activePage === "forecast" && <CashflowForecastPage transactions={transactions} accounts={accounts} bills={bills} privacy={privacy} onToast={showToast} />}
+          {activePage === "emergency" && <EmergencyFundPage month={month} transactions={transactions} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "debts" && <DebtPayoffPage month={month} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
           {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onImport={() => setAccountImportOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
@@ -950,6 +959,27 @@ function GoalsPage({ goals, privacy, onContribute, onAdd }: { goals: Goal[]; pri
       <button className="secondary-button full" onClick={() => onContribute(goal)} disabled={percent >= 100}><Plus size={16} /> {percent >= 100 ? "Target selesai" : "Tambah progress Rp500.000"}</button>
     </article>; })}
     <button className="add-card goal-add" onClick={onAdd}><span><Plus size={21} /></span><strong>Buat target baru</strong><small>Tentukan nominal, deadline, dan kontribusi rutin</small></button>
+  </div>;
+}
+
+function EmergencyFundPage({ month, transactions, accounts, privacy, onToast }: { month: string; transactions: Transaction[]; accounts: Account[]; privacy: boolean; onToast: (message: string) => void }) {
+  const [settings, setSettings] = useState<EmergencyFundSettings>(DEFAULT_EMERGENCY_FUND_SETTINGS);
+  const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
+  const eligibleAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
+  useEffect(() => { let active = true; loadFinanceEmergencyFundSettings().then((value) => active && setSettings(value)).catch((reason) => active && setError(reason instanceof Error ? reason.message : "Pengaturan dana darurat tidak dapat dimuat.")).finally(() => active && setLoading(false)); return () => { active = false; }; }, []);
+  const plan = useMemo(() => buildEmergencyFundPlan({ accounts, transactions, settings, asOfMonth: month }), [accounts, transactions, settings, month]);
+  const effectiveIds = settings.accountIds.length ? settings.accountIds : eligibleAccounts.map((account) => account.id);
+  const toggleAccount = (id: string) => setSettings((value) => { const current = value.accountIds.length ? value.accountIds : eligibleAccounts.map((account) => account.id); const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id]; return { ...value, accountIds: next.length === eligibleAccounts.length ? [] : next.length ? next : [id] }; });
+  const save = async () => { setSaving(true); setError(""); try { setSettings(await updateFinanceEmergencyFundSettings(settings)); onToast("Rencana dana darurat berhasil disimpan."); } catch (reason) { setError(reason instanceof Error ? reason.message : "Rencana dana darurat tidak dapat disimpan."); } finally { setSaving(false); } };
+  const scoreTone = plan.safetyScore >= 80 ? "safe" : plan.safetyScore >= 55 ? "building" : "critical";
+  if (loading) return <div className="panel settings-empty">Menghitung ketahanan finansial…</div>;
+  return <div className="emergency-layout">
+    <section className={`emergency-hero ${plan.status}`}><div><span className="card-kicker light">Financial safety score</span><h2>{plan.status === "ready" ? "Fondasi keuangan terlindungi" : plan.status === "building" ? "Perlindungan sedang dibangun" : "Dana darurat perlu diprioritaskan"}</h2><p>{plan.monthlyExpense > 0 ? `Dana saat ini mampu menutup sekitar ${plan.coverageMonths.toFixed(1)} bulan pengeluaran. Targetmu adalah ${settings.targetMonths} bulan.` : "Tambahkan transaksi pengeluaran atau isi estimasi bulanan untuk menghitung kebutuhan dana darurat."}</p></div><div className="emergency-score-wrap"><div className={`emergency-score ${scoreTone}`} style={{ background: `conic-gradient(currentColor ${plan.safetyScore * 3.6}deg,rgba(255,255,255,.13) 0deg)` }}><span><strong>{plan.safetyScore}</strong><small>/100</small></span></div><div><small>Status</small><strong>{plan.status === "ready" ? "Siap" : plan.status === "building" ? "Bertumbuh" : "Kritis"}</strong><p>Skor deterministik dari coverage, kontribusi, dan arus kas.</p></div></div></section>
+    {error && <div className="data-alert emergency-error"><span><Umbrella size={17}/></span><div><strong>Rencana perlu perhatian</strong><small>{error}</small></div></div>}
+    <section className="emergency-metrics"><article className="panel"><small>Dana tersedia</small><Amount value={plan.currentFund} privacy={privacy}/><span>{plan.coverageMonths.toFixed(1)} bulan coverage</span></article><article className="panel"><small>Target {settings.targetMonths} bulan</small><Amount value={plan.targetAmount} privacy={privacy}/><span>Berdasarkan biaya hidup bulanan</span></article><article className="panel"><small>Kekurangan dana</small><Amount value={plan.gap} privacy={privacy}/><span>{plan.gap ? "Masih perlu dikumpulkan" : "Target sudah tercapai"}</span></article><article className="panel"><small>Estimasi tercapai</small><strong>{plan.projectedMonth ? formatMonthLabel(plan.projectedMonth) : "Belum tersedia"}</strong><span>{plan.monthsToGoal === null ? "Atur kontribusi bulanan" : plan.monthsToGoal === 0 ? "Sudah tercapai" : `${plan.monthsToGoal} bulan lagi`}</span></article></section>
+    <section className="panel emergency-progress-panel"><div className="card-title-row"><div><span className="card-kicker">Safety runway</span><h2>Progress perlindungan</h2></div><span className={`forecast-status ${scoreTone === "safe" ? "safe" : scoreTone === "building" ? "warning" : "critical"}`}>{plan.progressPct.toFixed(0)}%</span></div><div className="emergency-progress-track"><span style={{ width: `${plan.progressPct}%` }}/>{[1,3,6,9,12].filter((value) => value <= settings.targetMonths).map((value) => <i key={value} style={{ left: `${value/settings.targetMonths*100}%` }}><b>{value}</b><small>bln</small></i>)}</div><div className="emergency-progress-values"><span><small>Sekarang</small><Amount value={plan.currentFund} privacy={privacy}/></span><span><small>Target penuh</small><Amount value={plan.targetAmount} privacy={privacy}/></span></div><div className="emergency-insight"><ShieldCheck size={18}/><span><strong>{plan.status === "ready" ? "Target perlindungan sudah terpenuhi." : plan.monthsToGoal ? `Konsisten ${privacy ? "menabung" : formatIDR(settings.monthlyContribution)} per bulan akan menutup gap.` : "Mulai kontribusi rutin agar tanggal pencapaian dapat dihitung."}</strong><small>Dana darurat sebaiknya likuid dan terpisah dari portofolio investasi berisiko.</small></span></div></section>
+    <aside className="panel emergency-settings-panel"><span className="card-kicker">Plan controls</span><h2>Atur target</h2><div className="emergency-target-tabs">{([3,6,9,12] as const).map((value) => <button key={value} className={settings.targetMonths === value ? "active" : ""} onClick={() => setSettings((current) => ({ ...current, targetMonths: value }))}>{value}<small>bulan</small></button>)}</div><div className="forecast-control-list"><label><span>Pengeluaran bulanan <small>{settings.monthlyExpenseOverride ? "manual" : "otomatis"}</small></span><div className="roadmap-money-input"><small>Rp</small><input type="number" min={0} step={100000} value={settings.monthlyExpenseOverride} onChange={(event) => setSettings((value) => ({ ...value, monthlyExpenseOverride: Math.max(0, Number(event.target.value) || 0) }))}/></div><small>Nilai otomatis saat ini {privacy ? "disamarkan" : formatIDR(plan.monthlyExpense)} dari {plan.observedMonths} bulan data.</small></label><label><span>Kontribusi rutin per bulan</span><div className="roadmap-money-input"><small>Rp</small><input type="number" min={0} step={100000} value={settings.monthlyContribution} onChange={(event) => setSettings((value) => ({ ...value, monthlyContribution: Math.max(0, Number(event.target.value) || 0) }))}/></div></label></div><div className="emergency-account-picker"><span>Akun sumber dana</span>{eligibleAccounts.map((account) => <label key={account.id}><input type="checkbox" checked={effectiveIds.includes(account.id)} onChange={() => toggleAccount(account.id)}/><span><strong>{account.name}</strong><small>{account.type} · <Amount value={account.balance} privacy={privacy}/></small></span></label>)}{!eligibleAccounts.length && <small>Tambahkan akun kas, bank, atau e-wallet terlebih dahulu.</small>}</div><button className="primary-button roadmap-save" disabled={saving || !eligibleAccounts.length} onClick={() => void save()}><Check size={16}/>{saving ? "Menyimpan…" : "Simpan rencana"}</button></aside>
+    <section className="emergency-score-grid"><article className="panel"><span className="emergency-factor coverage"><Umbrella size={19}/></span><div><small>Coverage</small><strong>{Math.min(60, Math.round(plan.progressPct*.6))}/60</strong><p>Seberapa besar target yang sudah tersedia.</p></div></article><article className="panel"><span className="emergency-factor momentum"><TrendingUp size={19}/></span><div><small>Momentum</small><strong>{plan.gap === 0 ? 20 : settings.monthlyContribution > 0 ? Math.min(20, Math.round(settings.monthlyContribution/Math.max(1,plan.monthlyExpense*.1)*20)) : 0}/20</strong><p>Kekuatan kontribusi rutin menuju target.</p></div></article><article className="panel"><span className="emergency-factor cashflow"><Activity size={19}/></span><div><small>Arus kas</small><strong>{plan.monthlyIncome > 0 ? Math.max(0,Math.min(20,Math.round((plan.monthlyIncome-plan.monthlyExpense)/plan.monthlyIncome*100))) : 0}/20</strong><p>Ruang antara pemasukan dan biaya hidup.</p></div></article></section>
   </div>;
 }
 
@@ -1285,6 +1315,7 @@ const reportSectionOptions: Array<{ key: ReportSection; label: string }> = [
   { key: "goals", label: "Target" },
   { key: "roadmap", label: "Financial Roadmap" },
   { key: "forecast", label: "Cashflow Forecast" },
+  { key: "emergency", label: "Dana darurat" },
   { key: "debts", label: "Pelunasan utang" },
   { key: "investments", label: "Investasi" },
 ];
@@ -1325,6 +1356,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
   const [roadmapReportSettings, setRoadmapReportSettings] = useState<RoadmapSettings>(DEFAULT_ROADMAP_SETTINGS);
   const [debtReportPlanner, setDebtReportPlanner] = useState<{ settings: DebtPlannerSettings; debts: DebtPlan[] }>({ settings: DEFAULT_DEBT_SETTINGS, debts: [] });
   const [forecastReportSettings, setForecastReportSettings] = useState<CashflowForecastSettings>(DEFAULT_CASHFLOW_FORECAST_SETTINGS);
+  const [emergencyReportSettings, setEmergencyReportSettings] = useState<EmergencyFundSettings>(DEFAULT_EMERGENCY_FUND_SETTINGS);
   const [error, setError] = useState("");
   const monthTransactions = transactions.filter((item) => item.date.startsWith(period) && item.status === "completed");
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
@@ -1350,6 +1382,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
     loadFinanceRoadmapSettings().then((value) => active && setRoadmapReportSettings(value)).catch(() => undefined);
     loadFinanceDebtPlanner().then((value) => active && setDebtReportPlanner({ settings: value.settings, debts: value.debts.map((debt) => ({ ...debt, balance: accounts.find((account) => account.id === debt.accountId)?.balance ?? debt.balance })) })).catch(() => undefined);
     loadFinanceCashflowForecastSettings().then((value) => active && setForecastReportSettings(value)).catch(() => undefined);
+    loadFinanceEmergencyFundSettings().then((value) => active && setEmergencyReportSettings(value)).catch(() => undefined);
     return () => { active = false; };
   }, [accounts]);
 
@@ -1386,6 +1419,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
         roadmapSettings: roadmapReportSettings,
         debtPlanner: debtReportPlanner,
         forecastSettings: forecastReportSettings,
+        emergencyFundSettings: emergencyReportSettings,
       });
       const saved = await saveFinanceReport({
         filename: result.filename,

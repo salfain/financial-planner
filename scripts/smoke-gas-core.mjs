@@ -259,6 +259,13 @@ result = invoke(`apiUpdateCashflowForecastSettings({ requestId: "forecast-settin
 assert.equal(result.ok, true);
 assert.equal(result.data.horizonDays, 90);
 assert.equal(result.data.minimumCashBuffer, 2500000);
+result = invoke(`apiUpdateEmergencyFundSettings({ requestId: "emergency-settings-1", targetMonths: 6, monthlyExpenseOverride: 4000000, monthlyContribution: 1000000, accountIds: ["imported-bank"] })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.targetMonths, 6);
+assert.equal(result.data.accountIds.join(","), "imported-bank");
+result = invoke(`apiUpdateEmergencyFundSettings({ requestId: "emergency-settings-1", targetMonths: 3, monthlyExpenseOverride: 1, monthlyContribution: 1, accountIds: [] })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.monthlyContribution, 1000000);
 result = invoke(`apiUpdateCashflowForecastSettings({ requestId: "forecast-settings-1", horizonDays: 30, monthlyIncomeOverride: 1, incomeDay: 1, minimumCashBuffer: 0 })`);
 assert.equal(result.ok, true);
 assert.equal(result.data.horizonDays, 90);

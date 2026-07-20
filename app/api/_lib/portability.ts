@@ -172,6 +172,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     d1.prepare(`SELECT strategy, extra_monthly_payment AS extraMonthlyPayment FROM debt_payoff_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT account_id AS accountId, annual_rate_bps AS annualRateBps, minimum_payment AS minimumPayment, due_day AS dueDay FROM debt_accounts WHERE workspace_id = ? ORDER BY account_id`).bind(workspaceId),
     d1.prepare(`SELECT horizon_days AS horizonDays, monthly_income_override AS monthlyIncomeOverride, income_day AS incomeDay, minimum_cash_buffer AS minimumCashBuffer FROM cashflow_forecast_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
+    d1.prepare(`SELECT target_months AS targetMonths, monthly_expense_override AS monthlyExpenseOverride, monthly_contribution AS monthlyContribution, account_ids_json AS accountIdsJson FROM emergency_fund_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
   ]);
   const ai = results[9].results[0] as Record<string, unknown> | undefined;
   const notification = results[10].results[0] as Record<string, unknown> | undefined;
@@ -179,6 +180,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
   const debtSettings = results[12].results[0] as Record<string, unknown> | undefined;
   const debtPlans = results[13].results as Record<string, unknown>[];
   const forecast = results[14].results[0] as Record<string, unknown> | undefined;
+  const emergency = results[15].results[0] as Record<string, unknown> | undefined;
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -225,6 +227,12 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
         forecastMonthlyIncomeOverride: Number(forecast.monthlyIncomeOverride || 0),
         forecastIncomeDay: Number(forecast.incomeDay || 25),
         forecastMinimumCashBuffer: Number(forecast.minimumCashBuffer || 0),
+      } : {}),
+      ...(emergency ? {
+        emergencyTargetMonths: Number(emergency.targetMonths) as 3 | 6 | 9 | 12,
+        emergencyMonthlyExpenseOverride: Number(emergency.monthlyExpenseOverride || 0),
+        emergencyMonthlyContribution: Number(emergency.monthlyContribution || 0),
+        emergencyAccountIds: json<string[]>(String(emergency.accountIdsJson || "[]"), []),
       } : {}),
     },
     data: {
@@ -613,6 +621,13 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
     const buffer = Math.max(0, Math.min(10_000_000_000, Math.round(Number(backup.settings.forecastMinimumCashBuffer || 0))));
     statements.push(d1.prepare(`INSERT INTO cashflow_forecast_settings (workspace_id, horizon_days, monthly_income_override, income_day, minimum_cash_buffer, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET horizon_days = excluded.horizon_days, monthly_income_override = excluded.monthly_income_override, income_day = excluded.income_day, minimum_cash_buffer = excluded.minimum_cash_buffer, updated_at = excluded.updated_at`)
       .bind(workspaceId, horizon, income, incomeDay, buffer, now, now));
+  }
+  if (backup.settings.emergencyTargetMonths !== undefined) {
+    const target = [3,6,9,12].includes(Number(backup.settings.emergencyTargetMonths)) ? Number(backup.settings.emergencyTargetMonths) : 6;
+    const expense = Math.max(0, Math.min(10_000_000_000, Math.round(Number(backup.settings.emergencyMonthlyExpenseOverride || 0))));
+    const contribution = Math.max(0, Math.min(10_000_000_000, Math.round(Number(backup.settings.emergencyMonthlyContribution || 0))));
+    const mappedAccounts = (backup.settings.emergencyAccountIds ?? []).map((id) => accountIds.get(id)).filter((id): id is string => Boolean(id));
+    statements.push(d1.prepare(`INSERT INTO emergency_fund_settings (workspace_id, target_months, monthly_expense_override, monthly_contribution, account_ids_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET target_months = excluded.target_months, monthly_expense_override = excluded.monthly_expense_override, monthly_contribution = excluded.monthly_contribution, account_ids_json = excluded.account_ids_json, updated_at = excluded.updated_at`).bind(workspaceId, target, expense, contribution, JSON.stringify(mappedAccounts), now, now));
   }
 
   try {

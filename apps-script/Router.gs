@@ -11,6 +11,8 @@ function api(action, payload) {
     updateDebtPlanner: function() { return apiUpdateDebtPlanner(payload || {}); },
     getCashflowForecastSettings: function() { return apiCashflowForecastSettings(); },
     updateCashflowForecastSettings: function() { return apiUpdateCashflowForecastSettings(payload || {}); },
+    getEmergencyFundSettings: function() { return apiEmergencyFundSettings(); },
+    updateEmergencyFundSettings: function() { return apiUpdateEmergencyFundSettings(payload || {}); },
     createAccount: function() { return apiCreateAccount(payload || {}); },
     importAccounts: function() { return apiImportAccounts(payload || {}); },
     archiveAccount: function() { return apiArchiveAccount(payload || {}); },

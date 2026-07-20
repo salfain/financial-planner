@@ -1,5 +1,5 @@
 export const BACKUP_FORMAT = "vinn-store-backup";
-export const BACKUP_SCHEMA_VERSION = "1.9.0";
+export const BACKUP_SCHEMA_VERSION = "1.10.0";
 export const BACKUP_MAX_RECORDS = 5_000;
 
 export const PORTABLE_COLLECTIONS = [
@@ -47,6 +47,10 @@ export type PortableBackup = {
     forecastMonthlyIncomeOverride?: number;
     forecastIncomeDay?: number;
     forecastMinimumCashBuffer?: number;
+    emergencyTargetMonths?: 3 | 6 | 9 | 12;
+    emergencyMonthlyExpenseOverride?: number;
+    emergencyMonthlyContribution?: number;
+    emergencyAccountIds?: string[];
   };
   data: PortableData;
 };
@@ -196,6 +200,10 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
       ...(Number.isSafeInteger(Number(settings.forecastMonthlyIncomeOverride)) ? { forecastMonthlyIncomeOverride: Math.max(0, Number(settings.forecastMonthlyIncomeOverride)) } : {}),
       ...(Number.isSafeInteger(Number(settings.forecastIncomeDay)) ? { forecastIncomeDay: Math.max(1, Math.min(28, Number(settings.forecastIncomeDay))) } : {}),
       ...(Number.isSafeInteger(Number(settings.forecastMinimumCashBuffer)) ? { forecastMinimumCashBuffer: Math.max(0, Number(settings.forecastMinimumCashBuffer)) } : {}),
+      ...([3,6,9,12].includes(Number(settings.emergencyTargetMonths)) ? { emergencyTargetMonths: Number(settings.emergencyTargetMonths) as 3 | 6 | 9 | 12 } : {}),
+      ...(Number.isSafeInteger(Number(settings.emergencyMonthlyExpenseOverride)) ? { emergencyMonthlyExpenseOverride: Math.max(0, Number(settings.emergencyMonthlyExpenseOverride)) } : {}),
+      ...(Number.isSafeInteger(Number(settings.emergencyMonthlyContribution)) ? { emergencyMonthlyContribution: Math.max(0, Number(settings.emergencyMonthlyContribution)) } : {}),
+      ...(Array.isArray(settings.emergencyAccountIds) ? { emergencyAccountIds: settings.emergencyAccountIds.map(String).filter(Boolean) } : {}),
     },
     data,
   };

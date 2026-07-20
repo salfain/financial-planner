@@ -510,6 +510,24 @@ export const cashflowForecastSettings = sqliteTable(
   ],
 );
 
+export const emergencyFundSettings = sqliteTable(
+  "emergency_fund_settings",
+  {
+    workspaceId: text("workspace_id").primaryKey().references(() => workspaces.id, { onDelete: "cascade" }),
+    targetMonths: integer("target_months").notNull().default(6),
+    monthlyExpenseOverride: integer("monthly_expense_override").notNull().default(0),
+    monthlyContribution: integer("monthly_contribution").notNull().default(0),
+    accountIdsJson: text("account_ids_json").notNull().default("[]"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    check("emergency_fund_target_check", sql`${table.targetMonths} IN (3, 6, 9, 12)`),
+    check("emergency_fund_expense_nonnegative", sql`${table.monthlyExpenseOverride} >= 0`),
+    check("emergency_fund_contribution_nonnegative", sql`${table.monthlyContribution} >= 0`),
+  ],
+);
+
 export const notificationStates = sqliteTable(
   "notification_states",
   {

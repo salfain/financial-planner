@@ -264,6 +264,42 @@ function apiUpdateCashflowForecastSettings(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function defaultEmergencyFundSettings_() {
+  return { targetMonths: 6, monthlyExpenseOverride: 0, monthlyContribution: 0, accountIds: [] };
+}
+function apiEmergencyFundSettings() {
+  try { const raw = settingValue_('emergency_fund_settings', ''); return ok_(raw ? Object.assign(defaultEmergencyFundSettings_(), parseJsonObject_(raw)) : defaultEmergencyFundSettings_()); }
+  catch (error) { return fail_(error); }
+}
+function apiUpdateEmergencyFundSettings(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const replay = requestAudit_(requestId);
+      if (replay) {
+        if (String(replay.action) !== 'UPDATE_EMERGENCY_FUND' || String(replay.module) !== 'emergency_fund') throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        return apiEmergencyFundSettings();
+      }
+      const target = Number(payload.targetMonths);
+      const expense = Number(payload.monthlyExpenseOverride);
+      const contribution = Number(payload.monthlyContribution);
+      if ([3,6,9,12].indexOf(target) === -1) throw createError_('INVALID_EMERGENCY_TARGET', 'Target dana darurat tidak valid.');
+      if (!Number.isSafeInteger(expense) || expense < 0 || expense > 10000000000) throw createError_('INVALID_EMERGENCY_EXPENSE', 'Pengeluaran bulanan tidak valid.');
+      if (!Number.isSafeInteger(contribution) || contribution < 0 || contribution > 10000000000) throw createError_('INVALID_EMERGENCY_CONTRIBUTION', 'Kontribusi bulanan tidak valid.');
+      const requestedIds = Array.isArray(payload.accountIds) ? payload.accountIds.map(String) : [];
+      if (requestedIds.length > 30) throw createError_('INVALID_EMERGENCY_ACCOUNTS', 'Terlalu banyak akun dipilih.');
+      const eligible = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).filter(function(account) { const active = account.is_active !== false && String(account.is_active).toLowerCase() !== 'false'; const liability = account.is_liability === true || String(account.is_liability).toLowerCase() === 'true'; return active && !liability && String(account.type) !== 'Investment'; }).map(function(account) { return String(account.id); });
+      const accountIds = requestedIds.filter(function(id, index) { return eligible.indexOf(id) !== -1 && requestedIds.indexOf(id) === index; });
+      const next = { targetMonths: target, monthlyExpenseOverride: expense, monthlyContribution: contribution, accountIds: accountIds };
+      const before = settingValue_('emergency_fund_settings', JSON.stringify(defaultEmergencyFundSettings_()));
+      upsertSetting_('emergency_fund_settings', JSON.stringify(next));
+      audit_('UPDATE_EMERGENCY_FUND', 'emergency_fund', 'settings', requestId, { before: parseJsonObject_(before), after: next });
+      invalidateDashboard_();
+      return ok_(next, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiCreateAccount(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {

@@ -7,6 +7,7 @@ import type { AccountImportItem } from "./account-import";
 import { DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 import { DEFAULT_DEBT_SETTINGS, type DebtPlan, type DebtPlannerSettings } from "./debt";
 import { DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
+import { DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "./emergency-fund";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 
 export type FinanceProfile = {
@@ -377,6 +378,20 @@ export async function loadFinanceCashflowForecastSettings() {
 export async function updateFinanceCashflowForecastSettings(settings: CashflowForecastSettings, requestId = `forecast-update:${crypto.randomUUID()}`) {
   const raw = await mutation<unknown>("updateCashflowForecastSettings", "/api/finance/forecast", { ...settings, requestId }, "PATCH");
   return normalizeCashflowForecastSettings(raw);
+}
+
+const normalizeEmergencyFundSettings = (value: unknown): EmergencyFundSettings => {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const target = number(source.targetMonths ?? source.target_months);
+  return { targetMonths: ([3,6,9,12].includes(target) ? target : DEFAULT_EMERGENCY_FUND_SETTINGS.targetMonths) as EmergencyFundSettings["targetMonths"], monthlyExpenseOverride: Math.max(0, number(source.monthlyExpenseOverride ?? source.monthly_expense_override)), monthlyContribution: Math.max(0, number(source.monthlyContribution ?? source.monthly_contribution)), accountIds: Array.isArray(source.accountIds) ? source.accountIds.map(String) : [] };
+};
+export async function loadFinanceEmergencyFundSettings() {
+  const raw = hasAppsScriptBridge() ? await callAppsScript<unknown>("getEmergencyFundSettings", {}) : await webRequest<unknown>("/api/finance/emergency-fund");
+  return normalizeEmergencyFundSettings(raw);
+}
+export async function updateFinanceEmergencyFundSettings(settings: EmergencyFundSettings, requestId = `emergency-fund:${crypto.randomUUID()}`) {
+  const raw = await mutation<unknown>("updateEmergencyFundSettings", "/api/finance/emergency-fund", { ...settings, requestId }, "PATCH");
+  return normalizeEmergencyFundSettings(raw);
 }
 
 export const createFinanceAccount = (payload: Record<string, unknown>) =>
