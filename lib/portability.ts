@@ -172,7 +172,7 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
       ...(text(source.workspaceId) ? { workspaceId: text(source.workspaceId) } : {}),
     },
     profile: {
-      name: text(profile.name, "Vinn").slice(0, 100),
+      name: text(profile.name, "Pemilik").slice(0, 100),
       storeName: text(profile.storeName ?? profile.store_name, "Financial Planner").replace(/^VINN STORE$/i, "Financial Planner").slice(0, 100),
       currency: text(profile.currency, "IDR").toUpperCase().slice(0, 3),
       timezone: text(profile.timezone, "Asia/Jakarta").slice(0, 80),

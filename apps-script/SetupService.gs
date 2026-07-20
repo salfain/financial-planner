@@ -1,4 +1,4 @@
-function setupVinnStore() {
+function setupFinancialPlanner() {
   return withDocumentLock_(function() {
     Object.keys(VINN_CONFIG.HEADERS).forEach(function(sheetName) {
       ensureSheet_(sheetName, VINN_CONFIG.HEADERS[sheetName]);
@@ -73,11 +73,32 @@ function setupVinnStore() {
       updateObjectRow_(VINN_CONFIG.SHEETS.CATEGORIES, rowNumber, category);
     });
 
-    PropertiesService.getDocumentProperties().setProperty('VINN_SCHEMA_VERSION', VINN_CONFIG.SCHEMA_VERSION);
-    audit_('SETUP', 'system', '', id_('req'), { schemaVersion: VINN_CONFIG.SCHEMA_VERSION });
+    const documentProperties = PropertiesService.getDocumentProperties();
+    let installationId = documentProperties.getProperty('FINANCIAL_PLANNER_INSTALLATION_ID');
+    if (!installationId) {
+      installationId = Utilities.getUuid();
+      documentProperties.setProperty('FINANCIAL_PLANNER_INSTALLATION_ID', installationId);
+      documentProperties.setProperty('FINANCIAL_PLANNER_INSTALLED_AT', nowIso_());
+    }
+    documentProperties.setProperty('FINANCIAL_PLANNER_SCHEMA_VERSION', VINN_CONFIG.SCHEMA_VERSION);
+    documentProperties.setProperty('VINN_SCHEMA_VERSION', VINN_CONFIG.SCHEMA_VERSION);
+    audit_('SETUP', 'system', '', id_('req'), {
+      schemaVersion: VINN_CONFIG.SCHEMA_VERSION,
+      edition: 'single-owner'
+    });
     invalidateDashboard_();
-    return ok_({ appName: VINN_CONFIG.APP_NAME, schemaVersion: VINN_CONFIG.SCHEMA_VERSION });
+    return ok_({
+      appName: VINN_CONFIG.APP_NAME,
+      schemaVersion: VINN_CONFIG.SCHEMA_VERSION,
+      edition: 'single-owner',
+      installationId: installationId
+    });
   });
+}
+
+// Alias lama dipertahankan agar instalasi pelanggan versi sebelumnya tetap dapat diperbarui.
+function setupVinnStore() {
+  return setupFinancialPlanner();
 }
 
 function apiHealthCheck() {
@@ -89,6 +110,13 @@ function apiHealthCheck() {
       const valid = VINN_CONFIG.HEADERS[name].every(function(header, index) { return String(actual[index]) === header; });
       return { sheet: name, status: valid ? 'healthy' : 'header_mismatch' };
     });
-    return ok_({ appName: VINN_CONFIG.APP_NAME, schemaVersion: VINN_CONFIG.SCHEMA_VERSION, sheets: results });
+    const properties = PropertiesService.getDocumentProperties();
+    return ok_({
+      appName: VINN_CONFIG.APP_NAME,
+      schemaVersion: VINN_CONFIG.SCHEMA_VERSION,
+      edition: 'single-owner',
+      installationId: properties.getProperty('FINANCIAL_PLANNER_INSTALLATION_ID') || null,
+      sheets: results
+    });
   } catch (error) { return fail_(error); }
 }

@@ -222,7 +222,7 @@ export function serializeWorkspace(row: WorkspaceRow | null, workspaceId: string
   if (!row) {
     return {
       id: workspaceId,
-      name: "Vinn",
+      name: "Pemilik",
       storeName: "Financial Planner",
       currency: "IDR",
       timezone: "Asia/Jakarta",

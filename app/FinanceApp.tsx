@@ -292,7 +292,7 @@ export function FinanceApp() {
   const [investmentAssets, setInvestmentAssets] = useState<InvestmentAsset[]>([]);
   const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentTransaction[]>([]);
   const [notificationOverview, setNotificationOverview] = useState<NotificationOverview | null>(null);
-  const [profile, setProfile] = useState<FinanceProfile>({ name: "Vinn", storeName: "Financial Planner", currency: "IDR", timezone: "Asia/Jakarta" });
+  const [profile, setProfile] = useState<FinanceProfile>({ name: "Pemilik", storeName: "Financial Planner", currency: "IDR", timezone: "Asia/Jakarta" });
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -2338,7 +2338,7 @@ function LoadingWorkspace() {
 }
 
 function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | null; saving: boolean; onRetry: () => void; onSubmit: (input: SetupWorkspaceInput) => Promise<void> }) {
-  const [profileName, setProfileName] = useState("Vinn");
+  const [profileName, setProfileName] = useState("Pemilik");
   const [storeName, setStoreName] = useState("Financial Planner");
   const [accountName, setAccountName] = useState("Rekening Utama");
   const [accountType, setAccountType] = useState("Bank");
@@ -2347,7 +2347,7 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     await onSubmit({
-      profileName: profileName.trim() || "Vinn",
+      profileName: profileName.trim() || "Pemilik",
       storeName: storeName.trim() || "Financial Planner",
       currency: "IDR",
       timezone: "Asia/Jakarta",

@@ -1,6 +1,6 @@
 function api(action, payload) {
   const routes = {
-    setup: function() { return setupVinnStore(); },
+    setup: function() { return setupFinancialPlanner(); },
     health: function() { return apiHealthCheck(); },
     bootstrap: function() { return apiGetBootstrap(payload && payload.month); },
     setupWorkspace: function() { return apiSetupWorkspace(payload || {}); },

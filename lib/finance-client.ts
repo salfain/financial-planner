@@ -266,7 +266,7 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
   return {
     configured: source.configured === undefined ? accounts.length > 0 : bool(source.configured),
     profile: {
-      name: text(profile.name, "Vinn"),
+      name: text(profile.name, "Pemilik"),
       storeName: legacyStoreName.toUpperCase() === "VINN STORE" ? "Financial Planner" : legacyStoreName,
       currency: text(profile.currency, "IDR"),
       timezone: text(profile.timezone, "Asia/Jakarta"),

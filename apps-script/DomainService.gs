@@ -1,7 +1,7 @@
 function apiSetupWorkspace(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {
-    setupVinnStore();
+    setupFinancialPlanner();
     return withDocumentLock_(function() {
       payload = payload || {};
       const existingAccounts = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS)
@@ -10,7 +10,7 @@ function apiSetupWorkspace(payload) {
         throw createError_('ALREADY_CONFIGURED', 'Workspace Financial Planner sudah dikonfigurasi.');
       }
 
-      const profileName = String(payload.profileName || 'Vinn').trim().slice(0, 80);
+      const profileName = String(payload.profileName || 'Pemilik').trim().slice(0, 80);
       const storeName = String(payload.storeName || VINN_CONFIG.APP_NAME).trim().slice(0, 80);
       const currency = String(payload.currency || VINN_CONFIG.CURRENCY).toUpperCase();
       const timezone = String(payload.timezone || VINN_CONFIG.TIMEZONE);
@@ -58,7 +58,7 @@ function apiUpdateProfile(payload) {
         const replayDetails = parseJsonObject_(replay.details_json);
         const replayName = replayDetails.after && replayDetails.after.name
           ? String(replayDetails.after.name)
-          : String(settingValue_('profile_name', 'Vinn'));
+          : String(settingValue_('profile_name', 'Pemilik'));
         return ok_({ profileName: replayName, duplicate: true }, requestId);
       }
 
@@ -67,7 +67,7 @@ function apiUpdateProfile(payload) {
         throw createError_('INVALID_PROFILE_NAME', 'Nama pemilik wajib diisi dan maksimal 80 karakter.');
       }
 
-      const previousName = String(settingValue_('profile_name', 'Vinn'));
+      const previousName = String(settingValue_('profile_name', 'Pemilik'));
       upsertSetting_('profile_name', name);
       audit_('UPDATE_PROFILE', 'profile', 'owner', requestId, {
         before: { name: previousName },

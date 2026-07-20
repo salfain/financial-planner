@@ -22,7 +22,7 @@ function apiGetBootstrap(month) {
     const data = {
       configured: accounts.length > 0,
       profile: {
-        name: settingValue_('profile_name', 'Vinn'),
+        name: settingValue_('profile_name', 'Pemilik'),
         storeName: String(settingValue_('app_name', VINN_CONFIG.APP_NAME)).toUpperCase() === 'VINN STORE' ? VINN_CONFIG.APP_NAME : settingValue_('app_name', VINN_CONFIG.APP_NAME),
         currency: settingValue_('currency', VINN_CONFIG.CURRENCY),
         timezone: settingValue_('timezone', VINN_CONFIG.TIMEZONE)

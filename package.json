@@ -1,5 +1,5 @@
 {
-  "name": "vinn-store-financial-os",
+  "name": "financial-planner",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -14,6 +14,7 @@
     "test:gas": "node scripts/smoke-gas-core.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "build:gas": "node scripts/build-gas-frontend.mjs",
+    "package:customer": "npm run build:gas && node scripts/build-customer-package.mjs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

@@ -10,8 +10,8 @@ import {
 
 export const workspaces = sqliteTable("workspaces", {
   id: text("id").primaryKey(),
-  profileName: text("profile_name").notNull().default("Vinn"),
-  storeName: text("store_name").notNull().default("VINN STORE"),
+  profileName: text("profile_name").notNull().default("Pemilik"),
+  storeName: text("store_name").notNull().default("Financial Planner"),
   currency: text("currency").notNull().default("IDR"),
   timezone: text("timezone").notNull().default("Asia/Jakarta"),
   configured: integer("configured", { mode: "boolean" }).notNull().default(false),

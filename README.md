@@ -57,11 +57,15 @@ npm test
 2. Buka **Extensions → Apps Script**.
 3. Jalankan `npm run build:gas`, lalu salin file di folder `apps-script/` ke project Apps Script, atau gunakan `clasp`.
 4. Untuk `clasp`, salin `.clasp.json.example` menjadi `.clasp.json`, lalu isi `scriptId` dari Apps Script Project Settings.
-5. Jalankan `setupVinnStore()` satu kali dan izinkan akses yang diminta.
+5. Jalankan `setupFinancialPlanner()` satu kali dan izinkan akses yang diminta.
 6. Pastikan semua sheet terbentuk tanpa menghapus data yang sudah ada.
 7. Pilih **Deploy → New deployment → Web app**. Jalankan sebagai pemilik dan batasi akses ke akun yang berwenang.
 
 API key Gemini dapat ditambahkan dari halaman **Pengaturan → AI & OCR Gemini**. Pada Apps Script key disimpan melalui User Properties dan tidak pernah dikirim kembali ke browser. Apps Script menggunakan document lock, request ID untuk idempotency, soft delete, audit log, cache dashboard, backup ke Google Drive, dan time-driven trigger untuk backup otomatis.
+
+## Paket jual putus
+
+Jalankan `npm run package:customer` untuk menghasilkan paket pelanggan yang bersih. Paket berisi source Apps Script, panduan instalasi, dan manifest checksum; data transaksi maupun konfigurasi deployment penjual tidak ikut disalin. Panduan lengkap tersedia di `docs/PANDUAN-JUAL-PUTUS.md`.
 
 ## Struktur penting
 

@@ -499,8 +499,10 @@ add("Categories", {
   color: "#123456", icon: "car", is_active: true, is_default: false, request_id: "custom-seed",
 });
 sheets.Categories.find((category) => category.id === "cat-food").is_active = false;
-result = invoke(`setupVinnStore()`);
+result = invoke(`setupFinancialPlanner()`);
 assert.equal(result.ok, true);
+assert.equal(result.data.edition, "single-owner");
+assert.match(result.data.installationId, /^uuid-/);
 const categoryCountAfterMigration = sheets.Categories.length;
 assert.equal(sheets.Categories.filter((category) => category.is_default === true).length, 8);
 assert.equal(sheets.Categories.some((category) => category.id === "cat-transport"), false);
@@ -508,6 +510,7 @@ assert.equal(sheets.Categories.find((category) => category.id === "custom-transp
 assert.equal(sheets.Categories.find((category) => category.id === "cat-food").is_active, true);
 result = invoke(`setupVinnStore()`);
 assert.equal(result.ok, true);
+assert.equal(result.data.installationId, properties.get("FINANCIAL_PLANNER_INSTALLATION_ID"));
 assert.equal(sheets.Categories.length, categoryCountAfterMigration);
 
 result = invoke(`apiUpdateBackupSchedule({ enabled: true, frequency: "weekly" })`);

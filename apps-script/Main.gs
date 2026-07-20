@@ -13,7 +13,7 @@ function include(filename) {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Financial Planner')
-    .addItem('Jalankan Setup', 'setupVinnStore')
+    .addItem('Jalankan Setup', 'setupFinancialPlanner')
     .addItem('Periksa Struktur', 'apiHealthCheck')
     .addSeparator()
     .addItem('Buat Backup', 'apiCreateBackup')
