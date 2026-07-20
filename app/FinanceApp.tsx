@@ -783,7 +783,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         <div className="account-list">
           {accounts.filter((account) => account.type !== "Investment").slice(0, 4).map((account) => <div className="account-row" key={account.id}>
             <span className="account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={19} /> : account.liability ? <CreditCard size={19} /> : <WalletCards size={19} />}</span>
-            <span><strong>{account.name}</strong><small>{account.institution} · {account.mask}</small></span>
+            <span><strong>{account.name}</strong><small>{[account.institution, account.mask].filter(Boolean).join(" · ") || account.type}</small></span>
             <Amount value={account.balance} privacy={privacy} className={account.liability ? "negative-text" : ""} />
           </div>)}
           {!accounts.length && <button className="dashboard-empty action" onClick={() => onNavigate("accounts")}>Tambahkan akun pertama</button>}
@@ -794,7 +794,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         <div className="card-title-row"><div><span className="card-kicker">Mendatang</span><h2>Tagihan terdekat</h2></div><button className="text-button" onClick={() => onNavigate("bills")}>Lihat semua <ArrowRight size={14} /></button></div>
         <div className="bill-list">
           {upcomingBills.map((bill, index) => <button key={bill.id} onClick={() => onNavigate("bills")}><span className={`date-box ${index === 0 ? "urgent" : ""}`}><small>{shortMonth(bill.dueDate)}</small><strong>{validDate(bill.dueDate) ? bill.dueDate.slice(-2) : "—"}</strong></span><span><strong>{bill.name}</strong><small>{bill.category}</small></span><Amount value={bill.amount} privacy={privacy} /></button>)}
-          {!upcomingBills.length && <button className="dashboard-empty action" onClick={() => onNavigate("bills")}>Belum ada tagihan mendatang</button>}
+          {!upcomingBills.length && <button className="dashboard-empty action bill-empty-action" onClick={() => onNavigate("bills")}>Belum ada tagihan mendatang</button>}
         </div>
       </section>
 
@@ -924,7 +924,7 @@ function AccountsPage({ accounts, privacy, onAdd, onImport, onArchive, onReconci
     <div className="account-grid">
       {accounts.map((account) => <article className={`account-card ${account.liability ? "liability" : ""}`} key={account.id}>
         <div className="account-card-top"><span className="large-account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={22} /> : account.type === "Investment" ? <TrendingUp size={22} /> : account.liability ? <CreditCard size={22} /> : <WalletCards size={22} />}</span><span className="account-card-actions"><button className="icon-button small" onClick={() => onReconcile(account)} aria-label={`Rekonsiliasi ${account.name}`} title="Cocokkan saldo"><Scale size={16} /></button><button className="icon-button small" onClick={() => window.confirm(`Arsipkan ${account.name}?`) && onArchive(account.id)} aria-label={`Arsipkan ${account.name}`}><Trash2 size={16} /></button></span></div>
-        <span>{account.type}</span><h3>{account.name}</h3><p>{account.institution} · {account.mask}</p>
+        <span>{account.type}</span><h3>{account.name}</h3><p>{[account.institution, account.mask].filter(Boolean).join(" · ") || "Detail rekening belum diisi"}</p>
         <Amount value={account.balance} privacy={privacy} className="account-card-value" />
         <div className="account-card-footer"><span><i style={{ background: account.color }} /> {account.liability ? "Kewajiban" : "Aktif"}</span><button onClick={() => onInspect(account)}>Lihat transaksi <ArrowRight size={14} /></button></div>
       </article>)}
