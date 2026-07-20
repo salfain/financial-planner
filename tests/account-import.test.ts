@@ -48,6 +48,17 @@ test("preview menerima Paylater sebagai kewajiban dan menolak saldo serta warna 
   assert.match(preview.rows[0].errors.join(" "), /kode hex/i);
 });
 
+test("preview menerima deposito, piutang, dan akun custom", () => {
+  const preview = previewAccountCsv([
+    "nama,jenis,saldo_awal",
+    "Deposito BCA,Deposito,1000000",
+    "Piutang Teman,Piutang,250000",
+    "Aset Lain,Lainnya,500000",
+  ].join("\n"), []);
+  assert.equal(preview.errorCount, 0);
+  assert.deepEqual(preview.valid.map((account) => account.type), ["Deposit", "Receivable", "Custom"]);
+});
+
 test("preview membatasi satu batch hingga 100 akun", () => {
   const csv = ["nama,jenis", ...Array.from({ length: 101 }, (_, index) => `Akun ${index + 1},Cash`)].join("\n");
   const preview = previewAccountCsv(csv, []);

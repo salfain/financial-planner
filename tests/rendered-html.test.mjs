@@ -162,6 +162,28 @@ test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () =>
   assert.doesNotMatch(app, /const\s+demo(?:Accounts|Transactions|Budgets|Goals|Bills)/);
 });
 
+test("akun, anggaran, target, dan tagihan memiliki pengelolaan lengkap", async () => {
+  const [app, client, appsScript] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../apps-script/DomainService.gs"),
+  ]);
+  assert.match(app, /Edit akun/);
+  assert.match(app, /Edit anggaran/);
+  assert.match(app, /Atur progress/);
+  assert.match(app, /Kurangi dana/);
+  assert.match(app, /Edit tagihan rutin/);
+  assert.match(app, /Frekuensi tagihan bulanan/);
+  assert.match(client, /updateFinanceAccount/);
+  assert.match(client, /deleteFinanceBudget/);
+  assert.match(client, /deleteFinanceGoal/);
+  assert.match(client, /deleteFinanceBill/);
+  assert.match(appsScript, /apiUpdateAccount/);
+  assert.match(appsScript, /apiDeleteBudget/);
+  assert.match(appsScript, /apiDeleteGoal/);
+  assert.match(appsScript, /apiDeleteBill/);
+});
+
 test("impor akun menyediakan template, preview, validasi duplikat, dan endpoint persisten", async () => {
   const [app, client, parser, route] = await Promise.all([
     source("../app/FinanceApp.tsx"),

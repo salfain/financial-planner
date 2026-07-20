@@ -59,6 +59,13 @@ function updateObjectRow_(sheetName, rowNumber, object) {
   })]);
 }
 
+function deleteObjectRow_(sheetName, rowNumber) {
+  const sheet = getWorkbook_().getSheetByName(sheetName);
+  if (!sheet) throw createError_('SHEET_NOT_FOUND', 'Sheet ' + sheetName + ' belum tersedia.');
+  if (!rowNumber || rowNumber < 2 || rowNumber > sheet.getLastRow()) throw createError_('ROW_NOT_FOUND', 'Baris data tidak ditemukan.');
+  sheet.deleteRow(rowNumber);
+}
+
 function assertContiguousObjectRows_(entries) {
   const sorted = (entries || []).slice().sort(function(a, b) { return a.rowNumber - b.rowNumber; });
   if (!sorted.length) throw createError_('ROW_UPDATE_REQUIRED', 'Tidak ada baris yang akan diperbarui.');

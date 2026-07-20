@@ -70,6 +70,9 @@ const parseAccountType = (value: string): AccountType | "" => {
   if (["loan", "pinjaman"].includes(normalized)) return "Loan";
   if (["mortgage", "kpr", "hipotek"].includes(normalized)) return "Mortgage";
   if (["investment", "investasi"].includes(normalized)) return "Investment";
+  if (["deposit", "deposito"].includes(normalized)) return "Deposit";
+  if (["receivable", "piutang"].includes(normalized)) return "Receivable";
+  if (["custom", "lainnya", "lain lain"].includes(normalized)) return "Custom";
   return "";
 };
 

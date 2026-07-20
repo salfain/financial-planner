@@ -22,6 +22,9 @@ export const ACCOUNT_TYPES = [
   "Paylater",
   "Loan",
   "Mortgage",
+  "Deposit",
+  "Receivable",
+  "Custom",
 ] as const;
 export const TRANSACTION_TYPES = [
   "income",

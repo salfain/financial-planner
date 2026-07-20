@@ -15,7 +15,10 @@ export type AccountType =
   | "Credit Card"
   | "Paylater"
   | "Loan"
-  | "Mortgage";
+  | "Mortgage"
+  | "Deposit"
+  | "Receivable"
+  | "Custom";
 
 export interface Account {
   id: string;

@@ -308,6 +308,8 @@ function apiCreateAccount(payload) {
       const name = String(payload.name || '').trim().slice(0, 80);
       if (!name) throw createError_('INVALID_ACCOUNT', 'Nama akun wajib diisi.');
       const type = String(payload.type || 'Bank');
+      const allowedTypes = ['Bank', 'E-Wallet', 'Cash', 'Investment', 'Credit Card', 'Paylater', 'Loan', 'Mortgage', 'Deposit', 'Receivable', 'Custom'];
+      if (allowedTypes.indexOf(type) === -1) throw createError_('INVALID_ACCOUNT_TYPE', 'Jenis akun tidak dikenali.');
       const now = nowIso_();
       const account = {
         id: id_('acc'), name: name, type: type,
@@ -327,6 +329,37 @@ function apiCreateAccount(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function apiUpdateAccount(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const account = findById_(VINN_CONFIG.SHEETS.ACCOUNTS, payload.accountId);
+      if (!account) throw createError_('NOT_FOUND', 'Akun tidak ditemukan.');
+      const allowedTypes = ['Bank', 'E-Wallet', 'Cash', 'Investment', 'Credit Card', 'Paylater', 'Loan', 'Mortgage', 'Deposit', 'Receivable', 'Custom'];
+      const type = String(payload.type === undefined ? account.type : payload.type);
+      const name = String(payload.name === undefined ? account.name : payload.name).trim().slice(0, 100);
+      const color = String(payload.color === undefined ? account.color : payload.color);
+      if (!name) throw createError_('INVALID_ACCOUNT', 'Nama akun wajib diisi.');
+      if (allowedTypes.indexOf(type) === -1) throw createError_('INVALID_ACCOUNT_TYPE', 'Jenis akun tidak dikenali.');
+      if (!/^#[0-9a-f]{6}$/i.test(color)) throw createError_('INVALID_COLOR', 'Warna akun tidak valid.');
+      const before = Object.assign({}, account); delete before._row;
+      const rowNumber = account._row;
+      account.name = name;
+      account.type = type;
+      account.institution = String(payload.institution === undefined ? account.institution || '' : payload.institution).trim().slice(0, 100);
+      account.mask = String(payload.mask === undefined ? account.mask || '' : payload.mask).trim().slice(0, 40);
+      account.color = color;
+      account.is_liability = ['Credit Card', 'Paylater', 'Loan', 'Mortgage'].indexOf(type) !== -1;
+      account.updated_at = nowIso_();
+      delete account._row;
+      updateObjectRow_(VINN_CONFIG.SHEETS.ACCOUNTS, rowNumber, account);
+      audit_('UPDATE', 'accounts', account.id, requestId, { before: before, after: account });
+      invalidateDashboard_();
+      return ok_({ account: account }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiImportAccounts(payload) {
   const requestId = String(payload && payload.requestId || id_('req'));
   try {
@@ -338,7 +371,7 @@ function apiImportAccounts(payload) {
       }
       const items = Array.isArray(payload.accounts) ? payload.accounts : [];
       if (!items.length || items.length > 100) throw createError_('INVALID_IMPORT', 'Impor harus berisi 1 sampai 100 akun.');
-      const allowedTypes = ['Bank', 'E-Wallet', 'Cash', 'Investment', 'Credit Card', 'Paylater', 'Loan', 'Mortgage'];
+      const allowedTypes = ['Bank', 'E-Wallet', 'Cash', 'Investment', 'Credit Card', 'Paylater', 'Loan', 'Mortgage', 'Deposit', 'Receivable', 'Custom'];
       const existingNames = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).map(function(account) { return String(account.name || '').trim().toLowerCase(); });
       const incomingNames = {};
       const now = nowIso_();
@@ -432,6 +465,43 @@ function apiUpsertBudget(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function apiUpdateBudget(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const budget = findById_(VINN_CONFIG.SHEETS.BUDGETS, payload.budgetId);
+      if (!budget) throw createError_('NOT_FOUND', 'Anggaran tidak ditemukan.');
+      const limitAmount = assertPositiveMoney_(payload.limit === undefined ? payload.limitAmount : payload.limit);
+      const before = Object.assign({}, budget); delete before._row;
+      const rowNumber = budget._row;
+      budget.limit_amount = limitAmount;
+      if (payload.color !== undefined) budget.color = String(payload.color);
+      budget.updated_at = nowIso_();
+      delete budget._row;
+      updateObjectRow_(VINN_CONFIG.SHEETS.BUDGETS, rowNumber, budget);
+      audit_('UPDATE', 'budgets', budget.id, requestId, { before: before, after: budget });
+      invalidateDashboard_(String(budget.month));
+      return ok_({ budget: budget }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
+function apiDeleteBudget(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const budget = findById_(VINN_CONFIG.SHEETS.BUDGETS, payload.budgetId);
+      if (!budget) throw createError_('NOT_FOUND', 'Anggaran tidak ditemukan.');
+      const rowNumber = budget._row;
+      const before = Object.assign({}, budget); delete before._row;
+      deleteObjectRow_(VINN_CONFIG.SHEETS.BUDGETS, rowNumber);
+      audit_('DELETE', 'budgets', budget.id, requestId, { before: before });
+      invalidateDashboard_(String(budget.month));
+      return ok_({ deleted: true, id: budget.id }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiCreateGoal(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {
@@ -451,6 +521,50 @@ function apiCreateGoal(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function apiUpdateGoal(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const goal = findById_(VINN_CONFIG.SHEETS.GOALS, payload.goalId);
+      if (!goal) throw createError_('NOT_FOUND', 'Target tidak ditemukan.');
+      const target = assertPositiveMoney_(payload.target === undefined ? payload.targetAmount : payload.target);
+      const current = Number(goal.current_amount || 0);
+      if (current > target) throw createError_('INVALID_GOAL', 'Target baru tidak boleh lebih kecil dari dana terkumpul.');
+      const name = String(payload.name === undefined ? goal.name : payload.name).trim().slice(0, 100);
+      if (!name) throw createError_('INVALID_GOAL', 'Nama target wajib diisi.');
+      const before = Object.assign({}, goal); delete before._row;
+      const rowNumber = goal._row;
+      goal.name = name;
+      goal.target_amount = target;
+      goal.deadline = dateIso_(payload.deadline === undefined ? goal.deadline : payload.deadline);
+      goal.color = String(payload.color === undefined ? goal.color : payload.color);
+      goal.icon = String(payload.icon === undefined ? goal.icon : payload.icon);
+      goal.status = current >= target ? 'completed' : 'active';
+      goal.updated_at = nowIso_();
+      delete goal._row;
+      updateObjectRow_(VINN_CONFIG.SHEETS.GOALS, rowNumber, goal);
+      audit_('UPDATE', 'goals', goal.id, requestId, { before: before, after: goal });
+      invalidateDashboard_();
+      return ok_({ goal: goal }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
+function apiDeleteGoal(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const goal = findById_(VINN_CONFIG.SHEETS.GOALS, payload.goalId);
+      if (!goal) throw createError_('NOT_FOUND', 'Target tidak ditemukan.');
+      const before = Object.assign({}, goal); delete before._row;
+      deleteObjectRow_(VINN_CONFIG.SHEETS.GOALS, goal._row);
+      audit_('DELETE', 'goals', goal.id, requestId, { before: before });
+      invalidateDashboard_();
+      return ok_({ deleted: true, id: goal.id }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiContributeGoal(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {
@@ -458,13 +572,18 @@ function apiContributeGoal(payload) {
       const goal = findById_(VINN_CONFIG.SHEETS.GOALS, payload.goalId);
       if (!goal) throw createError_('NOT_FOUND', 'Target tidak ditemukan.');
       const amount = assertPositiveMoney_(payload.amount);
-      goal.current_amount = Math.min(Number(goal.target_amount), Number(goal.current_amount || 0) + amount);
+      const mode = String(payload.mode || 'add');
+      if (['add', 'withdraw'].indexOf(mode) === -1) throw createError_('INVALID_GOAL_MODE', 'Mode perubahan progress tidak valid.');
+      const nextCurrent = Number(goal.current_amount || 0) + (mode === 'withdraw' ? -amount : amount);
+      if (nextCurrent > Number(goal.target_amount)) throw createError_('GOAL_OVERFUNDED', 'Kontribusi melebihi sisa target.');
+      if (nextCurrent < 0) throw createError_('GOAL_UNDERFUNDED', 'Pengurangan melebihi dana yang terkumpul.');
+      goal.current_amount = nextCurrent;
       goal.status = Number(goal.current_amount) >= Number(goal.target_amount) ? 'completed' : 'active';
       goal.updated_at = nowIso_();
       const rowNumber = goal._row;
       delete goal._row;
       updateObjectRow_(VINN_CONFIG.SHEETS.GOALS, rowNumber, goal);
-      audit_('CONTRIBUTE', 'goals', goal.id, requestId, { amount: amount });
+      audit_(mode === 'withdraw' ? 'WITHDRAW' : 'CONTRIBUTE', 'goals', goal.id, requestId, { amount: amount });
       invalidateDashboard_();
       return ok_({ goal: goal }, requestId);
     });
@@ -488,6 +607,54 @@ function apiCreateBill(payload) {
       audit_('CREATE', 'bills', bill.id, requestId, { name: bill.name, amount: amount });
       invalidateDashboard_();
       return ok_({ bill: bill }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
+function apiUpdateBill(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const bill = findById_(VINN_CONFIG.SHEETS.BILLS, payload.billId);
+      if (!bill) throw createError_('NOT_FOUND', 'Tagihan tidak ditemukan.');
+      const name = String(payload.name === undefined ? bill.name : payload.name).trim().slice(0, 100);
+      const amount = assertPositiveMoney_(payload.amount === undefined ? bill.amount : payload.amount);
+      const accountId = String(payload.accountId === undefined ? bill.account_id : payload.accountId);
+      const frequency = String(payload.frequency === undefined ? bill.frequency || 'monthly' : payload.frequency);
+      const reminderDays = Array.isArray(payload.reminderDays) ? payload.reminderDays.map(Number).filter(function(day, index, values) { return [7, 3, 1, 0].indexOf(day) >= 0 && values.indexOf(day) === index; }).sort(function(a, b) { return b - a; }) : String(bill.reminder_days || '7,3,1,0').split(',').map(Number);
+      if (!name || !findById_(VINN_CONFIG.SHEETS.ACCOUNTS, accountId)) throw createError_('INVALID_BILL', 'Nama dan akun pembayaran tagihan wajib diisi.');
+      if (frequency !== 'monthly') throw createError_('INVALID_BILL_FREQUENCY', 'Frekuensi tagihan belum didukung.');
+      if (!reminderDays.length) throw createError_('INVALID_REMINDER_DAYS', 'Pilih minimal satu jadwal reminder tagihan.');
+      const before = Object.assign({}, bill); delete before._row;
+      const rowNumber = bill._row;
+      bill.name = name;
+      bill.amount = amount;
+      bill.category = String(payload.category === undefined ? bill.category : payload.category);
+      bill.account_id = accountId;
+      bill.frequency = frequency;
+      bill.due_date = dateIso_(payload.dueDate === undefined ? bill.due_date : payload.dueDate);
+      bill.reminder_days = reminderDays.join(',');
+      bill.updated_at = nowIso_();
+      delete bill._row;
+      updateObjectRow_(VINN_CONFIG.SHEETS.BILLS, rowNumber, bill);
+      audit_('UPDATE', 'bills', bill.id, requestId, { before: before, after: bill });
+      invalidateDashboard_();
+      return ok_({ bill: bill }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
+function apiDeleteBill(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const bill = findById_(VINN_CONFIG.SHEETS.BILLS, payload.billId);
+      if (!bill) throw createError_('NOT_FOUND', 'Tagihan tidak ditemukan.');
+      const before = Object.assign({}, bill); delete before._row;
+      deleteObjectRow_(VINN_CONFIG.SHEETS.BILLS, bill._row);
+      audit_('DELETE', 'bills', bill.id, requestId, { before: before });
+      invalidateDashboard_();
+      return ok_({ deleted: true, id: bill.id }, requestId);
     });
   } catch (error) { return fail_(error, requestId); }
 }

@@ -14,7 +14,8 @@ const sources = readdirSync(appsScriptDirectory)
 const combinedSource = sources.join("\n");
 for (const action of [
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
-  "importAccounts", "updateProfile", "getRoadmapSettings", "updateRoadmapSettings",
+  "importAccounts", "updateAccount", "updateProfile", "getRoadmapSettings", "updateRoadmapSettings",
+  "updateBudget", "deleteBudget", "updateGoal", "deleteGoal", "contributeGoal", "updateBill", "deleteBill",
   "updateTransaction", "reconcileAccount", "listAuditLogs",
   "inspectLedger", "repairLedger",
   "createInvestmentAsset", "updateInvestmentAsset", "createInvestmentTrade",
@@ -175,10 +176,14 @@ vm.runInContext(`
   updateObjectRow_ = function(name, rowNumber, object) {
     sheets[name][rowNumber - 2] = Object.assign({}, object);
   };
+  deleteObjectRow_ = function(name, rowNumber) {
+    sheets[name].splice(rowNumber - 2, 1);
+  };
   withDocumentLock_ = function(callback) { return callback(); };
   mockSheet_ = function(name) {
     return {
       getLastRow: function() { return (sheets[name] || []).length + 1; },
+      deleteRow: function(rowNumber) { sheets[name].splice(rowNumber - 2, 1); },
       getRange: function(row, column, rowCount) {
         return {
           setValues: function(values) {
@@ -549,6 +554,44 @@ assert.equal(result.data.kind, "report");
 result = invoke(`apiListReports()`);
 assert.equal(result.ok, true);
 assert.equal(result.data.reports.length, 1);
+
+result = invoke(`apiUpdateAccount({ requestId: "account-update-1", accountId: "imported-bank", name: "Rekening Utama", type: "Deposit", institution: "BCA", mask: "7788", color: "#126b59" })`);
+assert.equal(result.ok, true);
+assert.equal(sheets.Accounts.find((account) => account.id === "imported-bank").type, "Deposit");
+
+result = invoke(`apiUpsertBudget({ requestId: "budget-create-1", month: "2026-07", category: "Hiburan", limitAmount: 750000 })`);
+assert.equal(result.ok, true);
+const editableBudgetId = result.data.budget.id;
+result = invoke(`apiUpdateBudget({ requestId: "budget-update-1", budgetId: "${editableBudgetId}", limit: 900000, color: "#126b59" })`);
+assert.equal(result.ok, true);
+assert.equal(Number(result.data.budget.limit_amount), 900000);
+result = invoke(`apiDeleteBudget({ requestId: "budget-delete-1", budgetId: "${editableBudgetId}" })`);
+assert.equal(result.ok, true);
+assert.equal(sheets.Budgets.some((budget) => budget.id === editableBudgetId), false);
+
+result = invoke(`apiCreateGoal({ requestId: "goal-create-1", name: "Dana Liburan", targetAmount: 5000000, currentAmount: 1000000, deadline: "2027-07-20" })`);
+assert.equal(result.ok, true);
+const editableGoalId = result.data.goal.id;
+result = invoke(`apiUpdateGoal({ requestId: "goal-update-1", goalId: "${editableGoalId}", name: "Dana Pendidikan", target: 6000000, deadline: "2028-07-20", color: "#126b59", icon: "target" })`);
+assert.equal(result.ok, true);
+result = invoke(`apiContributeGoal({ requestId: "goal-add-1", goalId: "${editableGoalId}", amount: 500000, mode: "add" })`);
+assert.equal(result.ok, true);
+assert.equal(Number(result.data.goal.current_amount), 1500000);
+result = invoke(`apiContributeGoal({ requestId: "goal-withdraw-1", goalId: "${editableGoalId}", amount: 250000, mode: "withdraw" })`);
+assert.equal(result.ok, true);
+assert.equal(Number(result.data.goal.current_amount), 1250000);
+result = invoke(`apiDeleteGoal({ requestId: "goal-delete-1", goalId: "${editableGoalId}" })`);
+assert.equal(result.ok, true);
+
+result = invoke(`apiCreateBill({ requestId: "bill-create-1", name: "Air", amount: 200000, category: "Tagihan", accountId: "source", frequency: "monthly", dueDate: "2026-08-10", reminderDays: [3, 1, 0] })`);
+assert.equal(result.ok, true);
+const editableBillId = result.data.bill.id;
+result = invoke(`apiUpdateBill({ requestId: "bill-update-1", billId: "${editableBillId}", name: "Air Rumah", amount: 225000, category: "Tagihan", accountId: "source", frequency: "monthly", dueDate: "2026-08-12", reminderDays: [7, 1, 0] })`);
+assert.equal(result.ok, true);
+assert.equal(Number(result.data.bill.amount), 225000);
+result = invoke(`apiDeleteBill({ requestId: "bill-delete-1", billId: "${editableBillId}" })`);
+assert.equal(result.ok, true);
+assert.equal(sheets.Bills.some((bill) => bill.id === editableBillId), false);
 
 context.migrationSource = {
   format: "vinn-store-backup",

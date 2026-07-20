@@ -7,7 +7,7 @@ import { requireWorkspace } from "../../../../_lib/repository";
 import { POST as createTransaction } from "../../../../transactions/route";
 
 type Context = { params: Promise<{ id: string }> };
-type Row = RecurringTemplate & { isSubscription: number; active: number };
+type Row = Omit<RecurringTemplate, "isSubscription" | "active"> & { isSubscription: number; active: number };
 const select = `SELECT id, name, type, amount, category, account_id AS accountId, frequency, start_date AS startDate, next_due_date AS nextDueDate, is_subscription AS isSubscription, active, last_posted_date AS lastPostedDate, updated_at AS updatedAt FROM recurring_templates`;
 const serialize = (row: Row): RecurringTemplate => ({ ...row, amount: Number(row.amount), isSubscription: Boolean(row.isSubscription), active: Boolean(row.active) });
 

@@ -446,6 +446,9 @@ export async function confirmFinanceRecurring(id: string, dueDate: string, reque
 export const createFinanceAccount = (payload: Record<string, unknown>) =>
   mutation("createAccount", "/api/finance/accounts", payload);
 
+export const updateFinanceAccount = (accountId: string, payload: Record<string, unknown>) =>
+  mutation("updateAccount", `/api/finance/accounts/${encodeURIComponent(accountId)}`, { ...payload, accountId }, "PATCH");
+
 export const importFinanceAccounts = (accounts: AccountImportItem[], requestId = `account-import:${crypto.randomUUID()}`) =>
   mutation<{ imported: number }>("importAccounts", "/api/finance/accounts/import", { accounts, requestId });
 
@@ -563,14 +566,32 @@ export const financeTransactionReceiptUrl = (transactionId: string, receiptId: s
 export const upsertFinanceBudget = (payload: Record<string, unknown>) =>
   mutation("upsertBudget", "/api/finance/budgets", payload);
 
+export const updateFinanceBudget = (budgetId: string, payload: Record<string, unknown>) =>
+  mutation("updateBudget", `/api/finance/budgets/${encodeURIComponent(budgetId)}`, { ...payload, budgetId }, "PATCH");
+
+export const deleteFinanceBudget = (budgetId: string) =>
+  mutation("deleteBudget", `/api/finance/budgets/${encodeURIComponent(budgetId)}`, { budgetId }, "DELETE");
+
 export const createFinanceGoal = (payload: Record<string, unknown>) =>
   mutation("createGoal", "/api/finance/goals", payload);
 
-export const contributeFinanceGoal = (goalId: string, amount: number) =>
-  mutation("contributeGoal", `/api/finance/goals/${encodeURIComponent(goalId)}/contribute`, { goalId, amount });
+export const updateFinanceGoal = (goalId: string, payload: Record<string, unknown>) =>
+  mutation("updateGoal", `/api/finance/goals/${encodeURIComponent(goalId)}`, { ...payload, goalId }, "PATCH");
+
+export const deleteFinanceGoal = (goalId: string) =>
+  mutation("deleteGoal", `/api/finance/goals/${encodeURIComponent(goalId)}`, { goalId }, "DELETE");
+
+export const contributeFinanceGoal = (goalId: string, amount: number, mode: "add" | "withdraw" = "add") =>
+  mutation("contributeGoal", `/api/finance/goals/${encodeURIComponent(goalId)}/contribute`, { goalId, amount, mode });
 
 export const createFinanceBill = (payload: Record<string, unknown>) =>
   mutation("createBill", "/api/finance/bills", payload);
+
+export const updateFinanceBill = (billId: string, payload: Record<string, unknown>) =>
+  mutation("updateBill", `/api/finance/bills/${encodeURIComponent(billId)}`, { ...payload, billId }, "PATCH");
+
+export const deleteFinanceBill = (billId: string) =>
+  mutation("deleteBill", `/api/finance/bills/${encodeURIComponent(billId)}`, { billId }, "DELETE");
 
 export const markFinanceBillPaid = (bill: Bill, period: string, date: string) =>
   mutation("markBillPaid", `/api/finance/bills/${encodeURIComponent(bill.id)}/paid`, {

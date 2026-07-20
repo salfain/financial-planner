@@ -110,6 +110,9 @@ import {
   createFinanceInvestmentTrade,
   createFinanceTransaction,
   createFinanceRecurringTemplate,
+  deleteFinanceBill,
+  deleteFinanceBudget,
+  deleteFinanceGoal,
   deleteFinanceTransaction,
   deleteFinanceTransactionReceipt,
   financeBackendLabel,
@@ -137,6 +140,10 @@ import {
   scanFinanceReceipt,
   saveFinanceReport,
   updateFinanceCategory,
+  updateFinanceAccount,
+  updateFinanceBill,
+  updateFinanceBudget,
+  updateFinanceGoal,
   updateFinanceBackupSchedule,
   updateFinanceAiSettings,
   updateFinanceInvestmentAsset,
@@ -309,9 +316,14 @@ export function FinanceApp() {
   const [reconcileTarget, setReconcileTarget] = useState<Account | null>(null);
   const [categoryModal, setCategoryModal] = useState<{ category?: FinanceCategory } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [goalOpen, setGoalOpen] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [goalProgressTarget, setGoalProgressTarget] = useState<Goal | null>(null);
   const [billOpen, setBillOpen] = useState(false);
+  const [editingBill, setEditingBill] = useState<Bill | null>(null);
   const [investmentAssetModal, setInvestmentAssetModal] = useState<{ asset?: InvestmentAsset } | null>(null);
   const [investmentTradeModal, setInvestmentTradeModal] = useState<{ type: "buy" | "sell"; asset?: InvestmentAsset } | null>(null);
   const [transactionQuery, setTransactionQuery] = useState("");
@@ -461,11 +473,10 @@ export function FinanceApp() {
     );
   };
 
-  const contributeGoal = async (goal: Goal) => {
-    const contribution = Math.min(500_000, goal.target - goal.current);
-    if (contribution <= 0) return;
-    await runMutation(() => contributeFinanceGoal(goal.id, contribution), `Progress ${goal.name} bertambah ${formatIDR(contribution)}.`);
-  };
+  const adjustGoalProgress = async (goal: Goal, amount: number, mode: "add" | "withdraw") => runMutation(
+    () => contributeFinanceGoal(goal.id, amount, mode),
+    mode === "add" ? `Progress ${goal.name} bertambah ${formatIDR(amount)}.` : `Progress ${goal.name} berkurang ${formatIDR(amount)}.`,
+  );
 
   const deleteTransaction = async (transaction: Transaction) => {
     await runMutation(() => deleteFinanceTransaction(transaction.id, transaction.updatedAt), "Transaksi dipindahkan ke Trash.");
@@ -474,6 +485,10 @@ export function FinanceApp() {
   const archiveAccount = async (accountId: string) => {
     await runMutation(() => archiveFinanceAccount(accountId), "Akun berhasil diarsipkan.");
   };
+
+  const removeBudget = async (budget: Budget) => runMutation(() => deleteFinanceBudget(budget.id), `Anggaran ${budget.category} berhasil dihapus.`);
+  const removeGoal = async (goal: Goal) => runMutation(() => deleteFinanceGoal(goal.id), `Target ${goal.name} berhasil dihapus.`);
+  const removeBill = async (bill: Bill) => runMutation(() => deleteFinanceBill(bill.id), `Tagihan ${bill.name} berhasil dihapus.`);
 
   const reconcileAccount = async (account: Account, actualBalance: number, date: string, note: string, requestId: string) => runMutation(
     () => reconcileFinanceAccount(account.id, actualBalance, date, note, requestId),
@@ -661,10 +676,10 @@ export function FinanceApp() {
           {activePage === "emergency" && <EmergencyFundPage month={month} transactions={transactions} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "debts" && <DebtPayoffPage month={month} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
-          {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onImport={() => setAccountImportOpen(true)} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
-          {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} />}
-          {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onContribute={contributeGoal} onAdd={() => setGoalOpen(true)} />}
-          {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onAdd={() => setBillOpen(true)} />}
+          {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onImport={() => setAccountImportOpen(true)} onEdit={setEditingAccount} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
+          {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} onEdit={setEditingBudget} onDelete={removeBudget} />}
+          {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onProgress={setGoalProgressTarget} onEdit={setEditingGoal} onDelete={removeGoal} onAdd={() => setGoalOpen(true)} />}
+          {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onEdit={setEditingBill} onDelete={removeBill} onAdd={() => setBillOpen(true)} />}
           {activePage === "recurring" && <RecurringPage accounts={accounts} categories={categories} privacy={privacy} onRefresh={refreshData} onToast={showToast} />}
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
@@ -681,10 +696,11 @@ export function FinanceApp() {
       {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
       {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
       {accountImportOpen && <AccountImportModal accounts={accounts} saving={saving} onClose={() => setAccountImportOpen(false)} onSubmit={async (items) => { const ok = await importAccounts(items); if (ok) setAccountImportOpen(false); return ok; }} />}
-      {accountOpen && <AccountModal saving={saving} onClose={() => setAccountOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceAccount(payload), "Akun baru berhasil ditambahkan."); if (ok) setAccountOpen(false); }} />}
-      {budgetOpen && <BudgetModal month={month} categories={categories} saving={saving} onClose={() => setBudgetOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => upsertFinanceBudget(payload), "Anggaran berhasil disimpan."); if (ok) setBudgetOpen(false); }} />}
-      {goalOpen && <GoalModal saving={saving} onClose={() => setGoalOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceGoal(payload), "Target finansial berhasil dibuat."); if (ok) setGoalOpen(false); }} />}
-      {billOpen && <BillModal accounts={accounts} categories={categories} saving={saving} onClose={() => setBillOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceBill(payload), "Tagihan rutin berhasil ditambahkan."); if (ok) setBillOpen(false); }} />}
+      {(accountOpen || editingAccount) && <AccountModal account={editingAccount ?? undefined} saving={saving} onClose={() => { setAccountOpen(false); setEditingAccount(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingAccount ? updateFinanceAccount(editingAccount.id, payload) : createFinanceAccount(payload), editingAccount ? "Akun berhasil diperbarui." : "Akun baru berhasil ditambahkan."); if (ok) { setAccountOpen(false); setEditingAccount(null); } }} />}
+      {(budgetOpen || editingBudget) && <BudgetModal budget={editingBudget ?? undefined} month={month} categories={categories} saving={saving} onClose={() => { setBudgetOpen(false); setEditingBudget(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingBudget ? updateFinanceBudget(editingBudget.id, payload) : upsertFinanceBudget(payload), "Anggaran berhasil disimpan."); if (ok) { setBudgetOpen(false); setEditingBudget(null); } }} />}
+      {(goalOpen || editingGoal) && <GoalModal goal={editingGoal ?? undefined} saving={saving} onClose={() => { setGoalOpen(false); setEditingGoal(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingGoal ? updateFinanceGoal(editingGoal.id, payload) : createFinanceGoal(payload), editingGoal ? "Target finansial berhasil diperbarui." : "Target finansial berhasil dibuat."); if (ok) { setGoalOpen(false); setEditingGoal(null); } }} />}
+      {goalProgressTarget && <GoalProgressModal goal={goalProgressTarget} privacy={privacy} saving={saving} onClose={() => setGoalProgressTarget(null)} onSubmit={async (amount, mode) => { const ok = await adjustGoalProgress(goalProgressTarget, amount, mode); if (ok) setGoalProgressTarget(null); }} />}
+      {(billOpen || editingBill) && <BillModal bill={editingBill ?? undefined} accounts={accounts} categories={categories} saving={saving} onClose={() => { setBillOpen(false); setEditingBill(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingBill ? updateFinanceBill(editingBill.id, payload) : createFinanceBill(payload), editingBill ? "Tagihan berhasil diperbarui." : "Tagihan rutin berhasil ditambahkan."); if (ok) { setBillOpen(false); setEditingBill(null); } }} />}
       {reconcileTarget && <ReconcileModal account={reconcileTarget} privacy={privacy} saving={saving} onClose={() => setReconcileTarget(null)} onSubmit={async (actualBalance, date, note, requestId) => { const ok = await reconcileAccount(reconcileTarget, actualBalance, date, note, requestId); if (ok) setReconcileTarget(null); }} />}
       {categoryModal && <CategoryModal category={categoryModal.category} saving={saving} onClose={() => setCategoryModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveCategory(payload, categoryModal.category, requestId); if (ok) setCategoryModal(null); }} />}
       {investmentAssetModal && <InvestmentAssetModal asset={investmentAssetModal.asset} accounts={accounts} saving={saving} onClose={() => setInvestmentAssetModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveInvestmentAsset(payload, investmentAssetModal.asset, requestId); if (ok) setInvestmentAssetModal(null); }} />}
@@ -914,7 +930,7 @@ function TransactionTable({ transactions, accounts, privacy, compact = false, on
   </div>;
 }
 
-function AccountsPage({ accounts, privacy, onAdd, onImport, onArchive, onReconcile, onInspect }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onImport: () => void; onArchive: (id: string) => void; onReconcile: (account: Account) => void; onInspect: (account: Account) => void }) {
+function AccountsPage({ accounts, privacy, onAdd, onImport, onEdit, onArchive, onReconcile, onInspect }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onImport: () => void; onEdit: (account: Account) => void; onArchive: (id: string) => void; onReconcile: (account: Account) => void; onInspect: (account: Account) => void }) {
   const totals = accountSummary(accounts);
   return <div className="content-stack">
     <div className="summary-strip account-summary">
@@ -926,7 +942,7 @@ function AccountsPage({ accounts, privacy, onAdd, onImport, onArchive, onReconci
     <div className="account-import-bar"><div><FileUp size={18} /><span><strong>Pindahkan daftar akun sekaligus</strong><small>Impor hingga 100 akun dan tetapkan saldo awal dari CSV.</small></span></div><button className="secondary-button" onClick={onImport}><FileUp size={16} /> Impor akun</button></div>
     <div className="account-grid">
       {accounts.map((account) => <article className={`account-card ${account.liability ? "liability" : ""}`} key={account.id}>
-        <div className="account-card-top"><span className="large-account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={22} /> : account.type === "Investment" ? <TrendingUp size={22} /> : account.liability ? <CreditCard size={22} /> : <WalletCards size={22} />}</span><span className="account-card-actions"><button className="icon-button small" onClick={() => onReconcile(account)} aria-label={`Rekonsiliasi ${account.name}`} title="Cocokkan saldo"><Scale size={16} /></button><button className="icon-button small" onClick={() => window.confirm(`Arsipkan ${account.name}?`) && onArchive(account.id)} aria-label={`Arsipkan ${account.name}`}><Trash2 size={16} /></button></span></div>
+        <div className="account-card-top"><span className="large-account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={22} /> : account.type === "Investment" ? <TrendingUp size={22} /> : account.liability ? <CreditCard size={22} /> : <WalletCards size={22} />}</span><span className="account-card-actions"><button className="icon-button small" onClick={() => onEdit(account)} aria-label={`Edit ${account.name}`} title="Edit akun"><Pencil size={16} /></button><button className="icon-button small" onClick={() => onReconcile(account)} aria-label={`Rekonsiliasi ${account.name}`} title="Cocokkan saldo"><Scale size={16} /></button><button className="icon-button small" onClick={() => window.confirm(`Arsipkan ${account.name}?`) && onArchive(account.id)} aria-label={`Arsipkan ${account.name}`}><Trash2 size={16} /></button></span></div>
         <span>{account.type}</span><h3>{account.name}</h3><p>{[account.institution, account.mask].filter(Boolean).join(" · ") || "Detail rekening belum diisi"}</p>
         <Amount value={account.balance} privacy={privacy} className="account-card-value" />
         <div className="account-card-footer"><span><i style={{ background: account.color }} /> {account.liability ? "Kewajiban" : "Aktif"}</span><button onClick={() => onInspect(account)}>Lihat transaksi <ArrowRight size={14} /></button></div>
@@ -936,7 +952,7 @@ function AccountsPage({ accounts, privacy, onAdd, onImport, onArchive, onReconci
   </div>;
 }
 
-function BudgetsPage({ budgets, transactions, privacy, month, onAdd }: { budgets: Budget[]; transactions: Transaction[]; privacy: boolean; month: string; onAdd: () => void }) {
+function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onDelete }: { budgets: Budget[]; transactions: Transaction[]; privacy: boolean; month: string; onAdd: () => void; onEdit: (budget: Budget) => void; onDelete: (budget: Budget) => void }) {
   const totalLimit = budgets.reduce((sum, item) => sum + item.limit, 0);
   const totalSpent = budgets.reduce((sum, item) => sum + budgetSpent(transactions, item.category, month), 0);
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
@@ -953,7 +969,7 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd }: { budgets
         {budgets.map((budget) => { const spent = budgetSpent(transactions, budget.category, month); const percent = budget.limit > 0 ? spent / budget.limit * 100 : 0; const state = percent > 100 ? "Terlampaui" : percent >= 90 ? "Hampir penuh" : percent >= 75 ? "Waspada" : "Aman"; return <div className="budget-row" key={budget.id}>
           <span className="budget-category-icon" style={{ background: `${budget.color}16`, color: budget.color }}><CircleDollarSign size={20} /></span>
           <div className="budget-details"><span><strong>{budget.category}</strong><small className={`budget-state state-${state.toLowerCase().replace(" ", "-")}`}>{state}</small></span><ProgressBar value={percent} color={percent > 100 ? "#d4685c" : budget.color} label={`Anggaran ${budget.category}`} /><small><Amount value={spent} privacy={privacy} /> terpakai dari <Amount value={budget.limit} privacy={privacy} /></small></div>
-          <strong>{Math.round(percent)}%</strong>
+          <span className="budget-row-actions"><strong>{Math.round(percent)}%</strong><button className="icon-button small" onClick={() => onEdit(budget)} aria-label={`Edit anggaran ${budget.category}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus anggaran ${budget.category}?`) && onDelete(budget)} aria-label={`Hapus anggaran ${budget.category}`}><Trash2 size={15} /></button></span>
         </div>; })}
         {!budgets.length && <div className="empty-state"><BarChart3 size={28} /><h3>Belum ada anggaran</h3><p>Tambahkan batas kategori agar realisasi dapat dipantau otomatis.</p><button className="primary-button" onClick={onAdd}><Plus size={16} /> Tambah anggaran</button></div>}
       </div>
@@ -961,15 +977,15 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd }: { budgets
   </div>;
 }
 
-function GoalsPage({ goals, privacy, onContribute, onAdd }: { goals: Goal[]; privacy: boolean; onContribute: (goal: Goal) => void; onAdd: () => void }) {
+function GoalsPage({ goals, privacy, onProgress, onEdit, onDelete, onAdd }: { goals: Goal[]; privacy: boolean; onProgress: (goal: Goal) => void; onEdit: (goal: Goal) => void; onDelete: (goal: Goal) => void; onAdd: () => void }) {
   return <div className="goal-grid">
     {goals.map((goal) => { const percent = goal.target > 0 ? goal.current / goal.target * 100 : 0; const remaining = Math.max(0, goal.target - goal.current); const deadlineTime = validDate(goal.deadline) ? new Date(`${goal.deadline}T12:00:00`).getTime() : new Date().getTime(); const months = Math.max(1, Math.ceil((deadlineTime - new Date().getTime()) / 2_628_000_000)); return <article className="goal-card" key={goal.id}>
-      <div className="goal-card-head"><span className="large-goal-icon" style={{ background: `${goal.color}18`, color: goal.color }}><Target size={24} /></span></div>
+      <div className="goal-card-head"><span className="large-goal-icon" style={{ background: `${goal.color}18`, color: goal.color }}><Target size={24} /></span><span className="account-card-actions"><button className="icon-button small" onClick={() => onEdit(goal)} aria-label={`Edit ${goal.name}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus target ${goal.name}?`) && onDelete(goal)} aria-label={`Hapus ${goal.name}`}><Trash2 size={15} /></button></span></div>
       <span className="goal-deadline">Target · {shortDate(goal.deadline)}</span><h2>{goal.name}</h2>
       <div className="goal-amount"><Amount value={goal.current} privacy={privacy} /><small>dari <Amount value={goal.target} privacy={privacy} /></small></div>
       <ProgressBar value={percent} color={goal.color} label={`Progress ${goal.name}`} />
       <div className="goal-meta"><span><small>Tercapai</small><strong>{percent.toFixed(1)}%</strong></span><span><small>Sisa</small><Amount value={remaining} privacy={privacy} compact /></span><span><small>Rekomendasi/bln</small><Amount value={remaining / months} privacy={privacy} compact /></span></div>
-      <button className="secondary-button full" onClick={() => onContribute(goal)} disabled={percent >= 100}><Plus size={16} /> {percent >= 100 ? "Target selesai" : "Tambah progress Rp500.000"}</button>
+      <button className="secondary-button full" onClick={() => onProgress(goal)}><Plus size={16} /> Atur progress</button>
     </article>; })}
     <button className="add-card goal-add" onClick={onAdd}><span><Plus size={21} /></span><strong>Buat target baru</strong><small>Tentukan nominal, deadline, dan kontribusi rutin</small></button>
   </div>;
@@ -1305,7 +1321,7 @@ function RecurringPage({ accounts, categories, privacy, onRefresh, onToast }: { 
   </div>;
 }
 
-function BillsPage({ bills, accounts, privacy, onPay, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; onPay: (bill: Bill) => void; onAdd: () => void }) {
+function BillsPage({ bills, accounts, privacy, onPay, onEdit, onDelete, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; onPay: (bill: Bill) => void; onEdit: (bill: Bill) => void; onDelete: (bill: Bill) => void; onAdd: () => void }) {
   const pending = bills.filter((bill) => !bill.paid);
   return <div className="content-stack">
     <div className="summary-strip">
@@ -1322,7 +1338,7 @@ function BillsPage({ bills, accounts, privacy, onPay, onAdd }: { bills: Bill[]; 
           <div className="bill-card-main"><span><strong>{bill.name}</strong>{bill.paid && <small className="paid-pill"><Check size={12} /> Dibayar</small>}</span><small>{bill.category} · {account?.name}</small></div>
           <div className="bill-due"><small>Jatuh tempo</small><strong>{shortDate(bill.dueDate)}</strong></div>
           <Amount value={bill.amount} privacy={privacy} className="bill-amount" />
-          <button className={bill.paid ? "secondary-button" : "primary-button"} onClick={() => onPay(bill)} disabled={bill.paid}>{bill.paid ? "Selesai" : "Bayar"}</button>
+          <span className="bill-card-actions"><button className={bill.paid ? "secondary-button" : "primary-button"} onClick={() => onPay(bill)} disabled={bill.paid}>{bill.paid ? "Selesai" : "Bayar"}</button><button className="icon-button small" onClick={() => onEdit(bill)} aria-label={`Edit ${bill.name}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus tagihan ${bill.name}?`) && onDelete(bill)} aria-label={`Hapus ${bill.name}`}><Trash2 size={15} /></button></span>
         </article>; })}
         {!bills.length && <div className="empty-state"><CalendarDays size={28} /><h3>Belum ada tagihan</h3><p>Tambahkan tagihan rutin agar jatuh tempo tidak terlewat.</p><button className="primary-button" onClick={onAdd}><Plus size={16} /> Tambah tagihan</button></div>}
       </div>
@@ -2384,35 +2400,52 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
   </main>;
 }
 
-function AccountModal({ saving, onClose, onSubmit }: { saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
-  const [name, setName] = useState("");
-  const [type, setType] = useState("Bank");
-  const [institution, setInstitution] = useState("");
+function AccountModal({ account, saving, onClose, onSubmit }: { account?: Account; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+  const [name, setName] = useState(account?.name ?? "");
+  const [type, setType] = useState(account?.type ?? "Bank");
+  const [institution, setInstitution] = useState(account?.institution ?? "");
+  const [mask, setMask] = useState(account?.mask ?? "");
+  const [color, setColor] = useState(account?.color ?? "#126b59");
   const [openingBalance, setOpeningBalance] = useState("");
-  return <SimpleModal title="Tambah akun" kicker="Multi-account" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), type, institution: institution.trim(), openingBalance: Number(openingBalance || 0), color: categoryColors[name] || "#126b59", currency: "IDR" }); }}>
-    <div className="form-grid"><label><span>Nama akun</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Jenis akun</span><select value={type} onChange={(event) => setType(event.target.value)}>{["Bank", "E-Wallet", "Cash", "Credit Card", "Paylater", "Loan", "Mortgage", "Investment"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Opsional" /></label><label><span>Saldo awal</span><input value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="0" /></label></div>
+  const liability = ["Credit Card", "Paylater", "Loan", "Mortgage"].includes(type);
+  return <SimpleModal title={account ? "Edit akun" : "Tambah akun"} kicker="Multi-account" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), type, institution: institution.trim(), mask: mask.trim(), ...(account ? {} : { openingBalance: Number(openingBalance || 0) }), color, liability, currency: "IDR" }); }}>
+    <div className="form-grid"><label><span>Nama akun</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Jenis akun</span><select value={type} onChange={(event) => setType(event.target.value as Account["type"])}>{["Bank", "E-Wallet", "Cash", "Deposit", "Receivable", "Investment", "Credit Card", "Paylater", "Loan", "Mortgage", "Custom"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Opsional" /></label><label><span>Nomor akhir / label</span><input value={mask} onChange={(event) => setMask(event.target.value)} placeholder="Contoh: 1234" maxLength={40} /></label>{!account && <label><span>Saldo awal</span><input value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="0" /></label>}<label className="color-field"><span>Warna akun</span><input type="color" value={color} onChange={(event) => setColor(event.target.value)} /><small>{color.toUpperCase()}</small></label></div>
+    {account && <div className="ocr-message"><Scale size={15} />Saldo tidak diubah dari form ini. Gunakan Cocokkan saldo agar jejak ledger tetap utuh.</div>}
   </SimpleModal>;
 }
 
-function BudgetModal({ month, categories, saving, onClose, onSubmit }: { month: string; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+function BudgetModal({ budget, month, categories, saving, onClose, onSubmit }: { budget?: Budget; month: string; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const expenseCategories = categories.filter((item) => item.active && item.type === "expense");
-  const [category, setCategory] = useState(expenseCategories[0]?.name ?? "");
-  const [limit, setLimit] = useState("");
+  const [category, setCategory] = useState(budget?.category ?? expenseCategories[0]?.name ?? "");
+  const [limit, setLimit] = useState(budget ? String(budget.limit) : "");
   const color = expenseCategories.find((item) => item.name === category)?.color ?? categoryColors[category] ?? "#126b59";
-  return <SimpleModal title="Anggaran kategori" kicker={monthLabel(month)} saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ month, category, limitAmount: Number(limit || 0), limit: Number(limit || 0), color }); }}>
-    <div className="form-grid"><label><span>Kategori</span><select value={category} required onChange={(event) => setCategory(event.target.value)}><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Batas anggaran</span><input value={limit} onChange={(event) => setLimit(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" placeholder="0" required autoFocus /></label></div>
+  return <SimpleModal title={budget ? "Edit anggaran" : "Anggaran kategori"} kicker={monthLabel(month)} saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ month, period: month, category, limitAmount: Number(limit || 0), limit: Number(limit || 0), color }); }}>
+    <div className="form-grid"><label><span>Kategori</span><select value={category} disabled={Boolean(budget)} required onChange={(event) => setCategory(event.target.value)}><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Batas anggaran</span><input value={limit} onChange={(event) => setLimit(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" placeholder="0" required autoFocus /></label></div>
     {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
   </SimpleModal>;
 }
 
-function GoalModal({ saving, onClose, onSubmit }: { saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+function GoalModal({ goal, saving, onClose, onSubmit }: { goal?: Goal; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const nextYear = new Date(); nextYear.setFullYear(nextYear.getFullYear() + 1);
-  const [name, setName] = useState("");
-  const [targetAmount, setTargetAmount] = useState("");
-  const [currentAmount, setCurrentAmount] = useState("0");
-  const [deadline, setDeadline] = useState(nextYear.toISOString().slice(0, 10));
-  return <SimpleModal title="Target finansial" kicker="Goal tracking" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), targetAmount: Number(targetAmount || 0), target: Number(targetAmount || 0), currentAmount: Number(currentAmount || 0), current: Number(currentAmount || 0), deadline, color: "#126b59", icon: "target" }); }}>
-    <div className="form-grid"><label><span>Nama target</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Dana Darurat" required autoFocus /></label><label><span>Deadline</span><input type="date" min={today()} value={deadline} onChange={(event) => setDeadline(event.target.value)} required /></label><label><span>Nominal target</span><input value={targetAmount} onChange={(event) => setTargetAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Dana terkumpul</span><input value={currentAmount} onChange={(event) => setCurrentAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[0-9]+" /></label></div>
+  const [name, setName] = useState(goal?.name ?? "");
+  const [targetAmount, setTargetAmount] = useState(goal ? String(goal.target) : "");
+  const [currentAmount, setCurrentAmount] = useState(goal ? String(goal.current) : "0");
+  const [deadline, setDeadline] = useState(goal?.deadline ?? nextYear.toISOString().slice(0, 10));
+  return <SimpleModal title={goal ? "Edit target finansial" : "Target finansial"} kicker="Goal tracking" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), targetAmount: Number(targetAmount || 0), target: Number(targetAmount || 0), currentAmount: Number(currentAmount || 0), current: Number(currentAmount || 0), deadline, color: goal?.color ?? "#126b59", icon: goal?.icon ?? "target" }); }}>
+    <div className="form-grid"><label><span>Nama target</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Dana Darurat" required autoFocus /></label><label><span>Deadline</span><input type="date" min={goal ? undefined : today()} value={deadline} onChange={(event) => setDeadline(event.target.value)} required /></label><label><span>Nominal target</span><input value={targetAmount} onChange={(event) => setTargetAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label>{!goal && <label><span>Dana terkumpul</span><input value={currentAmount} onChange={(event) => setCurrentAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[0-9]+" /></label>}</div>
+  </SimpleModal>;
+}
+
+function GoalProgressModal({ goal, privacy, saving, onClose, onSubmit }: { goal: Goal; privacy: boolean; saving: boolean; onClose: () => void; onSubmit: (amount: number, mode: "add" | "withdraw") => Promise<void> }) {
+  const [mode, setMode] = useState<"add" | "withdraw">("add");
+  const [amount, setAmount] = useState("");
+  const maximum = mode === "add" ? Math.max(0, goal.target - goal.current) : goal.current;
+  const value = Number(amount || 0);
+  return <SimpleModal title={`Atur progress ${goal.name}`} kicker="Goal tracking" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (value <= 0 || value > maximum) return; return onSubmit(value, mode); }}>
+    <div className="transaction-type-tabs"><button type="button" className={mode === "add" ? "active" : ""} onClick={() => { setMode("add"); setAmount(""); }}><Plus size={15} /> Tambah dana</button><button type="button" className={mode === "withdraw" ? "active" : ""} onClick={() => { setMode("withdraw"); setAmount(""); }}><Undo2 size={15} /> Kurangi dana</button></div>
+    <div className="reconcile-summary"><span><small>Terkumpul</small><Amount value={goal.current} privacy={privacy} /></span><span><small>{mode === "add" ? "Sisa target" : "Maksimal dikurangi"}</small><Amount value={maximum} privacy={privacy} /></span></div>
+    <div className="form-grid"><label className="full-field"><span>Nominal perubahan</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" max={maximum} required autoFocus /></label></div>
+    {value > maximum && <div className="ocr-message"><TriangleAlert size={15} />Nominal melebihi batas yang tersedia.</div>}
   </SimpleModal>;
 }
 
@@ -2436,18 +2469,18 @@ function RecurringModal({ accounts, categories, saving, onClose, onSubmit }: { a
   </SimpleModal>;
 }
 
-function BillModal({ accounts, categories, saving, onClose, onSubmit }: { accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+function BillModal({ bill, accounts, categories, saving, onClose, onSubmit }: { bill?: Bill; accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const paymentAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
   const expenseCategories = categories.filter((item) => item.active && item.type === "expense");
-  const [name, setName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState(expenseCategories.find((item) => item.name === "Tagihan")?.name ?? expenseCategories[0]?.name ?? "");
-  const [dueDate, setDueDate] = useState(today());
-  const [accountId, setAccountId] = useState(paymentAccounts[0]?.id ?? "");
-  const [reminderDays, setReminderDays] = useState([7, 3, 1, 0]);
+  const [name, setName] = useState(bill?.name ?? "");
+  const [amount, setAmount] = useState(bill ? String(bill.amount) : "");
+  const [category, setCategory] = useState(bill?.category ?? expenseCategories.find((item) => item.name === "Tagihan")?.name ?? expenseCategories[0]?.name ?? "");
+  const [dueDate, setDueDate] = useState(bill?.dueDate ?? today());
+  const [accountId, setAccountId] = useState(bill?.accountId ?? paymentAccounts[0]?.id ?? "");
+  const [reminderDays, setReminderDays] = useState(bill?.reminderDays ?? [7, 3, 1, 0]);
   const toggleReminder = (day: number) => setReminderDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((a, b) => b - a));
-  return <SimpleModal title="Tagihan rutin" kicker="Reminder" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), amount: Number(amount || 0), category, dueDate, accountId, frequency: "monthly", reminderDays }); }}>
-    <div className="form-grid"><label><span>Nama tagihan</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Jatuh tempo pertama</span><input type="date" min={today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Frekuensi</span><select value="monthly" disabled><option value="monthly">Bulanan</option></select><ChevronDown size={15} /></label><fieldset className="bill-reminder-field"><legend>Jadwal reminder</legend><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={reminderDays.includes(day)} onChange={() => toggleReminder(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></fieldset></div>
+  return <SimpleModal title={bill ? "Edit tagihan rutin" : "Tagihan rutin"} kicker="Reminder" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), amount: Number(amount || 0), category, dueDate, accountId, frequency: "monthly", reminderDays, ...(bill ? { paid: bill.paid } : {}) }); }}>
+    <div className="form-grid"><label><span>Nama tagihan</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Jatuh tempo pertama</span><input type="date" min={bill ? undefined : today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Frekuensi</span><input value="Bulanan" readOnly aria-label="Frekuensi tagihan bulanan" /></label><fieldset className="bill-reminder-field"><legend>Jadwal reminder</legend><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={reminderDays.includes(day)} onChange={() => toggleReminder(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></fieldset></div>
     {!reminderDays.length && <div className="ocr-message"><Bell size={15} />Pilih minimal satu jadwal reminder.</div>}
     {!paymentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bank, e-wallet, atau cash untuk membayar tagihan.</div>}
     {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
