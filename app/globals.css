@@ -787,6 +787,39 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .bill-progress-preview { display: grid; align-content: center; gap: 3px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-soft); }
 .bill-progress-preview strong { font-size: 10px; }
 .bill-progress-preview .progress-track { margin-top: 5px; }
+.bill-plan-tabs { grid-template-columns: 1fr 1fr; margin-bottom: 13px; }
+.installment-phase-editor { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-soft); }
+.installment-phase-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.installment-phase-title > span { display: grid; gap: 2px; }
+.installment-phase-title strong { font-size: 10px; }
+.installment-phase-title small { color: var(--text-faint); font-size: 8px; }
+.installment-phase-title .secondary-button { min-height: 34px; padding: 0 10px; white-space: nowrap; }
+.installment-phase-list { display: grid; gap: 8px; }
+.installment-phase-row { display: grid; grid-template-columns: 28px minmax(125px,1fr) 78px minmax(110px,.85fr) 32px; align-items: end; gap: 7px; padding: 9px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface); }
+.installment-phase-row label { display: grid; gap: 4px; }
+.installment-phase-row label > span { color: var(--text-faint); font-size: 7px; font-weight: 700; }
+.installment-phase-row input { width: 100%; height: 35px; min-width: 0; padding: 0 9px; color: var(--text); border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 8px; }
+.installment-phase-number { width: 28px; height: 28px; display: grid; place-items: center; margin-bottom: 3px; color: var(--primary); border-radius: 8px; background: var(--primary-soft); font-size: 9px; font-weight: 800; }
+.installment-phase-row .icon-button { margin-bottom: 2px; }
+.installment-phase-summary { display: grid; grid-template-columns: repeat(3,1fr); overflow: hidden; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface); }
+.installment-phase-summary > span { display: grid; gap: 2px; padding: 9px 10px; border-right: 1px solid var(--border-soft); }
+.installment-phase-summary > span:last-child { border-right: 0; }
+.installment-phase-summary small { color: var(--text-faint); font-size: 7px; }
+.installment-phase-summary strong { font-size: 9px; }
+.installment-active-phase { display: flex; align-items: center; gap: 7px; padding: 8px 10px; color: var(--primary); border-radius: 9px; background: var(--primary-soft); font-size: 8px; }
+.installment-phase-badge { width: fit-content; margin-top: 4px; padding: 3px 7px; color: var(--primary) !important; border-radius: 999px; background: var(--primary-soft); font-weight: 700; }
+@media (max-width: 700px) {
+  .installment-phase-title { align-items: flex-start; }
+  .installment-phase-title .secondary-button { padding-inline: 8px; }
+  .installment-phase-row { grid-template-columns: 28px 1fr 32px; }
+  .installment-phase-row label:nth-of-type(1) { grid-column: 2; }
+  .installment-phase-row label:nth-of-type(2) { grid-column: 2 / 3; }
+  .installment-phase-row label:nth-of-type(3) { grid-column: 2 / 3; }
+  .installment-phase-row .icon-button { grid-column: 3; grid-row: 1; }
+  .installment-phase-summary { grid-template-columns: 1fr; }
+  .installment-phase-summary > span { border-right: 0; border-bottom: 1px solid var(--border-soft); }
+  .installment-phase-summary > span:last-child { border-bottom: 0; }
+}
 .bill-history-note > span { display: block; min-width: 0; }
 .bill-history-note strong { color: var(--text); }
 @media (max-width: 720px) { .budget-row-actions { display: grid; justify-items: end; }.bill-card-actions { grid-column: 2 / 4; width: 100%; }.bill-card-actions .primary-button,.bill-card-actions .secondary-button { flex: 1; }.budget-row-actions .icon-button { display: none; }.installment-groups { padding: 18px 16px; }.installment-group-grid { grid-template-columns: 1fr; }.installment-group-head { grid-template-columns: 40px minmax(0,1fr); }.installment-group-head > span:last-child { grid-column: 2; text-align: left; }.installment-group-items > div { grid-template-columns: minmax(0,1fr) auto; }.installment-item-actions { grid-column: 1 / -1; justify-content: stretch; }.installment-item-actions .primary-button,.installment-item-actions .secondary-button { flex: 1; }.installment-group-footer { align-items: stretch; flex-direction: column; }.installment-group-footer button { width: 100%; }.bill-card-main > span { flex-wrap: wrap; } }

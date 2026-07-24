@@ -165,7 +165,7 @@ function buildAiContext_(period, question) {
   const budgetSpentTotal = budgetRows.reduce(function(sum, row) {
     return sum + Math.max(0, Number(byCategory[row.category] || 0));
   }, 0);
-  const unpaidBillAmount = unpaidBills.reduce(function(sum, row) { return sum + Number(row.amount || 0); }, 0);
+  const unpaidBillAmount = unpaidBills.reduce(function(sum, row) { return sum + billInstallmentAmount_(row); }, 0);
   const goalRemaining = goalRows.reduce(function(sum, row) {
     return sum + Math.max(0, Number(row.target_amount || 0) - Number(row.current_amount || 0));
   }, 0);
@@ -246,7 +246,7 @@ function buildAiContext_(period, question) {
   }
   if (intent.bills) {
     context.bills = billRows.slice(0, 30).map(function(row) {
-      return { name: row.name, amount: Number(row.amount || 0), dueDate: String(row.due_date || ''), paid: String(row.last_paid_period || '') === period, liabilityAccountId: String(row.liability_account_id || ''), durationMonths: Number(row.duration_months || 0) || null, paidCount: Number(row.paid_count || 0), remainingMonths: row.duration_months ? Math.max(0, Number(row.duration_months) - Number(row.paid_count || 0)) : null };
+      return { name: row.name, amount: billInstallmentAmount_(row), dueDate: String(row.due_date || ''), paid: String(row.last_paid_period || '') === period, liabilityAccountId: String(row.liability_account_id || ''), durationMonths: Number(row.duration_months || 0) || null, paidCount: Number(row.paid_count || 0), remainingMonths: row.duration_months ? Math.max(0, Number(row.duration_months) - Number(row.paid_count || 0)) : null, installmentPhases: billInstallmentPhases_(row.installment_phases_json || []) };
     });
     manifest.push('Tagihan');
   }

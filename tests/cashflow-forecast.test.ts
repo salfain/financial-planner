@@ -19,6 +19,33 @@ test("forecast schedules income, bills, and daily living expense", () => {
   assert.equal(result.observedMonths, 1);
 });
 
+test("forecast memakai nominal fase cicilan yang sesuai bulan", () => {
+  const result = buildCashflowForecast({
+    accounts,
+    transactions: [],
+    bills: [{
+      id: "kredivo",
+      name: "Pinjaman Kredivo",
+      amount: 450_000,
+      dueDate: "2026-07-05",
+      category: "Tagihan",
+      accountId: "cash",
+      paid: false,
+      durationMonths: 12,
+      paidCount: 5,
+      remainingMonths: 7,
+      installmentPhases: [
+        { label: "0% bunga", durationMonths: 6, amount: 450_000 },
+        { label: "Dengan bunga", durationMonths: 6, amount: 567_520 },
+      ],
+    }],
+    settings: { ...DEFAULT_CASHFLOW_FORECAST_SETTINGS, horizonDays: 60 },
+    asOfDate: "2026-07-01",
+  });
+  const scheduled = result.points.filter((point) => point.bills > 0).map((point) => point.bills);
+  assert.deepEqual(scheduled.slice(0, 2), [450_000, 567_520]);
+});
+
 test("forecast reports first negative date and minimum buffer breach", () => {
   const result = buildCashflowForecast({ accounts: [{ ...accounts[0], balance: 500_000 }], transactions: [], bills, settings: { ...DEFAULT_CASHFLOW_FORECAST_SETTINGS, horizonDays: 30, minimumCashBuffer: 400_000 }, asOfDate: "2026-07-01" });
   assert.ok(result.firstNegativeDate);

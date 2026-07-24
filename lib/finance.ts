@@ -90,6 +90,12 @@ export interface Goal {
   icon: string;
 }
 
+export interface InstallmentPhase {
+  label: string;
+  durationMonths: number;
+  amount: number;
+}
+
 export interface Bill {
   id: string;
   name: string;
@@ -109,6 +115,8 @@ export interface Bill {
   remainingMonths?: number | null;
   completed?: boolean;
   startDueDate?: string;
+  /** Tahapan nominal cicilan. Urutan fase menentukan bulan berlakunya. */
+  installmentPhases?: InstallmentPhase[];
 }
 
 export type { RecurringFrequency, RecurringOverview, RecurringTemplate } from "./recurring";

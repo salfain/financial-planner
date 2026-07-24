@@ -12,6 +12,12 @@ import {
   requiredString,
   validateId,
 } from "./api";
+import {
+  installmentAmountAt,
+  installmentDuration,
+  normalizeInstallmentPhases,
+  type InstallmentPhase,
+} from "@/lib/installment-phases";
 
 export const ACCOUNT_TYPES = [
   "Bank",
@@ -149,6 +155,7 @@ export type BillInput = {
   liabilityAccountId: string | null;
   durationMonths: number | null;
   paidCount: number;
+  installmentPhases: InstallmentPhase[];
 };
 
 export type CategoryInput = {
@@ -319,7 +326,16 @@ export function parseBill(input: Record<string, unknown>, fallbackId?: string): 
   const liabilityAccountId = rawLiabilityAccountId === undefined || rawLiabilityAccountId === null || rawLiabilityAccountId === ""
     ? null
     : validateId(rawLiabilityAccountId, "liabilityAccountId");
-  const rawDuration = input.durationMonths ?? input.duration_months;
+  const rawPhases = input.installmentPhases ?? input.installment_phases;
+  const installmentPhases = rawPhases === undefined ? [] : normalizeInstallmentPhases(rawPhases);
+  if (rawPhases !== undefined && (!Array.isArray(rawPhases) || installmentPhases.length !== rawPhases.length)) {
+    throw new ApiError(400, "INVALID_INSTALLMENT_PHASES", "Setiap fase wajib memiliki nama, durasi 1–120 bulan, dan nominal positif.");
+  }
+  const phasedDuration = installmentDuration(installmentPhases);
+  if (phasedDuration > 120) {
+    throw new ApiError(400, "INVALID_BILL_DURATION", "Total durasi seluruh fase maksimal 120 bulan.");
+  }
+  const rawDuration = installmentPhases.length ? phasedDuration : input.durationMonths ?? input.duration_months;
   const durationMonths = rawDuration === undefined || rawDuration === null || rawDuration === "" ? null : Number(rawDuration);
   if (durationMonths !== null && (!Number.isSafeInteger(durationMonths) || durationMonths < 1 || durationMonths > 120)) {
     throw new ApiError(400, "INVALID_BILL_DURATION", "Durasi cicilan harus antara 1 sampai 120 bulan.");
@@ -335,10 +351,13 @@ export function parseBill(input: Record<string, unknown>, fallbackId?: string): 
   if (durationMonths !== null && paidCount > durationMonths) {
     throw new ApiError(400, "INVALID_BILL_PAID_COUNT", "Jumlah cicilan yang sudah dibayar tidak boleh melebihi total tenor.");
   }
+  const amount = installmentPhases.length
+    ? installmentAmountAt({ amount: installmentPhases[0].amount, paidCount, installmentPhases })
+    : positiveInteger(input, "amount");
   return {
     id: fallbackId ?? (input.id === undefined ? makeId("bill") : validateId(input.id)),
     name: requiredString(input, "name", 120),
-    amount: positiveInteger(input, "amount"),
+    amount,
     dueDate: isoDate(input, "dueDate"),
     category: requiredString(input, "category", 100),
     accountId: validateId(input.accountId, "accountId"),
@@ -348,6 +367,7 @@ export function parseBill(input: Record<string, unknown>, fallbackId?: string): 
     liabilityAccountId,
     durationMonths,
     paidCount,
+    installmentPhases,
   };
 }
 

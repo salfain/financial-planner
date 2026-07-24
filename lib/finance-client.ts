@@ -16,6 +16,7 @@ import { normalizeFeaturePreferences, type FeaturePreferences } from "./feature-
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 import { freeEntitlement, type PlanCapability, type PlanEntitlement, type PlanTier } from "./plans";
 import { demoRequest, demoSecurityStatus, isFinanceDemoMode } from "./demo-finance";
+import { installmentAmountAt, normalizeInstallmentPhases } from "./installment-phases";
 
 export type FinanceProfile = {
   name: string;
@@ -353,6 +354,11 @@ function normalizeBill(row: Record<string, unknown>, month: string): Bill {
   const durationValue = number(row.durationMonths ?? row.duration_months);
   const durationMonths = durationValue > 0 ? durationValue : null;
   const paidCount = Math.max(0, number(row.paidCount ?? row.paid_count));
+  let rawPhases = row.installmentPhases ?? row.installment_phases ?? row.installment_phases_json ?? [];
+  if (typeof rawPhases === "string") {
+    try { rawPhases = JSON.parse(rawPhases || "[]"); } catch { rawPhases = []; }
+  }
+  const installmentPhases = normalizeInstallmentPhases(rawPhases);
   const completed = bool(row.completed) || text(row.status).toLowerCase() === "completed" || Boolean(durationMonths && paidCount >= durationMonths);
   const rawReminderDays = row.reminderDays ?? row.reminder_days ?? "7,3,1,0";
   const reminderDays = (Array.isArray(rawReminderDays) ? rawReminderDays : String(rawReminderDays).split(","))
@@ -361,7 +367,7 @@ function normalizeBill(row: Record<string, unknown>, month: string): Bill {
   return {
     id: text(row.id),
     name: text(row.name, "Tagihan"),
-    amount: number(row.amount),
+    amount: installmentAmountAt({ amount: number(row.amount), paidCount, installmentPhases }),
     dueDate: due,
     category: text(row.category, "Tagihan"),
     accountId: text(row.accountId ?? row.account_id),
@@ -375,6 +381,7 @@ function normalizeBill(row: Record<string, unknown>, month: string): Bill {
     remainingMonths: durationMonths === null ? null : Math.max(0, durationMonths - paidCount),
     completed,
     startDueDate: sourceDue,
+    installmentPhases,
   };
 }
 

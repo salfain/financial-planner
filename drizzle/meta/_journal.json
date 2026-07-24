@@ -162,6 +162,13 @@
       "when": 1784816949405,
       "tag": "0022_robust_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1784916777145,
+      "tag": "0023_freezing_mandroid",
+      "breakpoints": true
     }
   ]
 }

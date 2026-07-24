@@ -53,6 +53,7 @@ export async function PATCH(request: Request, context: Context) {
         "liabilityAccountId",
         "durationMonths",
         "paidCount",
+        "installmentPhases",
       ]),
       id,
     );
@@ -79,7 +80,7 @@ export async function PATCH(request: Request, context: Context) {
                WHEN ? = 1 THEN COALESCE(last_paid_period, substr(?, 1, 7))
                ELSE NULL
              END,
-             liability_account_id = ?, duration_months = ?, paid_count = ?,
+             liability_account_id = ?, duration_months = ?, paid_count = ?, installment_phases_json = ?,
              completed = CASE WHEN ? IS NOT NULL AND ? >= ? THEN 1 ELSE 0 END,
              updated_at = ?
          WHERE workspace_id = ? AND id = ?`,
@@ -100,6 +101,7 @@ export async function PATCH(request: Request, context: Context) {
         bill.liabilityAccountId,
         bill.durationMonths,
         bill.paidCount,
+        JSON.stringify(bill.installmentPhases),
         bill.durationMonths,
         bill.paidCount,
         bill.durationMonths ?? 0,

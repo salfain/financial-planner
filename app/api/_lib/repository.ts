@@ -2,6 +2,7 @@ import { getD1 } from "@/db";
 import { fromUnitMicro, INVESTMENT_UNIT_SCALE } from "@/lib/investment";
 import { freeEntitlement } from "@/lib/plans";
 import { normalizeFeaturePreferences } from "@/lib/feature-preferences";
+import { installmentAmountAt, normalizeInstallmentPhases } from "@/lib/installment-phases";
 import { ApiError } from "./api";
 import { getEntitlement } from "./license";
 
@@ -114,6 +115,7 @@ type BillRow = {
   liabilityAccountId: string | null;
   durationMonths: number | null;
   paidCount: number;
+  installmentPhasesJson: string;
   completed: number;
 };
 
@@ -228,7 +230,8 @@ export const billSelect = `
          frequency, reminder_days AS reminderDays, paid,
          last_paid_period AS lastPaidPeriod,
          liability_account_id AS liabilityAccountId,
-         duration_months AS durationMonths, paid_count AS paidCount, completed
+         duration_months AS durationMonths, paid_count AS paidCount,
+         installment_phases_json AS installmentPhasesJson, completed
   FROM bills
 `;
 export const categorySelect = `
@@ -336,23 +339,31 @@ export const serializeBudget = (row: BudgetRow) => ({
 export const serializeGoal = (row: GoalRow) => row;
 export const serializeSinkingFund = (row: SinkingFundRow) => ({ ...row, active: Boolean(row.active) });
 export const serializeSinkingFundEntry = (row: SinkingFundEntryRow) => row;
-export const serializeBill = (row: BillRow, period?: string) => ({
-  id: row.id,
-  name: row.name,
-  amount: row.amount,
-  dueDate: row.dueDate,
-  category: row.category,
-  accountId: row.accountId,
-  frequency: row.frequency,
-  reminderDays: String(row.reminderDays || "7,3,1,0").split(",").map(Number).filter((value) => Number.isSafeInteger(value) && value >= 0),
-  paid: Boolean(row.completed) || (period ? row.lastPaidPeriod === period : Boolean(row.paid)),
-  lastPaidPeriod: row.lastPaidPeriod,
-  liabilityAccountId: row.liabilityAccountId,
-  durationMonths: row.durationMonths,
-  paidCount: Number(row.paidCount || 0),
-  remainingMonths: row.durationMonths === null ? null : Math.max(0, row.durationMonths - Number(row.paidCount || 0)),
-  completed: Boolean(row.completed),
-});
+export const serializeBill = (row: BillRow, period?: string) => {
+  let rawPhases: unknown = [];
+  try { rawPhases = JSON.parse(row.installmentPhasesJson || "[]"); } catch { rawPhases = []; }
+  const installmentPhases = normalizeInstallmentPhases(rawPhases);
+  const paidCount = Number(row.paidCount || 0);
+  const amount = installmentAmountAt({ amount: row.amount, paidCount, installmentPhases });
+  return {
+    id: row.id,
+    name: row.name,
+    amount,
+    dueDate: row.dueDate,
+    category: row.category,
+    accountId: row.accountId,
+    frequency: row.frequency,
+    reminderDays: String(row.reminderDays || "7,3,1,0").split(",").map(Number).filter((value) => Number.isSafeInteger(value) && value >= 0),
+    paid: Boolean(row.completed) || (period ? row.lastPaidPeriod === period : Boolean(row.paid)),
+    lastPaidPeriod: row.lastPaidPeriod,
+    liabilityAccountId: row.liabilityAccountId,
+    durationMonths: row.durationMonths,
+    paidCount,
+    remainingMonths: row.durationMonths === null ? null : Math.max(0, row.durationMonths - paidCount),
+    completed: Boolean(row.completed),
+    installmentPhases,
+  };
+};
 export const serializeCategory = (row: CategoryRow) => ({
   id: row.id,
   name: row.name,

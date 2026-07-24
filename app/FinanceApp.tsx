@@ -81,6 +81,12 @@ import { buildMonthlyReview, type MonthlyClosing } from "../lib/monthly-review";
 import type { CategoryRule } from "../lib/category-rules";
 import { formatMoneyInput, moneyInputDigits, moneyInputNumber } from "../lib/money-input";
 import {
+  currentInstallmentPhase,
+  installmentAmountAt,
+  installmentDuration,
+  installmentPlanTotal,
+} from "../lib/installment-phases";
+import {
   DEFAULT_FEATURE_PREFERENCES,
   isOptionalFeatureEnabled,
   type FeaturePreferences,
@@ -1717,7 +1723,7 @@ function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onEdit, 
             <span><small>Total per bulan</small><Amount value={monthly} privacy={privacy} /></span>
           </div>
           <div className="installment-group-items">{schedules.map((bill) => <div key={bill.id}>
-            <span><span className="installment-item-title"><strong>{bill.name}</strong><small className={bill.paid ? "paid-pill" : "installment-waiting"}>{bill.paid ? <><Check size={12} /> Dibayar</> : "Menunggu"}</small></span><small>Jatuh tempo {shortDate(bill.dueDate)}{bill.durationMonths ? ` · ${bill.remainingMonths ?? 0} bulan tersisa` : ""}</small></span>
+            <span><span className="installment-item-title"><strong>{bill.name}</strong><small className={bill.paid ? "paid-pill" : "installment-waiting"}>{bill.paid ? <><Check size={12} /> Dibayar</> : "Menunggu"}</small></span><small>Jatuh tempo {shortDate(bill.dueDate)}{bill.durationMonths ? ` · ${bill.remainingMonths ?? 0} bulan tersisa` : ""}</small>{bill.installmentPhases?.length ? <small className="installment-phase-badge">{currentInstallmentPhase(bill)?.phase.label} · fase {(currentInstallmentPhase(bill)?.phaseIndex ?? 0) + 1}/{bill.installmentPhases.length}</small> : null}</span>
             <Amount value={bill.amount} privacy={privacy} />
             <span className="installment-item-actions"><button className={bill.paid ? "secondary-button" : "primary-button"} onClick={() => onPay(bill)} disabled={saving || bill.paid}>{bill.paid ? "Selesai" : "Bayar"}</button><button className="icon-button small" onClick={() => onEdit(bill)} aria-label={`Edit ${bill.name}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus cicilan ${bill.name}?`) && onDelete(bill)} aria-label={`Hapus ${bill.name}`}><Trash2 size={15} /></button></span>
           </div>)}</div>
@@ -1733,7 +1739,7 @@ function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onEdit, 
       <div className="bill-cards">
         {[...ordinaryBills].sort((a, b) => Number(Boolean(a.completed)) - Number(Boolean(b.completed)) || a.dueDate.localeCompare(b.dueDate)).map((bill) => { const account = accounts.find((item) => item.id === bill.accountId); return <article className={bill.paid ? "paid" : ""} key={bill.id}>
           <span className={`bill-brand bill-${bill.category.toLowerCase()}`}>{bill.name.slice(0, 1)}</span>
-          <div className="bill-card-main"><span><strong>{bill.name}</strong>{bill.completed ? <small className="paid-pill"><Check size={12} /> Lunas</small> : bill.paid && <small className="paid-pill"><Check size={12} /> Dibayar bulan ini</small>}</span><small>{bill.category} · {account?.name ?? "akun"}</small>{bill.durationMonths ? <small className="installment-progress">{bill.paidCount ?? 0}/{bill.durationMonths} pembayaran · {bill.remainingMonths ?? 0} bulan tersisa</small> : <small className="installment-progress">Berulang tanpa batas</small>}</div>
+          <div className="bill-card-main"><span><strong>{bill.name}</strong>{bill.completed ? <small className="paid-pill"><Check size={12} /> Lunas</small> : bill.paid && <small className="paid-pill"><Check size={12} /> Dibayar bulan ini</small>}</span><small>{bill.category} · {account?.name ?? "akun"}</small>{bill.durationMonths ? <small className="installment-progress">{bill.paidCount ?? 0}/{bill.durationMonths} pembayaran · {bill.remainingMonths ?? 0} bulan tersisa</small> : <small className="installment-progress">Berulang tanpa batas</small>}{bill.installmentPhases?.length ? <small className="installment-phase-badge">{currentInstallmentPhase(bill)?.phase.label} · {bill.installmentPhases.length} fase</small> : null}</div>
           <div className="bill-due"><small>Jatuh tempo</small><strong>{shortDate(bill.dueDate)}</strong></div>
           <Amount value={bill.amount} privacy={privacy} className="bill-amount" />
           <span className="bill-card-actions"><button className={bill.paid ? "secondary-button" : "primary-button"} onClick={() => onPay(bill)} disabled={bill.paid}>{bill.paid ? "Selesai" : "Bayar"}</button><button className="icon-button small" onClick={() => onEdit(bill)} aria-label={`Edit ${bill.name}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus tagihan ${bill.name}?`) && onDelete(bill)} aria-label={`Hapus ${bill.name}`}><Trash2 size={15} /></button></span>
@@ -3339,6 +3345,105 @@ function RecurringModal({ accounts, categories, saving, onClose, onSubmit }: { a
 }
 
 function BillModal({ bill, accounts, categories, saving, onClose, onSubmit }: { bill?: Bill; accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+  const paymentAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
+  const liabilityAccounts = accounts.filter((account) => account.liability);
+  const expenseCategories = categories.filter((item) => item.active && item.type === "expense");
+  const [name, setName] = useState(bill?.name ?? "");
+  const [amount, setAmount] = useState(bill ? String(bill.amount) : "");
+  const [category, setCategory] = useState(bill?.category ?? expenseCategories.find((item) => item.name === "Tagihan")?.name ?? expenseCategories[0]?.name ?? "");
+  const [dueDate, setDueDate] = useState(bill?.dueDate ?? today());
+  const [accountId, setAccountId] = useState(bill?.accountId ?? paymentAccounts[0]?.id ?? "");
+  const [liabilityAccountId, setLiabilityAccountId] = useState(bill?.liabilityAccountId ?? "");
+  const [durationMonths, setDurationMonths] = useState(bill?.durationMonths ? String(bill.durationMonths) : "");
+  const [paidCount, setPaidCount] = useState(String(bill?.paidCount ?? 0));
+  const [reminderDays, setReminderDays] = useState(bill?.reminderDays ?? [7, 3, 1, 0]);
+  const [phased, setPhased] = useState(Boolean(bill?.installmentPhases?.length));
+  const [phases, setPhases] = useState(() => bill?.installmentPhases?.length
+    ? bill.installmentPhases.map((phase) => ({ label: phase.label, durationMonths: String(phase.durationMonths), amount: String(phase.amount) }))
+    : [
+      { label: "Fase 1 · bunga 0%", durationMonths: "6", amount: bill ? String(bill.amount) : "" },
+      { label: "Fase 2 · dengan bunga", durationMonths: "6", amount: bill ? String(bill.amount) : "" },
+    ]);
+  const parsedPhases = phases.map((phase) => ({
+    label: phase.label.trim(),
+    durationMonths: Number(phase.durationMonths || 0),
+    amount: moneyInputNumber(phase.amount),
+  }));
+  const phasesValid = parsedPhases.length >= 2 && parsedPhases.every((phase) => phase.label && phase.durationMonths >= 1 && phase.amount > 0);
+  const phasedDuration = installmentDuration(parsedPhases);
+  const durationValue = phased ? phasedDuration : Number(durationMonths || 0);
+  const paidCountValue = Number(paidCount || 0);
+  const remainingMonths = durationValue ? Math.max(0, durationValue - paidCountValue) : null;
+  const progressPct = durationValue ? Math.min(100, paidCountValue / durationValue * 100) : 0;
+  const activePhase = phased && phasesValid ? currentInstallmentPhase({ amount: parsedPhases[0].amount, paidCount: paidCountValue, installmentPhases: parsedPhases }) : null;
+  const activeAmount = phased && phasesValid ? installmentAmountAt({ amount: parsedPhases[0].amount, paidCount: paidCountValue, installmentPhases: parsedPhases }) : Number(amount || 0);
+  const planTotal = phased && phasesValid ? installmentPlanTotal(parsedPhases) : durationValue * Number(amount || 0);
+  const invalidPlan = phased && (!phasesValid || phasedDuration > 120 || paidCountValue > phasedDuration);
+  const toggleReminder = (day: number) => setReminderDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((a, b) => b - a));
+  const updatePhase = (index: number, field: "label" | "durationMonths" | "amount", value: string) => setPhases((current) => current.map((phase, phaseIndex) => phaseIndex === index ? { ...phase, [field]: value } : phase));
+  return <SimpleModal title={bill ? "Edit tagihan rutin" : "Tagihan rutin"} kicker="Reminder & cicilan" saving={saving} onClose={onClose} onSubmit={(event) => {
+    event.preventDefault();
+    if (invalidPlan || (durationValue && paidCountValue > durationValue)) return;
+    return onSubmit({
+      name: name.trim(),
+      amount: activeAmount,
+      category,
+      dueDate,
+      accountId,
+      liabilityAccountId: liabilityAccountId || null,
+      durationMonths: durationValue || null,
+      paidCount: durationValue ? paidCountValue : 0,
+      installmentPhases: phased ? parsedPhases : [],
+      frequency: "monthly",
+      reminderDays,
+      ...(bill ? { paid: bill.paid } : {}),
+    });
+  }}>
+    <div className="transaction-type-tabs bill-plan-tabs">
+      <button type="button" className={!phased ? "active" : ""} onClick={() => setPhased(false)}>Nominal tetap</button>
+      <button type="button" className={phased ? "active" : ""} onClick={() => setPhased(true)}>Cicilan bertahap</button>
+    </div>
+    <div className="form-grid">
+      <label><span>Nama tagihan / cicilan</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Pinjaman Kredivo" required autoFocus /></label>
+      {!phased && <label><span>Nominal per bulan</span><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required /></label>}
+      <label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>{paidCountValue > 0 ? "Jatuh tempo berikutnya" : "Jatuh tempo pertama"}</span><input type="date" min={bill ? undefined : today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label>
+      <label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun kas</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>Akun Paylater / utang</span><select value={liabilityAccountId} onChange={(event) => setLiabilityAccountId(event.target.value)}><option value="">Tagihan biasa (bukan cicilan utang)</option>{liabilityAccounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {account.type}</option>)}</select><ChevronDown size={15} /></label>
+      {!phased && <label><span>Total tenor (bulan)</span><input type="number" min={1} max={120} value={durationMonths} onChange={(event) => { const next = event.target.value.replace(/\D/g, "").slice(0, 3); setDurationMonths(next); if (!next) setPaidCount("0"); else if (Number(paidCount) > Number(next)) setPaidCount(next); }} inputMode="numeric" placeholder="Contoh: 9" /><small>Kosongkan jika tagihan berulang tanpa batas.</small></label>}
+      <label><span>Sudah dibayar</span><input type="number" min={0} max={durationValue || 0} value={paidCount} onChange={(event) => setPaidCount(event.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" disabled={!durationValue} required={Boolean(durationValue)} /><small>Isi 2 jika sebelumnya sudah membayar dua kali.</small></label>
+      <label><span>Frekuensi</span><input value="Bulanan" readOnly aria-label="Frekuensi tagihan bulanan" /></label>
+      {phased && <section className="installment-phase-editor full-field">
+        <div className="installment-phase-title"><span><strong>Fase cicilan</strong><small>Nominal akan berganti otomatis saat fase berikutnya dimulai.</small></span><button type="button" className="secondary-button" onClick={() => setPhases((current) => [...current, { label: `Fase ${current.length + 1}`, durationMonths: "", amount: "" }])} disabled={phases.length >= 6}><Plus size={14}/> Tambah fase</button></div>
+        <div className="installment-phase-list">
+          {phases.map((phase, index) => <div className="installment-phase-row" key={index}>
+            <span className="installment-phase-number">{index + 1}</span>
+            <label><span>Nama fase</span><input value={phase.label} onChange={(event) => updatePhase(index, "label", event.target.value)} placeholder={`Fase ${index + 1}`} required /></label>
+            <label><span>Durasi</span><input value={phase.durationMonths} onChange={(event) => updatePhase(index, "durationMonths", event.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" placeholder="6 bulan" required /></label>
+            <label><span>Nominal/bulan</span><input value={formatMoneyInput(phase.amount)} onChange={(event) => updatePhase(index, "amount", moneyInputDigits(event.target.value))} inputMode="numeric" placeholder="Rp 0" required /></label>
+            <button type="button" className="icon-button small" aria-label={`Hapus fase ${index + 1}`} onClick={() => setPhases((current) => current.filter((_, phaseIndex) => phaseIndex !== index))} disabled={phases.length <= 2}><Trash2 size={14}/></button>
+          </div>)}
+        </div>
+        <div className="installment-phase-summary">
+          <span><small>Total tenor</small><strong>{phasedDuration} bulan</strong></span>
+          <span><small>Nominal aktif</small><strong>{formatIDR(activeAmount)}</strong></span>
+          <span><small>Total seluruh cicilan</small><strong>{formatIDR(planTotal)}</strong></span>
+        </div>
+        {activePhase && <div className="installment-active-phase"><CheckCircle2 size={15}/><span><strong>{activePhase.phase.label}</strong> · bulan {activePhase.monthInPhase} dari {activePhase.phase.durationMonths}</span></div>}
+      </section>}
+      {durationValue > 0 && <div className="bill-progress-preview full-field"><small>Progress cicilan</small><strong>{paidCountValue} dari {durationValue} cicilan sudah dibayar</strong><span>{remainingMonths} bulan tersisa</span><ProgressBar value={progressPct} color="var(--primary)" label={`Progress cicilan ${paidCountValue} dari ${durationValue}`} /></div>}
+      <fieldset className="bill-reminder-field"><legend>Jadwal reminder</legend><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={reminderDays.includes(day)} onChange={() => toggleReminder(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></fieldset>
+    </div>
+    {invalidPlan && <div className="ocr-message"><TriangleAlert size={15}/>Minimal dua fase wajib lengkap dan total tenor maksimal 120 bulan.</div>}
+    {!reminderDays.length && <div className="ocr-message"><Bell size={15} />Pilih minimal satu jadwal reminder.</div>}
+    {!paymentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bank, e-wallet, atau cash untuk membayar tagihan.</div>}
+    {liabilityAccountId && <div className="ocr-message"><CreditCard size={15} />Pembayaran menjadi transfer ke akun utang, sehingga tidak dihitung sebagai pengeluaran dua kali.</div>}
+    {paidCountValue > 0 && <div className="ocr-message bill-history-note"><History size={15} /><span><strong>Progress awal saja.</strong> {paidCountValue} pembayaran lama tidak dibuat ulang sebagai transaksi. Pastikan saldo akun utang saat ini sudah sesuai.</span></div>}
+    {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
+  </SimpleModal>;
+}
+
+function LegacyBillModal({ bill, accounts, categories, saving, onClose, onSubmit }: { bill?: Bill; accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const paymentAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
   const liabilityAccounts = accounts.filter((account) => account.liability);
   const expenseCategories = categories.filter((item) => item.active && item.type === "expense");

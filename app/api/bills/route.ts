@@ -53,8 +53,8 @@ export async function POST(request: Request) {
       d1.prepare(
         `INSERT INTO bills
            (id, workspace_id, name, amount, due_date, category, account_id, frequency, reminder_days, paid, paid_at,
-            last_paid_period, liability_account_id, duration_months, paid_count, completed, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            last_paid_period, liability_account_id, duration_months, paid_count, installment_phases_json, completed, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         bill.id,
@@ -72,6 +72,7 @@ export async function POST(request: Request) {
         bill.liabilityAccountId,
         bill.durationMonths,
         bill.paidCount,
+        JSON.stringify(bill.installmentPhases),
         bill.durationMonths !== null && bill.paidCount >= bill.durationMonths ? 1 : 0,
         now,
         now,

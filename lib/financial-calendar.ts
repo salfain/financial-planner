@@ -1,5 +1,6 @@
 import type { Bill, Goal } from "./finance";
 import { recurringOccurrences, type RecurringTemplate } from "./recurring";
+import { installmentAmountAt } from "./installment-phases";
 
 export type FinancialCalendarEventKind =
   | "bill"
@@ -75,7 +76,7 @@ export function buildFinancialCalendarEvents(input: {
           date: occurrence,
           kind: bill.liabilityAccountId ? "installment" : "bill",
           title: bill.name,
-          amount: bill.amount,
+          amount: installmentAmountAt(bill, occurrenceIndex),
           accountId: bill.accountId,
           liabilityAccountId: bill.liabilityAccountId,
           paid,

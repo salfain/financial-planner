@@ -129,7 +129,7 @@ export async function POST(request: Request, context: Context) {
         category: bill.liabilityAccountId ? "Transfer" : bill.category,
         accountId: bill.accountId,
         destinationAccountId: bill.liabilityAccountId,
-        amount: bill.amount,
+        amount: serializeBill(bill, period).amount,
         status: "completed",
       },
       transactionId,

@@ -1,0 +1,1 @@
+ALTER TABLE `bills` ADD `installment_phases_json` text DEFAULT '[]' NOT NULL;

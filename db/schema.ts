@@ -297,6 +297,7 @@ export const bills = sqliteTable(
     liabilityAccountId: text("liability_account_id"),
     durationMonths: integer("duration_months"),
     paidCount: integer("paid_count").notNull().default(0),
+    installmentPhasesJson: text("installment_phases_json").notNull().default("[]"),
     completed: integer("completed", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
