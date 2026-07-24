@@ -162,7 +162,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     d1.prepare(`SELECT id, type, date, time, title, merchant, category, notes, tags_json AS tagsJson, location, splits_json AS splitsJson, account_id AS accountId, destination_account_id AS destinationAccountId, transfer_group_id AS transferGroupId, amount, status, idempotency_key AS idempotencyKey, deleted_at AS deletedAt, created_at AS createdAt, updated_at AS updatedAt FROM transactions WHERE workspace_id = ? ORDER BY date, created_at, id`).bind(workspaceId),
     d1.prepare(`SELECT id, category, amount_limit AS amountLimit, period, color, created_at AS createdAt, updated_at AS updatedAt FROM budgets WHERE workspace_id = ? ORDER BY period, category, id`).bind(workspaceId),
     d1.prepare(`SELECT id, name, target, current, deadline, color, icon, created_at AS createdAt, updated_at AS updatedAt FROM goals WHERE workspace_id = ? ORDER BY deadline, id`).bind(workspaceId),
-    d1.prepare(`SELECT id, name, amount, due_date AS dueDate, category, account_id AS accountId, frequency, reminder_days AS reminderDays, paid, paid_at AS paidAt, last_paid_period AS lastPaidPeriod, created_at AS createdAt, updated_at AS updatedAt FROM bills WHERE workspace_id = ? ORDER BY due_date, id`).bind(workspaceId),
+    d1.prepare(`SELECT id, name, amount, due_date AS dueDate, category, account_id AS accountId, frequency, reminder_days AS reminderDays, paid, paid_at AS paidAt, last_paid_period AS lastPaidPeriod, liability_account_id AS liabilityAccountId, duration_months AS durationMonths, paid_count AS paidCount, completed, created_at AS createdAt, updated_at AS updatedAt FROM bills WHERE workspace_id = ? ORDER BY due_date, id`).bind(workspaceId),
     d1.prepare(`SELECT id, account_id AS accountId, ticker, name, asset_class AS assetClass, exchange, currency, manual_price AS manualPrice, latest_price_cache AS latestPriceCache, price_source AS priceSource, price_status AS priceStatus, price_updated_at AS priceUpdatedAt, active, created_at AS createdAt, updated_at AS updatedAt FROM investment_assets WHERE workspace_id = ? ORDER BY name, id`).bind(workspaceId),
     d1.prepare(`SELECT asset_id AS assetId, units_micro AS unitsMicro, cost_basis AS costBasis, realized_pl AS realizedPl, updated_at AS updatedAt FROM investment_positions WHERE workspace_id = ? ORDER BY asset_id`).bind(workspaceId),
     d1.prepare(`SELECT id, asset_id AS assetId, account_id AS accountId, date, type, units_micro AS unitsMicro, price_per_unit AS pricePerUnit, gross_amount AS grossAmount, fee, tax, net_amount AS netAmount, average_cost_after AS averageCostAfter, remaining_units_micro AS remainingUnitsMicro, realized_pl AS realizedPl, linked_cash_transaction_id AS linkedCashTransactionId, linked_adjustment_transaction_id AS linkedAdjustmentTransactionId, note, created_at AS createdAt, updated_at AS updatedAt FROM investment_transactions WHERE workspace_id = ? ORDER BY date, created_at, id`).bind(workspaceId),
@@ -174,6 +174,9 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
     d1.prepare(`SELECT horizon_days AS horizonDays, monthly_income_override AS monthlyIncomeOverride, income_day AS incomeDay, minimum_cash_buffer AS minimumCashBuffer FROM cashflow_forecast_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT target_months AS targetMonths, monthly_expense_override AS monthlyExpenseOverride, monthly_contribution AS monthlyContribution, account_ids_json AS accountIdsJson FROM emergency_fund_settings WHERE workspace_id = ? LIMIT 1`).bind(workspaceId),
     d1.prepare(`SELECT id, name, type, amount, category, account_id AS accountId, frequency, start_date AS startDate, next_due_date AS nextDueDate, is_subscription AS isSubscription, active, last_posted_date AS lastPostedDate, created_at AS createdAt, updated_at AS updatedAt FROM recurring_templates WHERE workspace_id = ? ORDER BY next_due_date, id`).bind(workspaceId),
+    d1.prepare(`SELECT id, keyword, category, transaction_type AS transactionType, match_type AS matchType, priority, active, created_at AS createdAt, updated_at AS updatedAt FROM category_rules WHERE workspace_id = ? ORDER BY priority DESC, keyword, id`).bind(workspaceId),
+    d1.prepare(`SELECT id, name, purpose, target_amount AS targetAmount, current_amount AS currentAmount, monthly_contribution AS monthlyContribution, target_date AS targetDate, account_id AS accountId, color, active, created_at AS createdAt, updated_at AS updatedAt FROM sinking_funds WHERE workspace_id = ? ORDER BY target_date, id`).bind(workspaceId),
+    d1.prepare(`SELECT id, fund_id AS fundId, type, amount, date, note, created_at AS createdAt FROM sinking_fund_entries WHERE workspace_id = ? ORDER BY date, created_at, id`).bind(workspaceId),
   ]);
   const ai = results[9].results[0] as Record<string, unknown> | undefined;
   const notification = results[10].results[0] as Record<string, unknown> | undefined;
@@ -182,6 +185,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
   const debtPlans = results[13].results as Record<string, unknown>[];
   const forecast = results[14].results[0] as Record<string, unknown> | undefined;
   const emergency = results[15].results[0] as Record<string, unknown> | undefined;
+  const categoryRules = results[17].results as Record<string, unknown>[];
   return {
     format: BACKUP_FORMAT,
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -197,7 +201,7 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
       ...(ai ? {
         aiEnabled: Boolean(ai.enabled),
         aiConsentAccepted: Boolean(ai.consentAccepted),
-        aiProvider: String(ai.provider ?? "gemini"),
+        aiProvider: String(ai.provider ?? "openai-compatible"),
         aiModel: String(ai.model ?? ""),
       } : {}),
       ...(notification ? {
@@ -235,6 +239,9 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
         emergencyMonthlyContribution: Number(emergency.monthlyContribution || 0),
         emergencyAccountIds: json<string[]>(String(emergency.accountIdsJson || "[]"), []),
       } : {}),
+      ...(categoryRules.length ? {
+        categoryRules: categoryRules.map((rule) => ({ ...rule, active: Boolean(rule.active) })) as NonNullable<PortableBackup["settings"]["categoryRules"]>,
+      } : {}),
     },
     data: {
       accounts: results[0].results as PortableRecord[],
@@ -247,6 +254,8 @@ async function fullBackupDocument(workspaceId: string): Promise<PortableBackup> 
       investmentPositions: results[7].results as PortableRecord[],
       investmentTransactions: results[8].results as PortableRecord[],
       recurringTemplates: results[16].results as PortableRecord[],
+      sinkingFunds: results[18].results as PortableRecord[],
+      sinkingFundEntries: results[19].results as PortableRecord[],
     },
   };
 }
@@ -488,6 +497,8 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
   const transactionIds = mappedIds(backup.data.transactions, "mig-tx");
   const budgetIds = mappedIds(backup.data.budgets, "mig-budget");
   const goalIds = mappedIds(backup.data.goals, "mig-goal");
+  const sinkingFundIds = mappedIds(backup.data.sinkingFunds, "mig-fund");
+  const sinkingFundEntryIds = mappedIds(backup.data.sinkingFundEntries, "mig-fund-entry");
   const billIds = mappedIds(backup.data.bills, "mig-bill");
   const recurringIds = mappedIds(backup.data.recurringTemplates, "mig-recurring");
   const assetIds = mappedIds(backup.data.investmentAssets, "mig-asset");
@@ -547,11 +558,50 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
     statements.push(d1.prepare(`INSERT INTO goals (id, workspace_id, name, target, current, deadline, color, icon, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(goalIds.get(oldId), workspaceId, safeName(text(row, "name"), `Target migrasi ${index + 1}`, 100), target, Math.max(0, integer(row, ["current", "currentAmount", "current_amount"], 0)), validDate(text(row, "deadline"), now.slice(0, 10)), /^#[0-9a-fA-F]{6}$/.test(text(row, "color")) ? text(row, "color") : "#16876f", safeName(text(row, "icon"), "target", 60), now, now));
   });
 
+  backup.data.sinkingFunds.forEach((row, index) => {
+    const oldId = text(row, "id") || `missing-${index}`;
+    const oldAccount = text(row, "accountId", "account_id");
+    const target = Math.max(1, integer(row, ["targetAmount", "target_amount"], 1));
+    const current = Math.max(0, Math.min(target, integer(row, ["currentAmount", "current_amount"], 0)));
+    const purposes = ["Kendaraan", "Pajak", "Liburan", "Pendidikan", "Rumah", "Kesehatan", "Teknologi", "Lainnya"];
+    const purpose = purposes.includes(text(row, "purpose")) ? text(row, "purpose") : "Lainnya";
+    statements.push(d1.prepare(
+      `INSERT INTO sinking_funds
+        (id, workspace_id, name, purpose, target_amount, current_amount,
+         monthly_contribution, target_date, account_id, color, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      sinkingFundIds.get(oldId), workspaceId, safeName(text(row, "name"), `Pos dana migrasi ${index + 1}`, 120),
+      purpose, target, current, Math.max(0, integer(row, ["monthlyContribution", "monthly_contribution"], 0)),
+      validDate(text(row, "targetDate", "target_date"), now.slice(0, 10)), accountIds.get(oldAccount),
+      /^#[0-9a-fA-F]{6}$/.test(text(row, "color")) ? text(row, "color") : "#16876f",
+      row.active === undefined || bool(row, "active", "is_active") ? 1 : 0, now, now,
+    ));
+  });
+
+  backup.data.sinkingFundEntries.forEach((row, index) => {
+    const oldId = text(row, "id") || `missing-${index}`;
+    const oldFund = text(row, "fundId", "fund_id");
+    statements.push(d1.prepare(
+      `INSERT INTO sinking_fund_entries
+        (id, workspace_id, fund_id, type, amount, date, note, request_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      sinkingFundEntryIds.get(oldId), workspaceId, sinkingFundIds.get(oldFund),
+      text(row, "type") === "release" ? "release" : "allocate",
+      Math.max(1, integer(row, ["amount"], 1)), validDate(text(row, "date"), now.slice(0, 10)),
+      safeName(text(row, "note"), "", 240), `migration:${migrationId}:${oldId}`, now,
+    ));
+  });
+
   backup.data.bills.forEach((row, index) => {
     const oldId = text(row, "id") || `missing-${index}`;
     const oldAccount = text(row, "accountId", "account_id");
     const reminders = text(row, "reminderDays", "reminder_days") || "7,3,1,0";
-    statements.push(d1.prepare(`INSERT INTO bills (id, workspace_id, name, amount, due_date, category, account_id, frequency, reminder_days, paid, paid_at, last_paid_period, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(billIds.get(oldId), workspaceId, safeName(text(row, "name"), `Tagihan migrasi ${index + 1}`, 100), Math.max(1, integer(row, ["amount"], 1)), validDate(text(row, "dueDate", "due_date"), now.slice(0, 10)), safeName(text(row, "category"), "Tagihan", 100), accountIds.get(oldAccount), "monthly", reminders, bool(row, "paid") ? 1 : 0, text(row, "paidAt", "paid_at") || null, text(row, "lastPaidPeriod", "last_paid_period") || null, now, now));
+    const oldLiabilityAccount = text(row, "liabilityAccountId", "liability_account_id");
+    const durationMonths = Math.max(0, integer(row, ["durationMonths", "duration_months"], 0));
+    const paidCount = Math.max(0, integer(row, ["paidCount", "paid_count"], 0));
+    statements.push(d1.prepare(`INSERT INTO bills (id, workspace_id, name, amount, due_date, category, account_id, frequency, reminder_days, paid, paid_at, last_paid_period, liability_account_id, duration_months, paid_count, completed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(billIds.get(oldId), workspaceId, safeName(text(row, "name"), `Tagihan migrasi ${index + 1}`, 100), Math.max(1, integer(row, ["amount"], 1)), validDate(text(row, "dueDate", "due_date"), now.slice(0, 10)), safeName(text(row, "category"), "Tagihan", 100), accountIds.get(oldAccount), "monthly", reminders, bool(row, "paid") ? 1 : 0, text(row, "paidAt", "paid_at") || null, text(row, "lastPaidPeriod", "last_paid_period") || null, accountIds.get(oldLiabilityAccount) || null, durationMonths || null, paidCount, durationMonths > 0 && paidCount >= durationMonths ? 1 : 0, now, now));
   });
 
   backup.data.recurringTemplates.forEach((row, index) => {
@@ -595,6 +645,19 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
        ON CONFLICT(workspace_id) DO UPDATE SET enabled = excluded.enabled, bill_reminder_days = excluded.bill_reminder_days, budget_warning_percent = excluded.budget_warning_percent, backup_warning_days = excluded.backup_warning_days, goal_warning_days = excluded.goal_warning_days, updated_at = excluded.updated_at`,
     ).bind(workspaceId, backup.settings.notificationEnabled === false ? 0 : 1, JSON.stringify(reminderDays.length ? reminderDays : [7, 3, 1, 0]), backup.settings.notificationBudgetWarningPercent ?? 75, backup.settings.notificationBackupWarningDays ?? 7, backup.settings.notificationGoalWarningDays ?? 30, now, now));
   }
+
+  (backup.settings.categoryRules ?? []).forEach((rule, index) => {
+    const categoryExists = backup.data.categories.some((category) =>
+      text(category, "name").toLowerCase() === rule.category.toLowerCase()
+      && (text(category, "type") === rule.transactionType),
+    );
+    if (!categoryExists || rule.keyword.length < 2) return;
+    statements.push(d1.prepare(
+      `INSERT INTO category_rules
+       (id, workspace_id, keyword, category, transaction_type, match_type, priority, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(makeId(`mig-rule-${index + 1}`), workspaceId, rule.keyword, rule.category, rule.transactionType, rule.matchType, rule.priority, rule.active ? 1 : 0, now, now));
+  });
 
   if (backup.settings.roadmapHorizonMonths !== undefined) {
     const horizon = [12, 24, 36, 60].includes(Number(backup.settings.roadmapHorizonMonths)) ? Number(backup.settings.roadmapHorizonMonths) : 24;
@@ -645,6 +708,8 @@ export async function applyMigration(workspaceId: string, migrationId: string) {
     await runChunks(statements);
   } catch (error) {
     const cleanup: D1PreparedStatement[] = [
+      ...[...sinkingFundEntryIds.values()].map((id) => d1.prepare(`DELETE FROM sinking_fund_entries WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id)),
+      ...[...sinkingFundIds.values()].map((id) => d1.prepare(`DELETE FROM sinking_funds WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id)),
       ...[...recurringIds.values()].map((id) => d1.prepare(`DELETE FROM recurring_templates WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id)),
       ...[...investmentTransactionIds.values()].map((id) => d1.prepare(`DELETE FROM investment_transactions WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id)),
       ...[...assetIds.values()].map((id) => d1.prepare(`DELETE FROM investment_positions WHERE workspace_id = ? AND asset_id = ?`).bind(workspaceId, id)),

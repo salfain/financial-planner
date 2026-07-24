@@ -8,15 +8,30 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-export const workspaces = sqliteTable("workspaces", {
-  id: text("id").primaryKey(),
-  profileName: text("profile_name").notNull().default("Pemilik"),
-  storeName: text("store_name").notNull().default("Financial Planner"),
-  currency: text("currency").notNull().default("IDR"),
-  timezone: text("timezone").notNull().default("Asia/Jakarta"),
-  configured: integer("configured", { mode: "boolean" }).notNull().default(false),
-  configuredAt: text("configured_at"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+export const workspaces = sqliteTable(
+  "workspaces",
+  {
+    id: text("id").primaryKey(),
+    profileName: text("profile_name").notNull().default("Pemilik"),
+    storeName: text("store_name").notNull().default("Financial Planner"),
+    currency: text("currency").notNull().default("IDR"),
+    timezone: text("timezone").notNull().default("Asia/Jakarta"),
+    configured: integer("configured", { mode: "boolean" }).notNull().default(false),
+    configuredAt: text("configured_at"),
+    installationId: text("installation_id"),
+    licenseToken: text("license_token"),
+    licenseActivatedAt: text("license_activated_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [uniqueIndex("workspaces_installation_uidx").on(table.installationId)],
+);
+
+export const featurePreferences = sqliteTable("feature_preferences", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  preferencesJson: text("preferences_json").notNull().default("{}"),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -67,6 +82,35 @@ export const categories = sqliteTable(
       sql`lower(${table.name})`,
     ),
     index("categories_workspace_archived_idx").on(table.workspaceId, table.archived),
+  ],
+);
+
+export const categoryRules = sqliteTable(
+  "category_rules",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    keyword: text("keyword").notNull(),
+    category: text("category").notNull(),
+    transactionType: text("transaction_type").notNull().default("expense"),
+    matchType: text("match_type").notNull().default("contains"),
+    priority: integer("priority").notNull().default(100),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("category_rules_workspace_keyword_type_uidx").on(
+      table.workspaceId,
+      sql`lower(${table.keyword})`,
+      table.transactionType,
+    ),
+    index("category_rules_workspace_active_idx").on(table.workspaceId, table.active),
+    check("category_rules_transaction_type_check", sql`${table.transactionType} IN ('expense', 'income')`),
+    check("category_rules_match_type_check", sql`${table.matchType} IN ('contains', 'starts_with', 'exact')`),
+    check("category_rules_priority_check", sql`${table.priority} BETWEEN 0 AND 1000`),
   ],
 );
 
@@ -179,6 +223,60 @@ export const goals = sqliteTable(
   ],
 );
 
+export const sinkingFunds = sqliteTable(
+  "sinking_funds",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    purpose: text("purpose").notNull().default("Lainnya"),
+    targetAmount: integer("target_amount").notNull(),
+    currentAmount: integer("current_amount").notNull().default(0),
+    monthlyContribution: integer("monthly_contribution").notNull().default(0),
+    targetDate: text("target_date").notNull(),
+    accountId: text("account_id").notNull().references(() => accounts.id),
+    color: text("color").notNull().default("#16876f"),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("sinking_funds_workspace_target_idx").on(table.workspaceId, table.active, table.targetDate),
+    index("sinking_funds_workspace_account_idx").on(table.workspaceId, table.accountId),
+    check("sinking_funds_target_positive", sql`${table.targetAmount} > 0`),
+    check("sinking_funds_current_nonnegative", sql`${table.currentAmount} >= 0`),
+    check("sinking_funds_current_within_target", sql`${table.currentAmount} <= ${table.targetAmount}`),
+    check("sinking_funds_monthly_nonnegative", sql`${table.monthlyContribution} >= 0`),
+  ],
+);
+
+export const sinkingFundEntries = sqliteTable(
+  "sinking_fund_entries",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    fundId: text("fund_id")
+      .notNull()
+      .references(() => sinkingFunds.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    amount: integer("amount").notNull(),
+    date: text("date").notNull(),
+    note: text("note").notNull().default(""),
+    requestId: text("request_id").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("sinking_fund_entries_workspace_request_uidx").on(table.workspaceId, table.requestId),
+    index("sinking_fund_entries_fund_date_idx").on(table.workspaceId, table.fundId, table.date),
+    check("sinking_fund_entries_type_check", sql`${table.type} IN ('allocate', 'release')`),
+    check("sinking_fund_entries_amount_positive", sql`${table.amount} > 0`),
+  ],
+);
+
 export const bills = sqliteTable(
   "bills",
   {
@@ -196,14 +294,21 @@ export const bills = sqliteTable(
     paid: integer("paid", { mode: "boolean" }).notNull().default(false),
     paidAt: text("paid_at"),
     lastPaidPeriod: text("last_paid_period"),
+    liabilityAccountId: text("liability_account_id"),
+    durationMonths: integer("duration_months"),
+    paidCount: integer("paid_count").notNull().default(0),
+    completed: integer("completed", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
     index("bills_workspace_due_idx").on(table.workspaceId, table.dueDate),
     index("bills_workspace_account_idx").on(table.workspaceId, table.accountId),
+    index("bills_workspace_liability_idx").on(table.workspaceId, table.liabilityAccountId),
     check("bills_amount_positive", sql`${table.amount} > 0`),
     check("bills_frequency_check", sql`${table.frequency} IN ('monthly')`),
+    check("bills_duration_check", sql`${table.durationMonths} IS NULL OR (${table.durationMonths} >= 1 AND ${table.durationMonths} <= 120)`),
+    check("bills_paid_count_nonnegative", sql`${table.paidCount} >= 0`),
   ],
 );
 
@@ -342,8 +447,9 @@ export const aiSettings = sqliteTable("ai_settings", {
   workspaceId: text("workspace_id")
     .primaryKey()
     .references(() => workspaces.id, { onDelete: "cascade" }),
-  provider: text("provider").notNull().default("gemini"),
-  model: text("model").notNull().default("gemini-3.5-flash"),
+  provider: text("provider").notNull().default("openai-compatible"),
+  baseUrl: text("base_url").notNull().default(""),
+  model: text("model").notNull().default("default"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
   consentAccepted: integer("consent_accepted", { mode: "boolean" }).notNull().default(false),
   encryptedApiKey: text("encrypted_api_key"),
@@ -554,6 +660,29 @@ export const emergencyFundSettings = sqliteTable(
     check("emergency_fund_target_check", sql`${table.targetMonths} IN (3, 6, 9, 12)`),
     check("emergency_fund_expense_nonnegative", sql`${table.monthlyExpenseOverride} >= 0`),
     check("emergency_fund_contribution_nonnegative", sql`${table.monthlyContribution} >= 0`),
+  ],
+);
+
+export const monthlyClosings = sqliteTable(
+  "monthly_closings",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    status: text("status").notNull().default("closed"),
+    snapshotJson: text("snapshot_json").notNull().default("{}"),
+    closedAt: text("closed_at"),
+    reopenedAt: text("reopened_at"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("monthly_closings_workspace_period_uidx").on(table.workspaceId, table.period),
+    index("monthly_closings_workspace_status_idx").on(table.workspaceId, table.status),
+    check("monthly_closings_period_check", sql`${table.period} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
+    check("monthly_closings_status_check", sql`${table.status} IN ('closed', 'open')`),
   ],
 );
 

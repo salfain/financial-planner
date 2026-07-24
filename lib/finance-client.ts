@@ -9,7 +9,13 @@ import { DEFAULT_DEBT_SETTINGS, type DebtPlan, type DebtPlannerSettings } from "
 import { DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
 import { DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "./emergency-fund";
 import type { RecurringTemplate } from "./recurring";
+import type { MonthlyClosing, MonthlyReview } from "./monthly-review";
+import type { CategoryRule } from "./category-rules";
+import type { SinkingFund, SinkingFundEntry } from "./sinking-funds";
+import { normalizeFeaturePreferences, type FeaturePreferences } from "./feature-preferences";
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
+import { freeEntitlement, type PlanCapability, type PlanEntitlement, type PlanTier } from "./plans";
+import { demoRequest, demoSecurityStatus, isFinanceDemoMode } from "./demo-finance";
 
 export type FinanceProfile = {
   name: string;
@@ -31,16 +37,21 @@ export type FinanceSecurityStatus = {
 
 export type FinanceSnapshot = {
   configured: boolean;
+  entitlement: PlanEntitlement;
   profile: FinanceProfile;
   accounts: Account[];
   transactions: Transaction[];
   budgets: Budget[];
   goals: Goal[];
+  sinkingFunds: SinkingFund[];
+  sinkingFundEntries: SinkingFundEntry[];
   bills: Bill[];
   categories: FinanceCategory[];
+  categoryRules: CategoryRule[];
   auditLogs: AuditLog[];
   investmentAssets: InvestmentAsset[];
   investmentTransactions: InvestmentTransaction[];
+  featurePreferences: FeaturePreferences;
 };
 
 export type SetupWorkspaceInput = {
@@ -58,30 +69,131 @@ export type SetupWorkspaceInput = {
   }>;
 };
 
+export type LoanDrawdownInput = {
+  requestId: string;
+  liabilityAccountId: string;
+  destinationAccountId: string;
+  cashReceived: number;
+  totalObligation: number;
+  date: string;
+  title: string;
+  notes?: string;
+};
+
 const jsonHeaders = { "content-type": "application/json" };
+
+export class FinanceApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    public details?: unknown,
+  ) {
+    super(message);
+    this.name = "FinanceApiError";
+  }
+}
+
+export class FinanceMutationCommittedError extends Error {
+  constructor(public action: string, public requestId: string) {
+    super("Perubahan sudah tersimpan; tampilan sedang disinkronkan.");
+    this.name = "FinanceMutationCommittedError";
+  }
+}
+
+export const isFinanceMutationCommittedError = (error: unknown): error is FinanceMutationCommittedError =>
+  error instanceof FinanceMutationCommittedError;
+
+class FinanceMutationTimeoutError extends Error {
+  constructor() {
+    super("Waktu respons Google Apps Script habis.");
+    this.name = "FinanceMutationTimeoutError";
+  }
+}
+
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number) => new Promise<T>((resolve, reject) => {
+  const timer = window.setTimeout(() => reject(new FinanceMutationTimeoutError()), timeoutMs);
+  promise.then(
+    (value) => { window.clearTimeout(timer); resolve(value); },
+    (error) => { window.clearTimeout(timer); reject(error); },
+  );
+});
 
 async function webRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: { ...jsonHeaders, ...(init?.headers ?? {}) },
   });
-  const body = (await response.json()) as { data?: T; error?: string | { message?: string } } & T;
+  const body = (await response.json()) as { data?: T; error?: string | { code?: string; message?: string; details?: unknown } } & T;
   if (!response.ok) {
-    const message = typeof body.error === "string" ? body.error : body.error?.message;
-    throw new Error(message || `Permintaan gagal (${response.status}).`);
+    const error = typeof body.error === "string" ? { message: body.error } : body.error;
+    throw new FinanceApiError(
+      response.status,
+      error?.code ?? "REQUEST_FAILED",
+      error?.message || `Permintaan gagal (${response.status}).`,
+      error?.details,
+    );
   }
   return (body.data ?? body) as T;
 }
 
 async function mutation<T>(action: string, path: string, payload: Record<string, unknown>, method = "POST") {
   const requestPayload = { ...payload, requestId: payload.requestId ?? crypto.randomUUID() };
-  if (hasAppsScriptBridge()) return callAppsScript<T>(action, requestPayload);
+  if (isFinanceDemoMode()) return demoRequest<T>(action, requestPayload);
+  if (hasAppsScriptBridge()) {
+    const pending = callAppsScript<T>(action, requestPayload);
+    try {
+      return await withTimeout(pending, 15_000);
+    } catch (error) {
+      if (!(error instanceof FinanceMutationTimeoutError)) throw error;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const status = await withTimeout(
+          callAppsScript<{ completed: boolean }>("mutationStatus", { requestId: requestPayload.requestId }),
+          8_000,
+        ).catch(() => ({ completed: false }));
+        if (status.completed) {
+          try {
+            return await withTimeout(pending, 3_000);
+          } catch (pendingError) {
+            if (!(pendingError instanceof FinanceMutationTimeoutError)) throw pendingError;
+            throw new FinanceMutationCommittedError(action, String(requestPayload.requestId));
+          }
+        }
+        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 1_200));
+      }
+      throw new FinanceApiError(
+        504,
+        "APPS_SCRIPT_TIMEOUT",
+        "Google Apps Script belum memberikan hasil. Coba lagi setelah beberapa saat.",
+      );
+    }
+  }
   return webRequest<T>(path, { method, body: JSON.stringify(requestPayload) });
 }
 
 const text = (value: unknown, fallback = "") => value === undefined || value === null ? fallback : String(value);
 const number = (value: unknown) => Number(value || 0);
 const bool = (value: unknown) => value === true || value === 1 || String(value).toLowerCase() === "true";
+
+export function normalizeFinanceDate(value: unknown) {
+  const raw = text(value).trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}-\d{2}\s/.test(raw)) return raw.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) return raw.slice(0, 10);
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return part("year") && part("month") && part("day")
+    ? `${part("year")}-${part("month")}-${part("day")}`
+    : "";
+}
 
 function normalizeAccount(row: Record<string, unknown>): Account {
   const type = text(row.type, "Bank") as Account["type"];
@@ -110,7 +222,7 @@ function normalizeTransaction(row: Record<string, unknown>): Transaction {
   return {
     id: text(row.id),
     type: text(row.type, "expense") as Transaction["type"],
-    date: text(row.date).slice(0, 10),
+    date: normalizeFinanceDate(row.date),
     time: text(row.time),
     title: text(row.title ?? row.description ?? row.merchant, "Transaksi"),
     merchant: text(row.merchant),
@@ -154,6 +266,20 @@ function normalizeCategory(row: Record<string, unknown>): FinanceCategory {
   };
 }
 
+function normalizeCategoryRule(row: Record<string, unknown>): CategoryRule {
+  return {
+    id: text(row.id),
+    keyword: text(row.keyword),
+    category: text(row.category),
+    transactionType: text(row.transactionType ?? row.transaction_type, "expense") === "income" ? "income" : "expense",
+    matchType: (["contains", "starts_with", "exact"].includes(text(row.matchType ?? row.match_type)) ? text(row.matchType ?? row.match_type) : "contains") as CategoryRule["matchType"],
+    priority: number(row.priority ?? 100),
+    active: row.active === undefined ? true : bool(row.active),
+    createdAt: text(row.createdAt ?? row.created_at) || undefined,
+    updatedAt: text(row.updatedAt ?? row.updated_at) || undefined,
+  };
+}
+
 function normalizeAuditLog(row: Record<string, unknown>): AuditLog {
   let details = row.details ?? row.detailsJson ?? row.details_json;
   if (typeof details === "string") {
@@ -186,15 +312,48 @@ function normalizeGoal(row: Record<string, unknown>): Goal {
     name: text(row.name, "Target"),
     target: number(row.target ?? row.targetAmount ?? row.target_amount),
     current: number(row.current ?? row.currentAmount ?? row.current_amount),
-    deadline: text(row.deadline).slice(0, 10),
+    deadline: normalizeFinanceDate(row.deadline),
     color: text(row.color, "#126b59"),
     icon: text(row.icon, "target"),
   };
 }
 
+function normalizeSinkingFund(row: Record<string, unknown>): SinkingFund {
+  return {
+    id: text(row.id),
+    name: text(row.name, "Pos dana"),
+    purpose: text(row.purpose, "Lainnya") as SinkingFund["purpose"],
+    targetAmount: number(row.targetAmount ?? row.target_amount),
+    currentAmount: number(row.currentAmount ?? row.current_amount),
+    monthlyContribution: number(row.monthlyContribution ?? row.monthly_contribution),
+    targetDate: normalizeFinanceDate(row.targetDate ?? row.target_date),
+    accountId: text(row.accountId ?? row.account_id),
+    color: text(row.color, "#16876f"),
+    active: row.active === undefined ? true : bool(row.active),
+    createdAt: text(row.createdAt ?? row.created_at) || undefined,
+    updatedAt: text(row.updatedAt ?? row.updated_at) || undefined,
+  };
+}
+
+function normalizeSinkingFundEntry(row: Record<string, unknown>): SinkingFundEntry {
+  return {
+    id: text(row.id),
+    fundId: text(row.fundId ?? row.fund_id),
+    type: text(row.type, "allocate") === "release" ? "release" : "allocate",
+    amount: number(row.amount),
+    date: normalizeFinanceDate(row.date),
+    note: text(row.note),
+    createdAt: text(row.createdAt ?? row.created_at) || undefined,
+  };
+}
+
 function normalizeBill(row: Record<string, unknown>, month: string): Bill {
-  const sourceDue = text(row.dueDate ?? row.due_date).slice(0, 10);
+  const sourceDue = normalizeFinanceDate(row.dueDate ?? row.due_date);
   const due = sourceDue.slice(0, 7) <= month ? recurringBillDueDate(sourceDue, month, "monthly") : sourceDue;
+  const durationValue = number(row.durationMonths ?? row.duration_months);
+  const durationMonths = durationValue > 0 ? durationValue : null;
+  const paidCount = Math.max(0, number(row.paidCount ?? row.paid_count));
+  const completed = bool(row.completed) || text(row.status).toLowerCase() === "completed" || Boolean(durationMonths && paidCount >= durationMonths);
   const rawReminderDays = row.reminderDays ?? row.reminder_days ?? "7,3,1,0";
   const reminderDays = (Array.isArray(rawReminderDays) ? rawReminderDays : String(rawReminderDays).split(","))
     .map(Number)
@@ -206,10 +365,16 @@ function normalizeBill(row: Record<string, unknown>, month: string): Bill {
     dueDate: due,
     category: text(row.category, "Tagihan"),
     accountId: text(row.accountId ?? row.account_id),
-    paid: bool(row.paid) || text(row.lastPaidPeriod ?? row.last_paid_period) === month,
+    paid: completed || bool(row.paid) || text(row.lastPaidPeriod ?? row.last_paid_period) === month,
     frequency: "monthly",
     reminderDays: reminderDays.length ? reminderDays : [7, 3, 1, 0],
     lastPaidPeriod: text(row.lastPaidPeriod ?? row.last_paid_period) || null,
+    liabilityAccountId: text(row.liabilityAccountId ?? row.liability_account_id) || null,
+    durationMonths,
+    paidCount,
+    remainingMonths: durationMonths === null ? null : Math.max(0, durationMonths - paidCount),
+    completed,
+    startDueDate: sourceDue,
   };
 }
 
@@ -242,7 +407,7 @@ function normalizeInvestmentTransaction(row: Record<string, unknown>): Investmen
     id: text(row.id),
     assetId: text(row.assetId ?? row.asset_id),
     accountId: text(row.accountId ?? row.account_id),
-    date: text(row.date).slice(0, 10),
+    date: normalizeFinanceDate(row.date),
     type: text(row.type, "buy") as InvestmentTransaction["type"],
     units: number(row.units),
     pricePerUnit: number(row.pricePerUnit ?? row.price_per_unit ?? row.price),
@@ -258,6 +423,27 @@ function normalizeInvestmentTransaction(row: Record<string, unknown>): Investmen
   };
 }
 
+function normalizeEntitlement(raw: unknown): PlanEntitlement {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return freeEntitlement("setup-pending");
+  const source = raw as Record<string, unknown>;
+  const tier = (["free", "pro", "premium"].includes(text(source.tier)) ? text(source.tier) : "free") as PlanTier;
+  const rawCapabilities = source.capabilities && typeof source.capabilities === "object" && !Array.isArray(source.capabilities)
+    ? source.capabilities as Record<string, unknown>
+    : {};
+  const fallback = freeEntitlement(text(source.installationId, "setup-pending"));
+  return {
+    tier,
+    label: text(source.label, tier === "premium" ? "Premium" : tier === "pro" ? "Pro" : "Free"),
+    status: (["free", "active", "expired", "invalid"].includes(text(source.status)) ? text(source.status) : "free") as PlanEntitlement["status"],
+    capabilities: Object.fromEntries(
+      Object.keys(fallback.capabilities).map((capability) => [capability, bool(rawCapabilities[capability])]),
+    ) as Record<PlanCapability, boolean>,
+    installationId: text(source.installationId, "setup-pending"),
+    licenseId: text(source.licenseId) || null,
+    expiresAt: text(source.expiresAt) || null,
+  };
+}
+
 function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
   const source = (raw ?? {}) as Record<string, unknown>;
   const profile = (source.profile ?? {}) as Record<string, unknown>;
@@ -265,6 +451,7 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
   const legacyStoreName = text(profile.storeName ?? profile.store_name, "Financial Planner");
   return {
     configured: source.configured === undefined ? accounts.length > 0 : bool(source.configured),
+    entitlement: normalizeEntitlement(source.entitlement),
     profile: {
       name: text(profile.name, "Pemilik"),
       storeName: legacyStoreName.toUpperCase() === "VINN STORE" ? "Financial Planner" : legacyStoreName,
@@ -275,19 +462,55 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
     transactions: ((source.transactions ?? []) as Record<string, unknown>[]).map(normalizeTransaction),
     budgets: ((source.budgets ?? []) as Record<string, unknown>[]).map(normalizeBudget),
     goals: ((source.goals ?? []) as Record<string, unknown>[]).map(normalizeGoal),
+    sinkingFunds: ((source.sinkingFunds ?? source.sinking_funds ?? []) as Record<string, unknown>[]).map(normalizeSinkingFund),
+    sinkingFundEntries: ((source.sinkingFundEntries ?? source.sinking_fund_entries ?? []) as Record<string, unknown>[]).map(normalizeSinkingFundEntry),
     bills: ((source.bills ?? []) as Record<string, unknown>[]).map((row) => normalizeBill(row, month)),
     categories: ((source.categories ?? []) as Record<string, unknown>[]).map(normalizeCategory),
+    categoryRules: ((source.categoryRules ?? source.category_rules ?? []) as Record<string, unknown>[]).map(normalizeCategoryRule),
     auditLogs: ((source.auditLogs ?? source.audit_logs ?? []) as Record<string, unknown>[]).map(normalizeAuditLog),
     investmentAssets: ((source.investmentAssets ?? source.investment_assets ?? source.assets ?? []) as Record<string, unknown>[]).map(normalizeInvestmentAsset),
     investmentTransactions: ((source.investmentTransactions ?? source.investment_transactions ?? []) as Record<string, unknown>[]).map(normalizeInvestmentTransaction),
+    featurePreferences: normalizeFeaturePreferences(source.featurePreferences ?? source.feature_preferences),
   };
 }
 
 export async function loadFinanceSnapshot(month: string) {
-  const raw = hasAppsScriptBridge()
+  const raw = isFinanceDemoMode()
+    ? demoRequest<unknown>("bootstrap", { month })
+    : hasAppsScriptBridge()
     ? await callAppsScript<unknown>("bootstrap", { month })
     : await webRequest<unknown>(`/api/finance/bootstrap?month=${encodeURIComponent(month)}`);
   return normalizeSnapshot(raw, month);
+}
+
+function normalizeMonthlyClosing(value: unknown, period: string): MonthlyClosing {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const closing = source.closing && typeof source.closing === "object" ? source.closing as Record<string, unknown> : source;
+  return {
+    period: text(closing.period, period),
+    status: closing.status === "closed" ? "closed" : "open",
+    closedAt: text(closing.closedAt ?? closing.closed_at) || null,
+    reopenedAt: text(closing.reopenedAt ?? closing.reopened_at) || null,
+    snapshot: closing.snapshot && typeof closing.snapshot === "object" ? closing.snapshot as MonthlyReview : null,
+  };
+}
+
+export async function loadFinanceMonthlyClosing(period: string) {
+  if (isFinanceDemoMode()) return normalizeMonthlyClosing({}, period);
+  const raw = hasAppsScriptBridge()
+    ? await callAppsScript<unknown>("monthlyClosingStatus", { period })
+    : await webRequest<unknown>(`/api/finance/monthly-closing?period=${encodeURIComponent(period)}`);
+  return normalizeMonthlyClosing(raw, period);
+}
+
+export async function closeFinanceMonthlyBook(period: string, snapshot: MonthlyReview, requestId = `monthly-close:${period}`) {
+  const raw = await mutation<unknown>("closeMonthlyBook", "/api/finance/monthly-closing", { period, snapshot, confirmed: true, requestId });
+  return normalizeMonthlyClosing(raw, period);
+}
+
+export async function reopenFinanceMonthlyBook(period: string, requestId = `monthly-reopen:${period}:${crypto.randomUUID()}`) {
+  const raw = await mutation<unknown>("reopenMonthlyBook", "/api/finance/monthly-closing", { period, requestId }, "DELETE");
+  return normalizeMonthlyClosing(raw, period);
 }
 
 export async function setupFinanceWorkspace(input: SetupWorkspaceInput, month: string) {
@@ -305,6 +528,35 @@ export const updateFinanceProfile = (
   "PATCH",
 );
 
+export const updateFinanceFeaturePreferences = (
+  preferences: FeaturePreferences,
+  requestId = `feature-preferences:${crypto.randomUUID()}`,
+) => mutation<{ preferences: FeaturePreferences }>(
+  "updateFeaturePreferences",
+  "/api/finance/feature-preferences",
+  { preferences, requestId },
+  "PATCH",
+).then((result) => normalizeFeaturePreferences(result.preferences));
+
+export async function loadLicenseStatus(): Promise<PlanEntitlement> {
+  const raw = isFinanceDemoMode()
+    ? demoRequest<unknown>("licenseStatus", {})
+    : hasAppsScriptBridge()
+    ? await callAppsScript<unknown>("licenseStatus", {})
+    : await webRequest<unknown>("/api/finance/license");
+  return normalizeEntitlement(raw);
+}
+
+export async function activateFinanceLicense(token: string): Promise<PlanEntitlement> {
+  const raw = await mutation<unknown>("activateLicense", "/api/finance/license", { token });
+  return normalizeEntitlement(raw);
+}
+
+export async function deactivateFinanceLicense(): Promise<PlanEntitlement> {
+  const raw = await mutation<unknown>("deactivateLicense", "/api/finance/license", {}, "DELETE");
+  return normalizeEntitlement(raw);
+}
+
 const normalizeRoadmapSettings = (value: unknown): RoadmapSettings => {
   const source = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -321,7 +573,9 @@ const normalizeRoadmapSettings = (value: unknown): RoadmapSettings => {
 };
 
 export async function loadFinanceRoadmapSettings() {
-  const raw = hasAppsScriptBridge()
+  const raw = isFinanceDemoMode()
+    ? demoRequest<unknown>("getRoadmapSettings", {})
+    : hasAppsScriptBridge()
     ? await callAppsScript<unknown>("getRoadmapSettings", {})
     : await webRequest<unknown>("/api/finance/roadmap");
   return normalizeRoadmapSettings(raw);
@@ -357,7 +611,7 @@ const normalizeDebtPlanner = (value: unknown): FinanceDebtPlanner => {
 };
 
 export async function loadFinanceDebtPlanner() {
-  const raw = hasAppsScriptBridge() ? await callAppsScript<unknown>("getDebtPlanner", {}) : await webRequest<unknown>("/api/finance/debts");
+  const raw = isFinanceDemoMode() ? demoRequest<unknown>("getDebtPlanner", {}) : hasAppsScriptBridge() ? await callAppsScript<unknown>("getDebtPlanner", {}) : await webRequest<unknown>("/api/finance/debts");
   return normalizeDebtPlanner(raw);
 }
 
@@ -383,7 +637,7 @@ const normalizeCashflowForecastSettings = (value: unknown): CashflowForecastSett
 };
 
 export async function loadFinanceCashflowForecastSettings() {
-  const raw = hasAppsScriptBridge() ? await callAppsScript<unknown>("getCashflowForecastSettings", {}) : await webRequest<unknown>("/api/finance/forecast");
+  const raw = isFinanceDemoMode() ? demoRequest<unknown>("getCashflowForecastSettings", {}) : hasAppsScriptBridge() ? await callAppsScript<unknown>("getCashflowForecastSettings", {}) : await webRequest<unknown>("/api/finance/forecast");
   return normalizeCashflowForecastSettings(raw);
 }
 
@@ -398,7 +652,7 @@ const normalizeEmergencyFundSettings = (value: unknown): EmergencyFundSettings =
   return { targetMonths: ([3,6,9,12].includes(target) ? target : DEFAULT_EMERGENCY_FUND_SETTINGS.targetMonths) as EmergencyFundSettings["targetMonths"], monthlyExpenseOverride: Math.max(0, number(source.monthlyExpenseOverride ?? source.monthly_expense_override)), monthlyContribution: Math.max(0, number(source.monthlyContribution ?? source.monthly_contribution)), accountIds: Array.isArray(source.accountIds) ? source.accountIds.map(String) : [] };
 };
 export async function loadFinanceEmergencyFundSettings() {
-  const raw = hasAppsScriptBridge() ? await callAppsScript<unknown>("getEmergencyFundSettings", {}) : await webRequest<unknown>("/api/finance/emergency-fund");
+  const raw = isFinanceDemoMode() ? demoRequest<unknown>("getEmergencyFundSettings", {}) : hasAppsScriptBridge() ? await callAppsScript<unknown>("getEmergencyFundSettings", {}) : await webRequest<unknown>("/api/finance/emergency-fund");
   return normalizeEmergencyFundSettings(raw);
 }
 export async function updateFinanceEmergencyFundSettings(settings: EmergencyFundSettings, requestId = `emergency-fund:${crypto.randomUUID()}`) {
@@ -412,14 +666,14 @@ const normalizeRecurringTemplate = (value: unknown): RecurringTemplate => {
     id: text(row.id), name: text(row.name, "Transaksi rutin"), type: text(row.type) === "income" ? "income" : "expense",
     amount: Math.max(0, number(row.amount)), category: text(row.category, "Lainnya"), accountId: text(row.accountId ?? row.account_id),
     frequency: (["weekly", "monthly", "quarterly", "yearly"].includes(text(row.frequency)) ? text(row.frequency) : "monthly") as RecurringTemplate["frequency"],
-    startDate: text(row.startDate ?? row.start_date).slice(0, 10), nextDueDate: text(row.nextDueDate ?? row.next_due_date).slice(0, 10),
+    startDate: normalizeFinanceDate(row.startDate ?? row.start_date), nextDueDate: normalizeFinanceDate(row.nextDueDate ?? row.next_due_date),
     isSubscription: bool(row.isSubscription ?? row.is_subscription), active: row.active === undefined ? true : bool(row.active),
     lastPostedDate: text(row.lastPostedDate ?? row.last_posted_date) || null, updatedAt: text(row.updatedAt ?? row.updated_at) || undefined,
   };
 };
 
 export async function loadFinanceRecurringTemplates() {
-  const raw = hasAppsScriptBridge() ? await callAppsScript<unknown>("listRecurring", {}) : await webRequest<unknown>("/api/finance/recurring");
+  const raw = isFinanceDemoMode() ? demoRequest<unknown>("listRecurring", {}) : hasAppsScriptBridge() ? await callAppsScript<unknown>("listRecurring", {}) : await webRequest<unknown>("/api/finance/recurring");
   const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   const rows = Array.isArray(source.templates) ? source.templates : Array.isArray(source.items) ? source.items : [];
   return rows.map(normalizeRecurringTemplate);
@@ -474,6 +728,16 @@ export const createFinanceTransaction = (transaction: Transaction) =>
     status: transaction.status,
   });
 
+export const createFinanceLoanDrawdown = (payload: LoanDrawdownInput) =>
+  mutation<{
+    transactionId: string;
+    cashReceived: number;
+    totalObligation: number;
+    financingCost: number;
+    duplicate?: boolean;
+    replayed?: boolean;
+  }>("recordLoanDrawdown", "/api/finance/loan-drawdown", payload);
+
 export const updateFinanceTransaction = (transaction: Transaction, requestId = `transaction-update:${crypto.randomUUID()}`) =>
   mutation("updateTransaction", `/api/finance/transactions/${encodeURIComponent(transaction.id)}`, {
     requestId,
@@ -519,8 +783,10 @@ export type TransactionListResult = {
 };
 
 export async function loadFinanceTransactions(filters: TransactionListFilters): Promise<TransactionListResult> {
-  if (hasAppsScriptBridge()) {
-    const raw = await callAppsScript<{ items?: Record<string, unknown>[]; transactions?: Record<string, unknown>[]; page?: number; pageSize?: number; total?: number; totalPages?: number }>("listTransactions", filters);
+  if (isFinanceDemoMode() || hasAppsScriptBridge()) {
+    const raw = isFinanceDemoMode()
+      ? demoRequest<{ items?: Record<string, unknown>[]; transactions?: Record<string, unknown>[]; page?: number; pageSize?: number; total?: number; totalPages?: number }>("listTransactions", filters)
+      : await callAppsScript<{ items?: Record<string, unknown>[]; transactions?: Record<string, unknown>[]; page?: number; pageSize?: number; total?: number; totalPages?: number }>("listTransactions", filters);
     const rows = raw.items ?? raw.transactions ?? [];
     const pageSize = number(raw.pageSize) || filters.pageSize || 25;
     const total = number(raw.total) || rows.length;
@@ -546,6 +812,7 @@ const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
 });
 
 export async function uploadFinanceTransactionReceipt(transactionId: string, file: File) {
+  if (isFinanceDemoMode()) return demoRequest("attachTransactionReceipt", { transactionId, filename: file.name, contentType: file.type });
   if (hasAppsScriptBridge()) {
     return callAppsScript("attachTransactionReceipt", { transactionId, filename: file.name, contentType: file.type, contentBase64: await fileToBase64(file) });
   }
@@ -584,6 +851,30 @@ export const deleteFinanceGoal = (goalId: string) =>
 export const contributeFinanceGoal = (goalId: string, amount: number, mode: "add" | "withdraw" = "add") =>
   mutation("contributeGoal", `/api/finance/goals/${encodeURIComponent(goalId)}/contribute`, { goalId, amount, mode });
 
+export const createFinanceSinkingFund = (payload: Record<string, unknown>) =>
+  mutation("createSinkingFund", "/api/finance/sinking-funds", payload);
+
+export const updateFinanceSinkingFund = (fundId: string, payload: Record<string, unknown>) =>
+  mutation("updateSinkingFund", `/api/finance/sinking-funds/${encodeURIComponent(fundId)}`, { ...payload, fundId }, "PATCH");
+
+export const archiveFinanceSinkingFund = (fundId: string) =>
+  mutation("archiveSinkingFund", `/api/finance/sinking-funds/${encodeURIComponent(fundId)}`, { fundId }, "DELETE");
+
+export const adjustFinanceSinkingFund = (
+  fundId: string,
+  amount: number,
+  type: "allocate" | "release",
+  date: string,
+  note = "",
+) => mutation("adjustSinkingFund", `/api/finance/sinking-funds/${encodeURIComponent(fundId)}/entries`, {
+  fundId,
+  amount,
+  type,
+  date,
+  note,
+  requestId: `fund-entry:${fundId}:${crypto.randomUUID()}`,
+});
+
 export const createFinanceBill = (payload: Record<string, unknown>) =>
   mutation("createBill", "/api/finance/bills", payload);
 
@@ -620,6 +911,18 @@ export const archiveFinanceCategory = (categoryId: string) =>
     requestId: `category-archive:${categoryId}`,
   });
 
+export const createFinanceCategoryRule = (payload: Omit<CategoryRule, "id" | "createdAt" | "updatedAt">, requestId = `category-rule-create:${crypto.randomUUID()}`) =>
+  mutation("createCategoryRule", "/api/finance/category-rules", { ...payload, requestId });
+
+export const updateFinanceCategoryRule = (ruleId: string, payload: Omit<CategoryRule, "id" | "createdAt" | "updatedAt">, requestId = `category-rule-update:${crypto.randomUUID()}`) =>
+  mutation("updateCategoryRule", "/api/finance/category-rules", { ...payload, ruleId, requestId }, "PATCH");
+
+export const deleteFinanceCategoryRule = (ruleId: string) =>
+  mutation("deleteCategoryRule", "/api/finance/category-rules", {
+    ruleId,
+    requestId: `category-rule-delete:${ruleId}`,
+  }, "DELETE");
+
 export const reconcileFinanceAccount = (accountId: string, actualBalance: number, date: string, note: string, requestId: string) =>
   mutation("reconcileAccount", `/api/finance/accounts/${encodeURIComponent(accountId)}/reconcile`, {
     accountId,
@@ -630,9 +933,11 @@ export const reconcileFinanceAccount = (accountId: string, actualBalance: number
     requestId,
   });
 
-export const loadFinanceLedgerHealth = () => hasAppsScriptBridge()
-  ? callAppsScript<LedgerHealthReport>("inspectLedger", {})
-  : webRequest<LedgerHealthReport>("/api/finance/ledger");
+export const loadFinanceLedgerHealth = () => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<LedgerHealthReport>("inspectLedger", {}))
+  : hasAppsScriptBridge()
+    ? callAppsScript<LedgerHealthReport>("inspectLedger", {})
+    : webRequest<LedgerHealthReport>("/api/finance/ledger");
 
 export const repairFinanceLedger = (expectedRevision: string, requestId = `ledger-repair:${crypto.randomUUID()}`) =>
   mutation<LedgerHealthReport>("repairLedger", "/api/finance/ledger", { expectedRevision, requestId });
@@ -646,32 +951,42 @@ export const updateFinanceInvestmentAsset = (assetId: string, payload: Record<st
 export const createFinanceInvestmentTrade = (payload: Record<string, unknown>, requestId = `investment-trade:${crypto.randomUUID()}`) =>
   mutation("createInvestmentTrade", "/api/finance/investments/transactions", { ...payload, requestId });
 
-export const getFinanceAiSettings = () => hasAppsScriptBridge()
-  ? callAppsScript<AiSettingsStatus>("aiSettings", {})
-  : webRequest<AiSettingsStatus>("/api/finance/ai/settings");
+export const getFinanceAiSettings = () => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<AiSettingsStatus>("aiSettings", {}))
+  : hasAppsScriptBridge()
+    ? callAppsScript<AiSettingsStatus>("aiSettings", {})
+    : webRequest<AiSettingsStatus>("/api/finance/ai/settings");
 
 export const updateFinanceAiSettings = (payload: {
   enabled: boolean;
   consentAccepted: boolean;
+  baseUrl?: string;
+  model?: string;
   apiKey?: string;
   removeApiKey?: boolean;
-}) => hasAppsScriptBridge()
-  ? callAppsScript<AiSettingsStatus>("updateAiSettings", payload)
-  : webRequest<AiSettingsStatus>("/api/finance/ai/settings", {
+}) => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<AiSettingsStatus>("updateAiSettings", payload))
+  : hasAppsScriptBridge()
+    ? callAppsScript<AiSettingsStatus>("updateAiSettings", payload)
+    : webRequest<AiSettingsStatus>("/api/finance/ai/settings", {
       method: "PUT",
       body: JSON.stringify(payload),
     });
 
-export const loadFinanceAiMessages = () => hasAppsScriptBridge()
-  ? callAppsScript<{ messages: AiChatMessage[] }>("aiHistory", {})
-  : webRequest<{ messages: AiChatMessage[] }>("/api/finance/ai/assistant");
+export const loadFinanceAiMessages = () => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<{ messages: AiChatMessage[] }>("aiHistory", {}))
+  : hasAppsScriptBridge()
+    ? callAppsScript<{ messages: AiChatMessage[] }>("aiHistory", {})
+    : webRequest<{ messages: AiChatMessage[] }>("/api/finance/ai/assistant");
 
 export const askFinanceAi = (question: string, period: string) =>
   mutation<AiAnswer>("askAi", "/api/finance/ai/assistant", { question, period });
 
-export const clearFinanceAiMessages = () => hasAppsScriptBridge()
-  ? callAppsScript<{ cleared: boolean }>("clearAiHistory", {})
-  : webRequest<{ cleared: boolean }>("/api/finance/ai/assistant", { method: "DELETE" });
+export const clearFinanceAiMessages = () => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<{ cleared: boolean }>("clearAiHistory", {}))
+  : hasAppsScriptBridge()
+    ? callAppsScript<{ cleared: boolean }>("clearAiHistory", {})
+    : webRequest<{ cleared: boolean }>("/api/finance/ai/assistant", { method: "DELETE" });
 
 export const scanFinanceReceipt = (payload: {
   imageBase64: string;
@@ -683,9 +998,11 @@ export const scanFinanceReceipt = (payload: {
   payload,
 );
 
-export const loadFinanceReports = () => hasAppsScriptBridge()
-  ? callAppsScript<{ reports: ExportRecord[] }>("listReports", {})
-  : webRequest<{ reports: ExportRecord[] }>("/api/finance/reports");
+export const loadFinanceReports = () => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<{ reports: ExportRecord[] }>("listReports", {}))
+  : hasAppsScriptBridge()
+    ? callAppsScript<{ reports: ExportRecord[] }>("listReports", {})
+    : webRequest<{ reports: ExportRecord[] }>("/api/finance/reports");
 
 export const saveFinanceReport = (payload: {
   filename: string;
@@ -696,22 +1013,28 @@ export const saveFinanceReport = (payload: {
   pageCount: number;
 }) => mutation<ExportRecord>("saveReportPdf", "/api/finance/reports", payload);
 
-export const loadFinanceBackups = () => hasAppsScriptBridge()
-  ? callAppsScript<BackupOverview>("backupOverview", {})
-  : webRequest<BackupOverview>("/api/finance/backups");
+export const loadFinanceBackups = () => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<BackupOverview>("backupOverview", {}))
+  : hasAppsScriptBridge()
+    ? callAppsScript<BackupOverview>("backupOverview", {})
+    : webRequest<BackupOverview>("/api/finance/backups");
 
 export const createFinanceBackup = () => mutation<ExportRecord>("createBackup", "/api/finance/backups", {});
 
-export const updateFinanceBackupSchedule = (enabled: boolean, frequency: BackupSchedule["frequency"]) => hasAppsScriptBridge()
-  ? callAppsScript<BackupOverview>("updateBackupSchedule", { enabled, frequency })
-  : webRequest<BackupOverview>("/api/finance/backups", {
+export const updateFinanceBackupSchedule = (enabled: boolean, frequency: BackupSchedule["frequency"]) => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<BackupOverview>("updateBackupSchedule", { enabled, frequency }))
+  : hasAppsScriptBridge()
+    ? callAppsScript<BackupOverview>("updateBackupSchedule", { enabled, frequency })
+    : webRequest<BackupOverview>("/api/finance/backups", {
       method: "PUT",
       body: JSON.stringify({ enabled, frequency }),
     });
 
-export const loadFinanceMigrations = () => hasAppsScriptBridge()
-  ? callAppsScript<{ migrations: MigrationPreview[] }>("migrationHistory", {})
-  : webRequest<{ migrations: MigrationPreview[] }>("/api/finance/migrations");
+export const loadFinanceMigrations = () => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<{ migrations: MigrationPreview[] }>("migrationHistory", {}))
+  : hasAppsScriptBridge()
+    ? callAppsScript<{ migrations: MigrationPreview[] }>("migrationHistory", {})
+    : webRequest<{ migrations: MigrationPreview[] }>("/api/finance/migrations");
 
 export const previewFinanceMigration = (sourceName: string, backup: Record<string, unknown>) => mutation<MigrationPreview>(
   "previewMigration",
@@ -731,13 +1054,17 @@ export const cancelFinanceMigration = (migrationId: string) => mutation<Migratio
   { migrationId },
 );
 
-export const loadFinanceNotifications = (period: string) => hasAppsScriptBridge()
-  ? callAppsScript<NotificationOverview>("notificationOverview", { period })
-  : webRequest<NotificationOverview>(`/api/finance/notifications?period=${encodeURIComponent(period)}`);
+export const loadFinanceNotifications = (period: string) => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<NotificationOverview>("notificationOverview", { period }))
+  : hasAppsScriptBridge()
+    ? callAppsScript<NotificationOverview>("notificationOverview", { period })
+    : webRequest<NotificationOverview>(`/api/finance/notifications?period=${encodeURIComponent(period)}`);
 
-export const updateFinanceNotificationSettings = (settings: NotificationSettings) => hasAppsScriptBridge()
-  ? callAppsScript<{ settings: NotificationSettings }>("updateNotificationSettings", settings)
-  : webRequest<{ settings: NotificationSettings }>("/api/finance/notifications", {
+export const updateFinanceNotificationSettings = (settings: NotificationSettings) => isFinanceDemoMode()
+  ? Promise.resolve(demoRequest<{ settings: NotificationSettings }>("updateNotificationSettings", settings))
+  : hasAppsScriptBridge()
+    ? callAppsScript<{ settings: NotificationSettings }>("updateNotificationSettings", settings)
+    : webRequest<{ settings: NotificationSettings }>("/api/finance/notifications", {
       method: "PUT",
       body: JSON.stringify(settings),
     });
@@ -748,9 +1075,11 @@ export const updateFinanceNotificationStates = (notificationIds: string[], actio
   { notificationIds, action },
 );
 
-export const financeBackendLabel = () => hasAppsScriptBridge() ? "Google Sheets" : "Cloud database";
+export const financeBackendLabel = () => isFinanceDemoMode() ? "Penyimpanan demo lokal" : hasAppsScriptBridge() ? "Google Sheets" : "Cloud database";
 
-export const loadFinanceSecurity = (): Promise<FinanceSecurityStatus> => hasAppsScriptBridge()
+export const loadFinanceSecurity = (): Promise<FinanceSecurityStatus> => isFinanceDemoMode()
+  ? Promise.resolve(demoSecurityStatus() as FinanceSecurityStatus)
+  : hasAppsScriptBridge()
   ? Promise.resolve({
       authenticated: true,
       displayName: "Pemilik Google Apps Script",

@@ -27,7 +27,7 @@ export function routeError(error: unknown): Response {
   }
 
   const message = error instanceof Error ? error.message : "Unexpected error";
-  if (message.includes("no such table")) {
+  if (message.includes("no such table") || message.includes("no such column")) {
     return Response.json(
       {
         error: {

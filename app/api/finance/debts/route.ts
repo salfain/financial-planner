@@ -2,6 +2,7 @@ import { getD1 } from "@/db";
 import { DEFAULT_DEBT_SETTINGS, type DebtStrategy } from "@/lib/debt";
 import { auditStatement } from "../../_lib/audit";
 import { ApiError, nowIso, readJsonObject, requiredString, resolveWorkspaceId, routeError } from "../../_lib/api";
+import { requireCapability } from "../../_lib/license";
 import { requireWorkspace } from "../../_lib/repository";
 
 type SettingsRow = { strategy: DebtStrategy; extraMonthlyPayment: number };
@@ -53,6 +54,7 @@ export async function PATCH(request: Request) {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "planning");
     const requestId = requiredString(payload, "requestId", 120);
     const mode = requiredString(payload, "mode", 20);
     if (!new Set(["settings", "debt"]).has(mode)) throw new ApiError(400, "INVALID_MODE", "Mode perubahan tidak valid.");

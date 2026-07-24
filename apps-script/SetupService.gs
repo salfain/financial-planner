@@ -12,6 +12,7 @@ function setupFinancialPlanner() {
       ['schema_version', VINN_CONFIG.SCHEMA_VERSION, nowIso_()],
       ['currency', VINN_CONFIG.CURRENCY, nowIso_()],
       ['timezone', VINN_CONFIG.TIMEZONE, nowIso_()],
+      ['feature_preferences', JSON.stringify(normalizeFeaturePreferencesGs_({})), nowIso_()],
       ['setup_completed', 'true', nowIso_()]
     ].filter(function(row) { return existingKeys.indexOf(row[0]) === -1; });
     if (defaults.length) settingsSheet.getRange(settingsSheet.getLastRow() + 1, 1, defaults.length, 3).setValues(defaults);
@@ -115,7 +116,8 @@ function apiHealthCheck() {
       appName: VINN_CONFIG.APP_NAME,
       schemaVersion: VINN_CONFIG.SCHEMA_VERSION,
       edition: 'single-owner',
-      installationId: properties.getProperty('FINANCIAL_PLANNER_INSTALLATION_ID') || null,
+      installationId: licenseInstallationId_(),
+      entitlement: licenseStatus_(),
       sheets: results
     });
   } catch (error) { return fail_(error); }

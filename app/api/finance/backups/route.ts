@@ -1,5 +1,6 @@
 import type { BackupSchedule } from "@/lib/portability";
 import { booleanValue, enumValue, readJsonObject, resolveWorkspaceId, routeError } from "../../_lib/api";
+import { requireCapability } from "../../_lib/license";
 import { createBackup, getBackupOverview, updateBackupSchedule } from "../../_lib/portability";
 
 const frequencies = ["daily", "weekly", "monthly"] as const;
@@ -26,6 +27,7 @@ export async function PUT(request: Request) {
   try {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
+    await requireCapability(workspaceId, "scheduled_backup");
     const enabled = booleanValue(payload, "enabled");
     const frequency = enumValue(payload, "frequency", frequencies) as BackupSchedule["frequency"];
     return Response.json(await updateBackupSchedule(workspaceId, enabled, frequency));

@@ -113,6 +113,55 @@
       "when": 1784530489779,
       "tag": "0015_sticky_chamber",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1784559850574,
+      "tag": "0016_regular_black_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1784629171256,
+      "tag": "0017_brainy_annihilus",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1784785461629,
+      "tag": "0018_nebulous_proemial_gods",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1784795225078,
+      "tag": "0019_dear_whistler",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1784796469747,
+      "tag": "0020_massive_living_mummy",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1784815741131,
+      "tag": "0021_majestic_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1784816949405,
+      "tag": "0022_robust_smasher",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,7 @@ const sources = readdirSync(appsScriptDirectory)
   .map((file) => readFileSync(join(appsScriptDirectory, file), "utf8"));
 const combinedSource = sources.join("\n");
 for (const action of [
+  "mutationStatus",
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
   "importAccounts", "updateAccount", "updateProfile", "getRoadmapSettings", "updateRoadmapSettings",
   "updateBudget", "deleteBudget", "updateGoal", "deleteGoal", "contributeGoal", "updateBill", "deleteBill",
@@ -99,6 +100,8 @@ const context = vm.createContext({
       return iso;
     },
     base64Decode: (value) => [...Buffer.from(value, "base64")],
+    base64DecodeWebSafe: (value) => [...Buffer.from(value, "base64url")],
+    base64EncodeWebSafe: (value) => Buffer.from(value).toString("base64url"),
     newBlob: (value, contentType, name) => makeBlob(value, contentType, name),
     DigestAlgorithm: { SHA_256: "SHA_256" },
     Charset: { UTF_8: "UTF_8" },
@@ -113,6 +116,7 @@ const context = vm.createContext({
     getRootFolder: () => rootFolder,
   },
   ScriptApp: {
+    getScriptId: () => "script-id",
     getProjectTriggers: () => [...triggers],
     deleteTrigger: (trigger) => { const index = triggers.indexOf(trigger); if (index >= 0) triggers.splice(index, 1); },
     newTrigger: (handler) => ({
@@ -124,6 +128,7 @@ const context = vm.createContext({
     getDocumentProperties: () => ({
       getProperty: (key) => properties.get(key) ?? null,
       setProperty: (key, value) => properties.set(key, value),
+      deleteProperty: (key) => properties.delete(key),
     }),
     getUserProperties: () => ({
       getProperty: (key) => userProperties.get(key) ?? null,
@@ -134,7 +139,9 @@ const context = vm.createContext({
   UrlFetchApp: {
     fetch: (_url, options) => {
       const payload = JSON.parse(options.payload);
-      const isOcr = JSON.stringify(payload).includes("inlineData");
+      assert.match(_url, /\/chat\/completions$/);
+      assert.match(options.headers.Authorization, /^Bearer /);
+      const isOcr = JSON.stringify(payload).includes("image_url");
       const text = isOcr
         ? JSON.stringify({
             merchant: "VINN Mart", date: "2026-07-18", total: 125000,
@@ -145,7 +152,7 @@ const context = vm.createContext({
         : "Fakta: Arus kas bulan 2026-07 positif.\nPerhitungan: berdasarkan ringkasan terpilih.\nSaran umum: pertahankan anggaran.";
       return {
         getResponseCode: () => 200,
-        getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }),
+        getContentText: () => JSON.stringify({ choices: [{ message: { content: text } }] }),
       };
     },
   },
@@ -160,6 +167,10 @@ const context = vm.createContext({
 });
 
 new vm.Script(combinedSource, { filename: "apps-script/combined.gs" }).runInContext(context);
+const gasLicenseTestSignature = "OmpvKf8hW7zw7hWD1Sd0U-MpSQAy8Ei0Z6KL7QWKCGxgamaqGDsf3Lm-0L2TOVNG2uwdQcHlNPSmRCMvnTTX7ioku4zmmaWxSiE6FA6o3TopX08Mhi3NU1uf2whBfo32Zb4Dp2maOx68Ok4cWamnvjhoqONk4i5sJaGvabqYuusgJXWuTy_9IBM8J89slkSZWnDFQLkqOwoHQBaaEubMuBIIN_VN7MCaA1GmFyBp-25BLDdBVQncT87n04IK0rZmjFljsGDviuIbamA_LMgIb4e10rptQ1NBP2JeV_rQaBSJ1I4qjBmppTLk-nMVlWuPRfRQKCctTZjkrrgoU67Jfw";
+context.gasLicenseTestSignature = gasLicenseTestSignature;
+assert.equal(vm.runInContext(`rsaSha256Valid_("financial-planner-license-test-vector", gasLicenseTestSignature)`, context), true);
+assert.equal(vm.runInContext(`rsaSha256Valid_("financial-planner-license-test-vector-tampered", gasLicenseTestSignature)`, context), false);
 vm.runInContext(`
   rowsAsObjects_ = function(name) {
     return (sheets[name] || []).map(function(row, index) {
@@ -183,9 +194,19 @@ vm.runInContext(`
   mockSheet_ = function(name) {
     return {
       getLastRow: function() { return (sheets[name] || []).length + 1; },
+      getLastColumn: function() { return (VINN_CONFIG.HEADERS[name] || []).length; },
       deleteRow: function(rowNumber) { sheets[name].splice(rowNumber - 2, 1); },
-      getRange: function(row, column, rowCount) {
+      getRange: function(row, column, rowCount, columnCount) {
         return {
+          getValues: function() {
+            const headers = VINN_CONFIG.HEADERS[name] || [];
+            return Array.from({ length: rowCount || 1 }, function(_, offset) {
+              const sourceRow = row + offset;
+              if (sourceRow === 1) return headers.slice(column - 1, column - 1 + (columnCount || headers.length));
+              const record = sheets[name][sourceRow - 2] || {};
+              return headers.slice(column - 1, column - 1 + (columnCount || headers.length)).map(function(header) { return record[header] === undefined ? '' : record[header]; });
+            });
+          },
           setValues: function(values) {
             writes.push({ sheet: name, row: row, count: values.length });
             const headers = VINN_CONFIG.HEADERS[name];
@@ -452,11 +473,35 @@ assert.equal(result.data.configured, false);
 result = invoke(`apiUpdateAiSettings({ enabled: true, consentAccepted: true })`);
 assert.equal(result.ok, false);
 assert.equal(result.error.code, "AI_NOT_CONFIGURED");
-result = invoke(`apiUpdateAiSettings({ enabled: true, consentAccepted: true, apiKey: "test-gemini-key-1234567890" })`);
+result = invoke(`apiUpdateAiSettings({ enabled: true, consentAccepted: true, baseUrl: "https://api.example.com/v1", model: "default", apiKey: "test-universal-key-1234567890" })`);
 assert.equal(result.ok, true);
 assert.equal(result.data.configured, true);
 assert.equal(result.data.enabled, true);
-assert.equal(JSON.stringify(result.data).includes("test-gemini-key"), false);
+assert.equal(result.data.baseUrl, "https://api.example.com/v1");
+assert.equal(result.data.model, "default");
+assert.equal(JSON.stringify(result.data).includes("test-universal-key"), false);
+
+result = invoke(`apiMutationStatus({ requestId: "cat-create" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.completed, true);
+assert.equal(result.data.module, "categories");
+result = invoke(`apiMutationStatus({ requestId: "not-recorded" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.completed, false);
+
+result = invoke(`buildAiContext_("2026-07", "Gimana caranya bertahan dalam 2 bulan ke depan?")`);
+assert.equal(result.context.financialPosition.activeAccountCount > 0, true);
+assert.equal(Number.isFinite(result.context.financialPosition.netWorth), true);
+assert.equal(
+  result.context.financialPosition.netWorth,
+  result.context.financialPosition.assets - result.context.financialPosition.liabilities,
+);
+assert.equal(result.context.dataAvailability.transactionCount > 0, true);
+assert.equal(result.context.runway.calculable, true);
+assert.equal(result.manifest.includes("Posisi keuangan agregat"), true);
+assert.equal(result.manifest.includes("Saldo akun terpilih"), true);
+assert.equal(result.manifest.includes("Anggaran aktif"), true);
+assert.equal(result.manifest.includes("Tagihan"), true);
 
 result = invoke(`apiAskAi({ requestId: "ai-ask-1", question: "Mengapa saldo saya turun?", period: "2026-07" })`);
 assert.equal(result.ok, true);
@@ -517,6 +562,17 @@ result = invoke(`setupVinnStore()`);
 assert.equal(result.ok, true);
 assert.equal(result.data.installationId, properties.get("FINANCIAL_PLANNER_INSTALLATION_ID"));
 assert.equal(sheets.Categories.length, categoryCountAfterMigration);
+
+result = invoke(`api("licenseStatus", {})`);
+assert.equal(result.ok, true);
+assert.equal(result.data.tier, "free");
+assert.match(result.data.installationId, /^inst-/);
+result = invoke(`api("activateLicense", { requestId: "license-invalid-1", token: "invalid" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "LICENSE_MALFORMED");
+result = invoke(`api("createRecurring", { requestId: "recurring-free-1" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "FEATURE_NOT_INCLUDED");
 
 result = invoke(`apiUpdateBackupSchedule({ enabled: true, frequency: "weekly" })`);
 assert.equal(result.ok, true);
@@ -592,6 +648,23 @@ assert.equal(Number(result.data.bill.amount), 225000);
 result = invoke(`apiDeleteBill({ requestId: "bill-delete-1", billId: "${editableBillId}" })`);
 assert.equal(result.ok, true);
 assert.equal(sheets.Bills.some((bill) => bill.id === editableBillId), false);
+
+const cashBeforeInstallments = invoke(`accountCurrentBalance_(findById_("Accounts", "source"), rowsAsObjects_("Transactions"))`);
+const debtBeforeInstallments = invoke(`accountCurrentBalance_(findById_("Accounts", "debt-down"), rowsAsObjects_("Transactions"))`);
+result = invoke(`apiCreateBill({ requestId: "installment-create-1", name: "Cicilan Perangkat", amount: 10, category: "Tagihan", accountId: "source", liabilityAccountId: "debt-down", durationMonths: 2, frequency: "monthly", dueDate: "2026-08-15", reminderDays: [3, 1, 0] })`);
+assert.equal(result.ok, true);
+const installmentBillId = result.data.bill.id;
+assert.equal(Number(result.data.bill.duration_months), 2);
+result = invoke(`apiMarkBillPaid({ requestId: "installment-pay-1", billId: "${installmentBillId}", period: "2026-08", date: "2026-08-15" })`);
+assert.equal(result.ok, true);
+assert.equal(Number(result.data.bill.paid_count), 1);
+assert.equal(sheets.Transactions.filter((transaction) => transaction.request_id === "installment-pay-1").length, 2);
+result = invoke(`apiMarkBillPaid({ requestId: "installment-pay-2", billId: "${installmentBillId}", period: "2026-09", date: "2026-09-15" })`);
+assert.equal(result.ok, true);
+assert.equal(Number(result.data.bill.paid_count), 2);
+assert.equal(result.data.bill.status, "completed");
+assert.equal(invoke(`accountCurrentBalance_(findById_("Accounts", "source"), rowsAsObjects_("Transactions"))`), cashBeforeInstallments - 20);
+assert.equal(invoke(`accountCurrentBalance_(findById_("Accounts", "debt-down"), rowsAsObjects_("Transactions"))`), debtBeforeInstallments - 20);
 
 context.migrationSource = {
   format: "vinn-store-backup",

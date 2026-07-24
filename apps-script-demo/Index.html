@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="id" class="finance-demo">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f6f4">
+    <title>Financial Planner Demo</title>
+    <script>
+      window.__FINANCE_DEMO__ = true;
+      window.__FINANCE_DEMO_WHATSAPP_URL__ = <?!= JSON.stringify(whatsappUrl) ?>;
+    </script>
+    <?!= include('Styles'); ?>
+  </head>
+  <body>
+    <div id="root">
+      <div class="gas-bridge-status gas-bridge-status--connecting" role="status">
+        <span aria-hidden="true"></span>
+        Menyiapkan Financial Planner Demo…
+      </div>
+    </div>
+    <noscript>Financial Planner memerlukan JavaScript untuk menjalankan dashboard.</noscript>
+    <?!= include('Frontend'); ?>
+  </body>
+</html>

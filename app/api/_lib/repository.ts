@@ -1,6 +1,9 @@
 import { getD1 } from "@/db";
 import { fromUnitMicro, INVESTMENT_UNIT_SCALE } from "@/lib/investment";
+import { freeEntitlement } from "@/lib/plans";
+import { normalizeFeaturePreferences } from "@/lib/feature-preferences";
 import { ApiError } from "./api";
+import { getEntitlement } from "./license";
 
 type WorkspaceRow = {
   id: string;
@@ -10,6 +13,8 @@ type WorkspaceRow = {
   timezone: string;
   configured: number;
   configuredAt: string | null;
+  installationId: string | null;
+  licenseToken: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -70,6 +75,31 @@ type GoalRow = {
   icon: string;
 };
 
+export type SinkingFundRow = {
+  id: string;
+  name: string;
+  purpose: string;
+  targetAmount: number;
+  currentAmount: number;
+  monthlyContribution: number;
+  targetDate: string;
+  accountId: string;
+  color: string;
+  active: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SinkingFundEntryRow = {
+  id: string;
+  fundId: string;
+  type: "allocate" | "release";
+  amount: number;
+  date: string;
+  note: string;
+  createdAt: string;
+};
+
 type BillRow = {
   id: string;
   name: string;
@@ -81,6 +111,10 @@ type BillRow = {
   reminderDays: string;
   paid: number;
   lastPaidPeriod: string | null;
+  liabilityAccountId: string | null;
+  durationMonths: number | null;
+  paidCount: number;
+  completed: number;
 };
 
 export type CategoryRow = {
@@ -178,10 +212,23 @@ export const goalSelect = `
   SELECT id, name, target, current, deadline, color, icon
   FROM goals
 `;
+export const sinkingFundSelect = `
+  SELECT id, name, purpose, target_amount AS targetAmount,
+         current_amount AS currentAmount, monthly_contribution AS monthlyContribution,
+         target_date AS targetDate, account_id AS accountId, color, active,
+         created_at AS createdAt, updated_at AS updatedAt
+  FROM sinking_funds
+`;
+export const sinkingFundEntrySelect = `
+  SELECT id, fund_id AS fundId, type, amount, date, note, created_at AS createdAt
+  FROM sinking_fund_entries
+`;
 export const billSelect = `
   SELECT id, name, amount, due_date AS dueDate, category, account_id AS accountId,
          frequency, reminder_days AS reminderDays, paid,
-         last_paid_period AS lastPaidPeriod
+         last_paid_period AS lastPaidPeriod,
+         liability_account_id AS liabilityAccountId,
+         duration_months AS durationMonths, paid_count AS paidCount, completed
   FROM bills
 `;
 export const categorySelect = `
@@ -287,6 +334,8 @@ export const serializeBudget = (row: BudgetRow) => ({
   color: row.color,
 });
 export const serializeGoal = (row: GoalRow) => row;
+export const serializeSinkingFund = (row: SinkingFundRow) => ({ ...row, active: Boolean(row.active) });
+export const serializeSinkingFundEntry = (row: SinkingFundEntryRow) => row;
 export const serializeBill = (row: BillRow, period?: string) => ({
   id: row.id,
   name: row.name,
@@ -296,8 +345,13 @@ export const serializeBill = (row: BillRow, period?: string) => ({
   accountId: row.accountId,
   frequency: row.frequency,
   reminderDays: String(row.reminderDays || "7,3,1,0").split(",").map(Number).filter((value) => Number.isSafeInteger(value) && value >= 0),
-  paid: period ? row.lastPaidPeriod === period : Boolean(row.paid),
+  paid: Boolean(row.completed) || (period ? row.lastPaidPeriod === period : Boolean(row.paid)),
   lastPaidPeriod: row.lastPaidPeriod,
+  liabilityAccountId: row.liabilityAccountId,
+  durationMonths: row.durationMonths,
+  paidCount: Number(row.paidCount || 0),
+  remainingMonths: row.durationMonths === null ? null : Math.max(0, row.durationMonths - Number(row.paidCount || 0)),
+  completed: Boolean(row.completed),
 });
 export const serializeCategory = (row: CategoryRow) => ({
   id: row.id,
@@ -386,7 +440,8 @@ export async function getWorkspace(workspaceId: string): Promise<WorkspaceRow | 
   const row = await getD1()
     .prepare(
       `SELECT id, profile_name AS name, store_name AS storeName, currency, timezone, configured,
-              configured_at AS configuredAt, created_at AS createdAt, updated_at AS updatedAt
+              configured_at AS configuredAt, installation_id AS installationId,
+              license_token AS licenseToken, created_at AS createdAt, updated_at AS updatedAt
        FROM workspaces WHERE id = ? LIMIT 1`,
     )
     .bind(workspaceId)
@@ -430,11 +485,26 @@ export async function getBootstrap(workspaceId: string, period?: string) {
   const investmentTransactionsStatement = d1
     .prepare(`${investmentTransactionSelect} WHERE workspace_id = ? ORDER BY date DESC, created_at DESC, id DESC LIMIT 200`)
     .bind(workspaceId);
+  const categoryRulesStatement = d1
+    .prepare(`SELECT id, keyword, category, transaction_type AS transactionType,
+      match_type AS matchType, priority, active, created_at AS createdAt, updated_at AS updatedAt
+      FROM category_rules WHERE workspace_id = ? ORDER BY active DESC, priority DESC, keyword, id`)
+    .bind(workspaceId);
+  const sinkingFundsStatement = d1
+    .prepare(`${sinkingFundSelect} WHERE workspace_id = ? AND active = 1 ORDER BY target_date, created_at, id`)
+    .bind(workspaceId);
+  const sinkingFundEntriesStatement = d1
+    .prepare(`${sinkingFundEntrySelect} WHERE workspace_id = ? ORDER BY date DESC, created_at DESC, id DESC LIMIT 200`)
+    .bind(workspaceId);
+  const featurePreferencesStatement = d1
+    .prepare("SELECT preferences_json AS preferencesJson FROM feature_preferences WHERE workspace_id = ? LIMIT 1")
+    .bind(workspaceId);
   const results = await d1.batch([
     d1
       .prepare(
         `SELECT id, profile_name AS name, store_name AS storeName, currency, timezone, configured,
-                configured_at AS configuredAt, created_at AS createdAt, updated_at AS updatedAt
+                configured_at AS configuredAt, installation_id AS installationId,
+                license_token AS licenseToken, created_at AS createdAt, updated_at AS updatedAt
          FROM workspaces WHERE id = ? LIMIT 1`,
       )
       .bind(workspaceId),
@@ -451,11 +521,19 @@ export async function getBootstrap(workspaceId: string, period?: string) {
     auditLogsStatement,
     investmentAssetsStatement,
     investmentTransactionsStatement,
+    categoryRulesStatement,
+    sinkingFundsStatement,
+    sinkingFundEntriesStatement,
+    featurePreferencesStatement,
   ]);
 
   const workspace = (results[0].results[0] as WorkspaceRow | undefined) ?? null;
+  const entitlement = workspace?.configured
+    ? await getEntitlement(workspaceId)
+    : freeEntitlement(workspace?.installationId ?? "setup-pending");
   return {
     configured: Boolean(workspace?.configured),
+    entitlement,
     profile: serializeWorkspace(workspace, workspaceId),
     accounts: (results[1].results as AccountRow[]).map(serializeAccount),
     transactions: (results[2].results as TransactionRow[]).map(serializeTransaction),
@@ -466,6 +544,12 @@ export async function getBootstrap(workspaceId: string, period?: string) {
     auditLogs: (results[7].results as AuditLogRow[]).map(serializeAuditLog),
     investmentAssets: (results[8].results as InvestmentAssetRow[]).map(serializeInvestmentAsset),
     investmentTransactions: (results[9].results as InvestmentTransactionRow[]).map(serializeInvestmentTransaction),
+    categoryRules: (results[10].results as Array<Record<string, unknown>>).map((rule) => ({ ...rule, active: Boolean(rule.active) })),
+    sinkingFunds: (results[11].results as SinkingFundRow[]).map(serializeSinkingFund),
+    sinkingFundEntries: (results[12].results as SinkingFundEntryRow[]).map(serializeSinkingFundEntry),
+    featurePreferences: normalizeFeaturePreferences(
+      (results[13].results[0] as { preferencesJson?: string } | undefined)?.preferencesJson,
+    ),
   };
 }
 
@@ -511,6 +595,13 @@ export async function getGoalRow(workspaceId: string, id: string): Promise<GoalR
     .prepare(`${goalSelect} WHERE workspace_id = ? AND id = ? LIMIT 1`)
     .bind(workspaceId, id)
     .first<GoalRow>();
+}
+
+export async function getSinkingFundRow(workspaceId: string, id: string): Promise<SinkingFundRow | null> {
+  return getD1()
+    .prepare(`${sinkingFundSelect} WHERE workspace_id = ? AND id = ? LIMIT 1`)
+    .bind(workspaceId, id)
+    .first<SinkingFundRow>();
 }
 
 export async function getBillRow(workspaceId: string, id: string): Promise<BillRow | null> {

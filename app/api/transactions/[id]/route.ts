@@ -20,6 +20,8 @@ import {
   validateDeltas,
 } from "../../_lib/accounting";
 import { mergePayload, parseTransaction } from "../../_lib/domain";
+import { requireCapability } from "../../_lib/license";
+import { assertMonthlyPeriodOpen } from "../../_lib/monthly-closing";
 import {
   getTransactionRow,
   requireWorkspace,
@@ -106,6 +108,15 @@ export async function PATCH(request: Request, context: Context) {
       ]),
       id,
     );
+    await assertMonthlyPeriodOpen(workspaceId, current.date);
+    await assertMonthlyPeriodOpen(workspaceId, next.date);
+    if (
+      JSON.stringify(next.tags) !== JSON.stringify(current.tags)
+      || next.location !== current.location
+      || JSON.stringify(next.splits) !== JSON.stringify(current.splits)
+    ) {
+      await requireCapability(workspaceId, "advanced_transactions");
+    }
     const accounts = await loadBalanceAccounts(workspaceId, [current, next]);
     const deltas = netDeltas(accounts, current, next);
     validateDeltas(accounts, deltas);
@@ -239,6 +250,7 @@ export async function DELETE(request: Request, context: Context) {
       );
     }
     const current = parseTransaction(serializeTransaction(currentRow), id);
+    await assertMonthlyPeriodOpen(workspaceId, current.date);
     const accounts = await loadBalanceAccounts(workspaceId, [current]);
     const deltas = netDeltas(accounts, current, null);
     validateDeltas(accounts, deltas);

@@ -23,7 +23,9 @@ import {
   toUnitMicro,
 } from "../lib/investment";
 import {
+  aiChatCompletionsUrl,
   estimateBase64Bytes,
+  normalizeAiBaseUrl,
   normalizeOcrReceipt,
   receiptNeedsRetake,
 } from "../lib/ai";
@@ -62,7 +64,7 @@ test("transfer tidak dihitung sebagai income atau expense", () => {
   assert.equal(result.savingsRate, 75);
 });
 
-test("OCR menormalisasi hasil Gemini tanpa menyimpan transaksi", () => {
+test("OCR menormalisasi hasil AI tanpa menyimpan transaksi", () => {
   const receipt = normalizeOcrReceipt({
     merchant: "  VINN Mart  ",
     date: "tanggal-salah",
@@ -81,6 +83,14 @@ test("OCR menormalisasi hasil Gemini tanpa menyimpan transaksi", () => {
   assert.equal(receipt.suggestedCategory, "Makanan");
   assert.equal(receipt.items[0].quantity, 2);
   assert.equal(receiptNeedsRetake(receipt), false);
+});
+
+test("Base URL AI dinormalisasi dan endpoint chat ditambahkan", () => {
+  assert.equal(normalizeAiBaseUrl("https://provider.example/v1/"), "https://provider.example/v1");
+  assert.equal(aiChatCompletionsUrl("https://provider.example/v1"), "https://provider.example/v1/chat/completions");
+  assert.equal(aiChatCompletionsUrl("https://provider.example/v1/chat/completions"), "https://provider.example/v1/chat/completions");
+  assert.throws(() => normalizeAiBaseUrl("http://provider.example/v1"), /HTTPS/);
+  assert.throws(() => normalizeAiBaseUrl("https://127.0.0.1/v1"), /lokal/);
 });
 
 test("OCR meminta foto ulang jika buram, confidence rendah, atau total hilang", () => {
@@ -102,6 +112,47 @@ test("transfer memperbarui dua sisi dan tidak mengubah kekayaan bersih", () => {
   assert.equal(updated.find((item) => item.id === "bank")?.balance, 8_000_000);
   assert.equal(updated.find((item) => item.id === "wallet")?.balance, 4_000_000);
   assert.equal(accountSummary(updated).netWorth, before);
+});
+
+test("pencairan pinjaman menambah rekening dan kewajiban tanpa menjadi pemasukan", () => {
+  const before = accountSummary(accounts).netWorth;
+  const drawdown = tx({ type: "transfer", accountId: "card", destinationAccountId: "bank", amount: 3_000_000 });
+  const updated = applyTransaction(accounts, drawdown);
+  assert.equal(updated.find((item) => item.id === "bank")?.balance, 13_000_000);
+  assert.equal(updated.find((item) => item.id === "card")?.balance, 4_000_000);
+  assert.equal(accountSummary(updated).netWorth, before);
+  assert.equal(monthlySummary([drawdown], "2026-07").income, 0);
+});
+
+test("pencairan pinjaman dengan biaya kontrak memisahkan kas bersih dan total kewajiban", () => {
+  const cashReceived = 5_083_350;
+  const totalObligation = 6_105_120;
+  const financingCost = totalObligation - cashReceived;
+  const before = accountSummary(accounts).netWorth;
+  const drawdown = tx({
+    id: "loan-transfer",
+    type: "transfer",
+    accountId: "card",
+    destinationAccountId: "bank",
+    amount: cashReceived,
+  });
+  const cost = tx({
+    id: "loan-cost",
+    type: "adjustment_out",
+    accountId: "card",
+    destinationAccountId: undefined,
+    amount: financingCost,
+  });
+  const updated = applyTransaction(applyTransaction(accounts, drawdown), cost);
+
+  assert.equal(updated.find((item) => item.id === "bank")?.balance, 15_083_350);
+  assert.equal(updated.find((item) => item.id === "card")?.balance, 7_105_120);
+  assert.equal(accountSummary(updated).netWorth, before - financingCost);
+  const summary = monthlySummary([drawdown, cost], "2026-07");
+  assert.equal(summary.income, 0);
+  assert.equal(summary.expense, 0);
+  assert.equal(summary.cashflow, 0);
+  assert.equal(summary.savingsRate, 0);
 });
 
 test("pembelian dengan kartu kredit menambah kewajiban", () => {

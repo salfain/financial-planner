@@ -65,6 +65,118 @@ function apiCreateTransaction(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function apiRecordLoanDrawdown(payload) {
+  const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
+  try {
+    return withDocumentLock_(function() {
+      const existingAudit = requestAudit_(requestId);
+      if (existingAudit) {
+        if (String(existingAudit.action) !== 'CREATE_LOAN_DRAWDOWN' || String(existingAudit.module) !== 'transactions') {
+          throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        }
+        const replayDetails = parseJsonObject_(existingAudit.details_json);
+        return ok_({
+          transactionId: String(existingAudit.entity_id || ''),
+          cashReceived: Number(replayDetails.cashReceived || 0),
+          totalObligation: Number(replayDetails.totalObligation || 0),
+          financingCost: Number(replayDetails.financingCost || 0),
+          duplicate: true
+        }, requestId);
+      }
+      if (rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).some(function(row) {
+        return String(row.request_id || '') === requestId;
+      })) throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh transaksi lain.');
+
+      const liabilityAccountId = String(payload.liabilityAccountId || '');
+      const destinationAccountId = String(payload.destinationAccountId || '');
+      const liabilityAccount = requireAccount_(liabilityAccountId, 'Akun utang wajib dipilih.');
+      const destinationAccount = requireAccount_(destinationAccountId, 'Rekening penerima wajib dipilih.');
+      if (liabilityAccountId === destinationAccountId) {
+        throw createError_('SAME_ACCOUNT', 'Akun utang dan rekening penerima harus berbeda.');
+      }
+      if (!truthy_(liabilityAccount.is_liability)) {
+        throw createError_('LIABILITY_REQUIRED', 'Sumber pencairan harus berupa akun kewajiban.');
+      }
+      if (truthy_(destinationAccount.is_liability)) {
+        throw createError_('CASH_ACCOUNT_REQUIRED', 'Rekening penerima tidak boleh berupa akun kewajiban.');
+      }
+
+      const cashReceived = assertPositiveMoney_(payload.cashReceived);
+      const totalObligation = assertPositiveMoney_(payload.totalObligation);
+      if (totalObligation < cashReceived) {
+        throw createError_('INVALID_OBLIGATION', 'Total kewajiban tidak boleh lebih kecil daripada uang yang diterima.');
+      }
+      const financingCost = totalObligation - cashReceived;
+      const date = dateIso_(payload.date);
+      const title = String(payload.title || 'Pencairan pinjaman').trim().slice(0, 120);
+      if (!title) throw createError_('TITLE_REQUIRED', 'Nama pencairan wajib diisi.');
+      const userNotes = String(payload.notes || '').trim().slice(0, 650);
+      const timestamp = nowIso_();
+      const groupId = id_('loan');
+      const summary = [
+        userNotes,
+        'Dana bersih ' + cashReceived + '; total kewajiban ' + totalObligation + '; biaya pembiayaan ' + financingCost + '.',
+        'Referensi pencairan ' + groupId + '.'
+      ].filter(Boolean).join(' ');
+      const base = {
+        transfer_group_id: groupId, request_id: requestId,
+        date: date, time: '', type: 'transfer',
+        destination_account_id: destinationAccountId,
+        amount: cashReceived, category: 'Transfer', merchant: title,
+        notes: summary, status: 'completed', direction: 'out',
+        created_at: timestamp, updated_at: timestamp, deleted_at: '',
+        tags_json: '[]', location: '', splits_json: '[]',
+        receipt_file_id: '', receipt_filename: '', receipt_content_type: '', receipt_size_bytes: ''
+      };
+      const rows = [
+        Object.assign({}, base, {
+          id: id_('tx'),
+          account_id: liabilityAccountId
+        }),
+        Object.assign({}, base, {
+          id: id_('tx'),
+          account_id: destinationAccountId,
+          destination_account_id: liabilityAccountId,
+          direction: 'in'
+        })
+      ];
+      if (financingCost > 0) {
+        rows.push({
+          id: id_('tx'), transfer_group_id: '', request_id: requestId + ':financing-cost',
+          date: date, time: '', type: 'adjustment_out',
+          account_id: liabilityAccountId, destination_account_id: '',
+          amount: financingCost, category: 'Penyesuaian Saldo',
+          merchant: 'Biaya pembiayaan - ' + String(liabilityAccount.name || title),
+          notes: 'Tambahan kewajiban kontraktual dari ' + title + '. Tidak mengurangi kas dan tidak dihitung sebagai pengeluaran bulanan. Referensi pencairan ' + groupId + '.',
+          status: 'completed', direction: 'out',
+          created_at: timestamp, updated_at: timestamp, deleted_at: '',
+          tags_json: '[]', location: '', splits_json: '[]',
+          receipt_file_id: '', receipt_filename: '', receipt_content_type: '', receipt_size_bytes: ''
+        });
+      }
+
+      validateLedgerMutation_([], rows);
+      appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, rows);
+      audit_('CREATE_LOAN_DRAWDOWN', 'transactions', groupId, requestId, {
+        cashReceived: cashReceived,
+        totalObligation: totalObligation,
+        financingCost: financingCost,
+        liabilityAccountId: liabilityAccountId,
+        destinationAccountId: destinationAccountId,
+        after: rows.map(transactionClientRow_)
+      });
+      invalidateDashboard_(String(date).slice(0, 7));
+      return ok_({
+        transactionId: groupId,
+        cashReceived: cashReceived,
+        totalObligation: totalObligation,
+        financingCost: financingCost,
+        duplicate: false
+      }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiListTransactions(params) {
   try {
     params = params || {};
@@ -289,6 +401,7 @@ function apiDeleteTransaction(transactionId, requestId, expectedUpdatedAt) {
       const related = transaction.transfer_group_id
         ? rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(row) { return !row.deleted_at && row.transfer_group_id === transaction.transfer_group_id; })
         : [transaction];
+      assertMonthlyPeriodsOpen_(related);
       if (transaction.transfer_group_id && related.length !== 2) {
         throw createError_('TRANSFER_PAIR_INVALID', 'Pasangan transfer tidak lengkap; penghapusan dibatalkan.');
       }
@@ -352,6 +465,7 @@ function apiImportTransactions(payload) {
       if (!items.length || items.length > 100) throw createError_('INVALID_IMPORT', 'Impor harus berisi 1 sampai 100 transaksi.');
       const now = nowIso_();
       const rows = items.map(function(item, index) {
+        item = applyCategoryRuleGs_(item);
         const type = String(item.type || '').toLowerCase();
         if (['income', 'expense', 'refund'].indexOf(type) === -1) throw createError_('IMPORT_TYPE_UNSUPPORTED', 'Baris ' + (index + 2) + ' memiliki jenis yang tidak didukung.');
         const amount = assertPositiveMoney_(item.amount);
@@ -401,7 +515,7 @@ function apiUndoTransaction(payload) {
         if (String(replay.action) !== 'UNDO' || String(replay.module) !== 'transactions') throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
         return ok_({ undone: true, action: parseJsonObject_(replay.details_json).targetAction || '', transactionId: replay.entity_id, duplicate: true }, requestId);
       }
-      const allowed = ['CREATE', 'CREATE_TRANSFER', 'UPDATE', 'UPDATE_TRANSFER', 'SOFT_DELETE', 'IMPORT'];
+      const allowed = ['CREATE', 'CREATE_TRANSFER', 'CREATE_LOAN_DRAWDOWN', 'UPDATE', 'UPDATE_TRANSFER', 'SOFT_DELETE', 'IMPORT'];
       const target = rowsAsObjects_(VINN_CONFIG.SHEETS.AUDIT_LOG).reverse().find(function(row) {
         const details = parseJsonObject_(row.details_json);
         return String(row.module) === 'transactions' && allowed.indexOf(String(row.action)) !== -1 && !details.undone_at;
@@ -413,8 +527,8 @@ function apiUndoTransaction(payload) {
       let beforeRows = [];
       let afterRows = [];
       let affected = [];
-      if (action === 'CREATE' || action === 'CREATE_TRANSFER' || action === 'IMPORT') {
-        const created = action === 'IMPORT' ? details.after : action === 'CREATE_TRANSFER' ? details.after : [details.after];
+      if (action === 'CREATE' || action === 'CREATE_TRANSFER' || action === 'CREATE_LOAN_DRAWDOWN' || action === 'IMPORT') {
+        const created = action === 'IMPORT' || action === 'CREATE_LOAN_DRAWDOWN' ? details.after : action === 'CREATE_TRANSFER' ? details.after : [details.after];
         affected = (Array.isArray(created) ? created : []).map(function(client) { return findById_(VINN_CONFIG.SHEETS.TRANSACTIONS, client.id); }).filter(function(row) { return row && !row.deleted_at; });
         if (!affected.length) throw createError_('UNDO_CONFLICT', 'Transaksi sudah berubah atau dihapus.');
         beforeRows = affected;

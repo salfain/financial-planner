@@ -19,6 +19,7 @@ import {
 } from "../../../../_lib/api";
 import { loadBalanceAccounts, netDeltas, validateDeltas } from "../../../../_lib/accounting";
 import { parseTransaction } from "../../../../_lib/domain";
+import { assertMonthlyPeriodOpen } from "../../../../_lib/monthly-closing";
 import {
   getAccountRow,
   getTransactionRow,
@@ -58,6 +59,7 @@ export async function POST(request: Request, context: Context) {
     accountId = validateId((await context.params).id);
     const actualBalance = nonnegativeInteger(payload, "actualBalance");
     const date = isoDate(payload, "date");
+    await assertMonthlyPeriodOpen(workspaceId, date);
     const note = optionalString(payload, "note", 300) ?? null;
     const requestId = requiredString(payload, "requestId", 120);
     idempotencyKey = `reconcile:${requestId}`;

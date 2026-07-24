@@ -1,6 +1,6 @@
 function doGet() {
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  const template = HtmlService.createTemplateFromFile('Index');
+  return template.evaluate()
     .setTitle(VINN_CONFIG.APP_NAME)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');

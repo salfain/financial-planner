@@ -47,9 +47,9 @@ npm test
 - Tagihan bulanan memakai jatuh tempo berulang dan pilihan reminder H-7, H-3, H-1, atau hari H.
 - Dark mode, privacy mode, UI responsif, reduced-motion, dan label aksesibilitas.
 - Harga investasi menampilkan sumber dan timestamp; harga manual maupun fallback transaksi terakhir tidak diklaim sebagai harga real-time.
-- Financial Insight berbasis Gemini dengan mode read-only, context builder minimal, manifest data yang dikirim, disclaimer, histori persisten, dan kontrol hapus histori.
-- OCR struk berbasis Gemini: gambar dikompresi di perangkat, tidak disimpan, hasil divalidasi, dan baru mengisi form setelah pengguna menekan konfirmasi. Transaksi tetap harus dikonfirmasi manual.
-- API key Gemini tersimpan terenkripsi pada D1 atau di User Properties Apps Script; key tidak pernah dikirim kembali ke browser, histori, maupun audit log.
+- Financial Insight berbasis API OpenAI-compatible universal dengan mode read-only, context builder minimal, manifest data yang dikirim, disclaimer, histori persisten, dan kontrol hapus histori.
+- OCR struk memakai model multimodal dari penyedia yang dipilih: gambar dikompresi di perangkat, tidak disimpan, hasil divalidasi, dan baru mengisi form setelah pengguna menekan konfirmasi. Transaksi tetap harus dikonfirmasi manual.
+- API key AI tersimpan terenkripsi pada D1 atau di User Properties Apps Script; key tidak pernah dikirim kembali ke browser, histori, maupun audit log.
 
 ## Menyiapkan Google Sheets + Apps Script
 
@@ -61,7 +61,7 @@ npm test
 6. Pastikan semua sheet terbentuk tanpa menghapus data yang sudah ada.
 7. Pilih **Deploy → New deployment → Web app**. Jalankan sebagai pemilik dan batasi akses ke akun yang berwenang.
 
-API key Gemini dapat ditambahkan dari halaman **Pengaturan → AI & OCR Gemini**. Pada Apps Script key disimpan melalui User Properties dan tidak pernah dikirim kembali ke browser. Apps Script menggunakan document lock, request ID untuk idempotency, soft delete, audit log, cache dashboard, backup ke Google Drive, dan time-driven trigger untuk backup otomatis.
+Base URL, model, dan API key dapat ditambahkan dari halaman **Pengaturan → AI & OCR Universal**. API harus kompatibel dengan format OpenAI Chat Completions; aplikasi otomatis menambahkan endpoint `/chat/completions` bila Base URL belum memuatnya. Pada Apps Script key disimpan melalui User Properties dan tidak pernah dikirim kembali ke browser. Apps Script menggunakan document lock, request ID untuk idempotency, soft delete, audit log, cache dashboard, backup ke Google Drive, dan time-driven trigger untuk backup otomatis.
 
 ## Paket jual putus
 

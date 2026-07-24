@@ -3,6 +3,7 @@ import { addRecurringPeriod, type RecurringTemplate } from "@/lib/recurring";
 import { auditStatementWhenRequestUnused } from "../../../../_lib/audit";
 import { ApiError, isoDate, nowIso, optionalString, readJsonObject, resolveWorkspaceId, routeError, validateId } from "../../../../_lib/api";
 import { jsonRequest } from "../../../../_lib/forward";
+import { requireCapability } from "../../../../_lib/license";
 import { requireWorkspace } from "../../../../_lib/repository";
 import { POST as createTransaction } from "../../../../transactions/route";
 
@@ -16,6 +17,7 @@ export async function POST(request: Request, context: Context) {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "recurring");
     const { id: rawId } = await context.params;
     const id = validateId(rawId);
     const row = await getD1().prepare(`${select} WHERE workspace_id = ? AND id = ?`).bind(workspaceId, id).first<Row>();

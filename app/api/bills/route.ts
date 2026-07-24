@@ -43,14 +43,18 @@ export async function POST(request: Request) {
     if (!(await getAccountRow(workspaceId, bill.accountId))) {
       throw new ApiError(400, "ACCOUNT_NOT_FOUND", "Akun pembayaran tidak ditemukan.");
     }
+    const liabilityAccount = bill.liabilityAccountId ? await getAccountRow(workspaceId, bill.liabilityAccountId) : null;
+    if (bill.liabilityAccountId && !liabilityAccount?.liability) {
+      throw new ApiError(400, "LIABILITY_ACCOUNT_REQUIRED", "Akun tujuan cicilan harus berupa Paylater, kartu kredit, atau akun utang.");
+    }
     const now = nowIso();
     const d1 = getD1();
     await d1.batch([
       d1.prepare(
         `INSERT INTO bills
            (id, workspace_id, name, amount, due_date, category, account_id, frequency, reminder_days, paid, paid_at,
-            last_paid_period, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            last_paid_period, liability_account_id, duration_months, paid_count, completed, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         bill.id,
@@ -65,6 +69,10 @@ export async function POST(request: Request) {
         bill.paid ? 1 : 0,
         bill.paid ? now : null,
         bill.paid ? bill.dueDate.slice(0, 7) : null,
+        bill.liabilityAccountId,
+        bill.durationMonths,
+        bill.paidCount,
+        bill.durationMonths !== null && bill.paidCount >= bill.durationMonths ? 1 : 0,
         now,
         now,
       ),

@@ -101,6 +101,14 @@ export interface Bill {
   frequency?: "monthly";
   reminderDays?: number[];
   lastPaidPeriod?: string | null;
+  /** Akun kewajiban tujuan; jika terisi pembayaran dicatat sebagai transfer pelunasan utang. */
+  liabilityAccountId?: string | null;
+  /** Jumlah cicilan yang disepakati. Kosong berarti tagihan berlangsung tanpa batas. */
+  durationMonths?: number | null;
+  paidCount?: number;
+  remainingMonths?: number | null;
+  completed?: boolean;
+  startDueDate?: string;
 }
 
 export type { RecurringFrequency, RecurringOverview, RecurringTemplate } from "./recurring";

@@ -57,7 +57,7 @@
 @media (max-width: 640px) {
   .gas-bridge-status {
     right: 16px;
-    bottom: 16px;
+    bottom: calc(66px + env(safe-area-inset-bottom) + 16px);
     left: 16px;
     justify-content: center;
   }

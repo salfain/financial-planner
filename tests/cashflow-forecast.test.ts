@@ -31,3 +31,50 @@ test("manual monthly income overrides historical average", () => {
   assert.equal(result.monthlyIncome, 7_000_000);
   assert.equal(result.projectedIncome, 7_000_000);
 });
+
+test("forecast stops a Paylater installment after its configured duration", () => {
+  const result = buildCashflowForecast({
+    accounts,
+    transactions: [],
+    bills: [{
+      id: "installment",
+      name: "Cicilan laptop",
+      amount: 1_000_000,
+      dueDate: "2026-07-05",
+      startDueDate: "2026-07-05",
+      category: "Tagihan",
+      accountId: "cash",
+      liabilityAccountId: "card",
+      durationMonths: 2,
+      paidCount: 0,
+      paid: false,
+    }],
+    settings: { ...DEFAULT_CASHFLOW_FORECAST_SETTINGS, horizonDays: 90 },
+    asOfDate: "2026-07-01",
+  });
+  assert.equal(result.projectedBills, 2_000_000);
+});
+
+test("forecast only projects the remaining months of a historical installment", () => {
+  const result = buildCashflowForecast({
+    accounts: [{ id: "cash", name: "Kas", type: "Bank", institution: "", mask: "", currency: "IDR", balance: 20_000_000, color: "#126b59" }],
+    transactions: [],
+    bills: [{
+      id: "historical-installment",
+      name: "Cicilan 2 dari 9",
+      amount: 1_000_000,
+      dueDate: "2026-07-05",
+      startDueDate: "2026-07-05",
+      category: "Tagihan",
+      accountId: "cash",
+      liabilityAccountId: "card",
+      durationMonths: 9,
+      paidCount: 2,
+      remainingMonths: 7,
+      paid: false,
+    }],
+    settings: { ...DEFAULT_CASHFLOW_FORECAST_SETTINGS, horizonDays: 365 },
+    asOfDate: "2026-07-01",
+  });
+  assert.equal(result.projectedBills, 7_000_000);
+});

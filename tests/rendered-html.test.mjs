@@ -26,6 +26,22 @@ test("copy produk tidak menampilkan bahasa dokumen pengembangan", async () => {
   assert.match(app, /Konfirmasi manual/);
 });
 
+test("sidebar dikelompokkan tanpa menyembunyikan menu", async () => {
+  const [app, css] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../app/globals.css"),
+  ]);
+  assert.match(app, /Keuangan/);
+  assert.match(app, /Perencanaan/);
+  assert.match(app, /Tagihan & Utang/);
+  assert.match(app, /Analisis & Sistem/);
+  assert.doesNotMatch(app, /financial-planner-nav-groups/);
+  assert.doesNotMatch(app, /aria-expanded=\{expanded\}/);
+  assert.match(css, /\.nav-group-label/);
+  assert.match(css, /\.nav-group-items/);
+  assert.match(css, /\.sidebar-card-copy/);
+});
+
 test("UI pengaturan menyediakan pemeriksaan dan repair ledger terkonfirmasi", async () => {
   const [app, client, route] = await Promise.all([
     source("../app/FinanceApp.tsx"),
@@ -86,6 +102,7 @@ test("Financial Roadmap menyediakan simulasi tiga skenario dan asumsi persisten"
   assert.match(engine, /Konservatif/);
   assert.match(engine, /Optimistis/);
   assert.match(app, /Kesiapan target finansial/);
+  assert.match(app, /roadmap-goal-empty/);
   assert.match(client, /\/api\/finance\/roadmap/);
   assert.match(engine, /buildFinancialRoadmap/);
   assert.match(route, /roadmap\.update/);
@@ -156,10 +173,37 @@ test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () =>
   assert.match(app, /Split kategori/);
   assert.match(app, /Impor transaksi CSV/);
   assert.match(app, /Undo terakhir/);
+  assert.match(app, /Catat pinjaman baru/);
+  assert.match(app, /Bukan pemasukan/);
+  assert.match(app, /Kalender keuangan/);
+  assert.match(app, /Kebutuhan 7 hari/);
+  assert.match(app, /Kebutuhan 30 hari/);
+  assert.match(app, /Paylater & kartu/);
+  assert.match(app, /Kredit & pinjaman/);
+  assert.match(app, /Cicilan bulan ini/);
+  assert.match(app, /Jatuh tempo terdekat/);
   assert.match(client, /\/api\/finance\/transactions\/import/);
   assert.match(client, /\/api\/finance\/transactions\/undo/);
   assert.match(css, /\.advanced-filter-row/);
+  assert.match(css, /\.hero-liability-details/);
   assert.doesNotMatch(app, /const\s+demo(?:Accounts|Transactions|Budgets|Goals|Bills)/);
+});
+
+test("penyimpanan UI tidak menunggu sinkronisasi penuh selesai", async () => {
+  const [app, client, router] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../apps-script/Router.gs"),
+  ]);
+  const mutationBlock = app.slice(app.indexOf("const runMutation"), app.indexOf("const addTransaction"));
+  assert.match(mutationBlock, /await work\(\)/);
+  assert.match(mutationBlock, /void refreshData\(\)/);
+  assert.doesNotMatch(mutationBlock, /await refreshData\(\)/);
+  assert.match(mutationBlock, /showToast\(successMessage\)/);
+  assert.match(mutationBlock, /isFinanceMutationCommittedError/);
+  assert.match(client, /mutationStatus/);
+  assert.match(client, /15_000/);
+  assert.match(router, /mutationStatus/);
 });
 
 test("akun, anggaran, target, dan tagihan memiliki pengelolaan lengkap", async () => {
@@ -174,6 +218,15 @@ test("akun, anggaran, target, dan tagihan memiliki pengelolaan lengkap", async (
   assert.match(app, /Kurangi dana/);
   assert.match(app, /Edit tagihan rutin/);
   assert.match(app, /Frekuensi tagihan bulanan/);
+  assert.match(app, /Paylater & kartu kredit/);
+  assert.match(app, /Kredit kendaraan & pinjaman/);
+  assert.match(app, /Tagihan biasa/);
+  assert.match(app, /Tagihan gabungan bulan ini/);
+  assert.match(app, /Bayar semua/);
+  assert.match(app, /Total tenor \(bulan\)/);
+  assert.match(app, /Sudah dibayar/);
+  assert.match(app, /bulan tersisa/);
+  assert.match(app, /payBillGroup/);
   assert.match(client, /updateFinanceAccount/);
   assert.match(client, /deleteFinanceBudget/);
   assert.match(client, /deleteFinanceGoal/);
@@ -182,6 +235,7 @@ test("akun, anggaran, target, dan tagihan memiliki pengelolaan lengkap", async (
   assert.match(appsScript, /apiDeleteBudget/);
   assert.match(appsScript, /apiDeleteGoal/);
   assert.match(appsScript, /apiDeleteBill/);
+  assert.match(appsScript, /billPaidCount_/);
 });
 
 test("impor akun menyediakan template, preview, validasi duplikat, dan endpoint persisten", async () => {
@@ -210,20 +264,29 @@ test("UI Investment mengekspos asset master, buy/sell, dan P/L tanpa placeholder
 });
 
 test("UI AI dan OCR memakai backend nyata, disclosure, dan konfirmasi", async () => {
-  const [app, client, aiRoute, ocrRoute] = await Promise.all([
+  const [app, client, aiRoute, ocrRoute, cloudAi, gasAi] = await Promise.all([
     source("../app/FinanceApp.tsx"),
     source("../lib/finance-client.ts"),
     source("../app/api/finance/ai/assistant/route.ts"),
     source("../app/api/finance/ai/ocr/route.ts"),
+    source("../app/api/_lib/ai.ts"),
+    source("../apps-script/AIService.gs"),
   ]);
-  assert.match(app, /AI & OCR Gemini/);
-  assert.match(app, /data terpilih dan foto struk akan dikirim ke Gemini/);
+  assert.match(app, /AI & OCR Universal/);
+  assert.match(app, /data terpilih dan foto struk akan dikirim ke penyedia AI/);
+  assert.match(app, /Base URL API/);
   assert.match(app, /Belum ada transaksi yang disimpan/);
   assert.match(app, /Gunakan hasil OCR/);
   assert.match(client, /\/api\/finance\/ai\/assistant/);
   assert.match(client, /\/api\/finance\/ai\/ocr/);
   assert.match(aiRoute, /askAi/);
   assert.match(ocrRoute, /scanReceipt/);
+  for (const backend of [cloudAi, gasAi]) {
+    assert.match(backend, /financialPosition/);
+    assert.match(backend, /dataAvailability/);
+    assert.match(backend, /bertahan\|runway/);
+    assert.match(backend, /Posisi keuangan agregat/);
+  }
   assert.doesNotMatch(app, /OCR belum diaktifkan|Analisis rule-based/);
 });
 
@@ -281,4 +344,226 @@ test("transaksi rutin dan subscription memakai jadwal persisten serta konfirmasi
   assert.match(confirmRoute, /createTransaction/);
   assert.match(schema, /recurringTemplates/);
   assert.match(gas, /apiConfirmRecurring/);
+});
+
+test("review dan tutup buku bulanan memakai snapshot persisten serta mengunci ledger", async () => {
+  const [app, client, route, schema, gasClosing, gasValidation, undo, investment] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../app/api/finance/monthly-closing/route.ts"),
+    source("../db/schema.ts"),
+    source("../apps-script/MonthlyClosingService.gs"),
+    source("../apps-script/Utils.gs"),
+    source("../app/api/finance/transactions/undo/route.ts"),
+    source("../app/api/finance/investments/transactions/route.ts"),
+  ]);
+  assert.match(app, /Review & tutup buku/);
+  assert.match(app, /Tutup bulan & simpan snapshot/);
+  assert.match(app, /Buka kembali bulan/);
+  assert.match(client, /monthlyClosingStatus/);
+  assert.match(client, /closeMonthlyBook/);
+  assert.match(client, /reopenMonthlyBook/);
+  assert.match(route, /monthly_closings/);
+  assert.match(schema, /monthlyClosings/);
+  assert.match(gasClosing, /apiCloseMonthlyBook/);
+  assert.match(gasClosing, /apiReopenMonthlyBook/);
+  assert.match(gasValidation, /assertMonthlyPeriodsOpen_/);
+  assert.match(undo, /assertMonthlyPeriodOpen/);
+  assert.match(investment, /assertMonthlyPeriodOpen/);
+});
+
+test("aturan kategori otomatis tersimpan dan diterapkan saat preview impor CSV", async () => {
+  const [app, client, engine, route, schema, gasRules, gasImport] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+    source("../lib/category-rules.ts"),
+    source("../app/api/finance/category-rules/route.ts"),
+    source("../db/schema.ts"),
+    source("../apps-script/CategoryRuleService.gs"),
+    source("../apps-script/TransactionService.gs"),
+  ]);
+  assert.match(app, /Aturan kategori otomatis/);
+  assert.match(app, /Otomatis: /);
+  assert.match(client, /createCategoryRule/);
+  assert.match(client, /updateCategoryRule/);
+  assert.match(client, /deleteCategoryRule/);
+  assert.match(engine, /findCategoryRule/);
+  assert.match(route, /category_rules/);
+  assert.match(schema, /categoryRules/);
+  assert.match(gasRules, /applyCategoryRuleGs_/);
+  assert.match(gasImport, /applyCategoryRuleGs_\(item\)/);
+});
+
+test("paket Free, Pro, dan Premium tampil sebagai produk final dengan aktivasi offline", async () => {
+  const [app, styles, client, plans, licenseRoute, gasLicense, guide] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../app/globals.css"),
+    source("../lib/finance-client.ts"),
+    source("../lib/plans.ts"),
+    source("../app/api/finance/license/route.ts"),
+    source("../apps-script/LicenseService.gs"),
+    source("../docs/PANDUAN-JUAL-PUTUS.md"),
+  ]);
+  assert.match(app, /Paket & lisensi/);
+  assert.match(app, /Aktivasi lisensi/);
+  assert.match(app, /license-modal/);
+  assert.match(styles, /\.modal\.license-modal/);
+  assert.match(styles, /\.license-current/);
+  assert.match(styles, /\.license-installation/);
+  assert.match(styles, /\.license-limit-note/);
+  assert.match(styles, /\.nav-plan-lock \{/);
+  assert.match(styles, /\.nav-plan-lock svg/);
+  assert.match(styles, /\.price-status > span/);
+  assert.doesNotMatch(styles, /\.online i, \.price-status span/);
+  assert.match(styles, /\.investment-history-list > \.investment-history-empty/);
+  assert.match(app, /settings-wide license-summary-panel/);
+  assert.match(styles, /\.settings-title > span:first-child/);
+  assert.doesNotMatch(styles, /\.settings-title > span\s*\{/);
+  assert.match(client, /\/api\/finance\/license/);
+  assert.match(plans, /advanced_transactions: "pro"/);
+  assert.match(plans, /investments: "premium"/);
+  assert.match(licenseRoute, /activateLicense/);
+  assert.match(gasLicense, /apiActivateLicense/);
+  assert.match(gasLicense, /FEATURE_NOT_INCLUDED/);
+  assert.match(guide, /Aktivasi paket/);
+});
+
+test("tampilan mobile target memakai aksi jelas dan area navigasi aman", async () => {
+  const [app, styles] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../app/globals.css"),
+  ]);
+  assert.match(app, /Belum ada target finansial/);
+  assert.match(app, /Buat target pertama/);
+  assert.match(app, /theme-toggle/);
+  assert.match(styles, /\.goal-add\.is-empty/);
+  assert.match(styles, /\.goal-add-cta/);
+  assert.match(styles, /safe-area-inset-bottom/);
+  assert.match(styles, /\.global-search:focus-within/);
+  assert.match(styles, /grid-template-columns: auto minmax\(0,1fr\)/);
+  assert.match(styles, /\.mobile-menu:hover/);
+});
+
+test("layout mobile GAS menyusut tanpa menutupi navigasi", async () => {
+  const [styles, gasStyles] = await Promise.all([
+    source("../app/globals.css"),
+    source("../gas-frontend/styles.css"),
+  ]);
+  assert.match(styles, /\.global-search \{ min-width: 0; grid-template-columns: auto minmax\(0,1fr\); overflow: hidden/);
+  assert.match(styles, /\.hero-card \{ min-height: 0; padding: 18px; \}/);
+  assert.match(styles, /\.bar-chart \{ height: 150px/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*\.metric-card,\.metric-card\.cashflow \{ grid-column: span 12; \}/);
+  assert.match(gasStyles, /bottom: calc\(66px \+ env\(safe-area-inset-bottom\) \+ 16px\)/);
+  assert.match(styles, /body \{ padding-bottom: 0; \}/);
+  assert.match(styles, /#root, \.app-shell, \.main-area \{ min-height: 100dvh; \}/);
+  assert.match(styles, /padding-bottom: calc\(88px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.match(styles, /\.mobile-nav \.nav-item \{ min-width: 0; flex: 1 1 0; \}/);
+  assert.doesNotMatch(styles, /(?:html|body)[^{]*\{[^}]*overflow-x:\s*hidden/);
+});
+
+test("mode demo publik read-only terpisah dari build pelanggan", async () => {
+  const [app, client, demo, main, index, demoMain, demoIndex, styles] = await Promise.all([
+    source("../app/FinanceApp.tsx"), source("../lib/finance-client.ts"), source("../lib/demo-finance.ts"),
+    source("../apps-script/Main.gs"), source("../apps-script/Index.html"), source("../apps-script-demo/Main.gs"),
+    source("../apps-script-demo/Index.html"), source("../app/globals.css"),
+  ]);
+  assert.match(app, /Mode Demo Premium · hanya-baca/);
+  assert.match(app, /Beli via WhatsApp/);
+  assert.doesNotMatch(app, /Reset data demo/);
+  assert.match(client, /isFinanceDemoMode\(\)/);
+  assert.match(demo, /capabilityMap\("premium"\)/);
+  assert.match(demo, /Mode demo hanya-baca/);
+  assert.doesNotMatch(main, /event\.parameter\.demo/);
+  assert.match(index, /__FINANCE_DEMO__ = false/);
+  assert.match(demoMain, /DEMO_READ_ONLY/);
+  assert.match(demoIndex, /__FINANCE_DEMO__ = true/);
+  assert.match(styles, /\.demo-banner a/);
+});
+
+test("form transaksi memformat Rupiah dan dapat memakai ulang isian terakhir", async () => {
+  const [app, styles, moneyInput] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../app/globals.css"),
+    source("../lib/money-input.ts"),
+  ]);
+  assert.match(app, /Terakhir digunakan/);
+  assert.match(app, /Ketuk untuk mengisi ulang/);
+  assert.match(app, /applyRecentTransaction/);
+  assert.match(app, /transactions=\{transactions\}/);
+  assert.match(app, /value=\{formatMoneyInput\(amount\)\}/);
+  assert.match(app, /setAmount\(moneyInputDigits\(event\.target\.value\)\)/);
+  assert.match(styles, /\.transaction-recent/);
+  assert.match(moneyInput, /replace\(\/\\B\(\?=\(\\d\{3\}\)\+\(\?!\\d\)\)\/g, "\."\)/);
+});
+
+test("Pos Dana memakai alokasi virtual, riwayat, Google Sheets, AI, backup, dan migrasi", async () => {
+  const [app, styles, client, schema, route, gas, config, router, ai, portability] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../app/globals.css"),
+    source("../lib/finance-client.ts"),
+    source("../db/schema.ts"),
+    source("../app/api/sinking-funds/route.ts"),
+    source("../apps-script/SinkingFundService.gs"),
+    source("../apps-script/Config.gs"),
+    source("../apps-script/Router.gs"),
+    source("../apps-script/AIService.gs"),
+    source("../app/api/_lib/portability.ts"),
+  ]);
+  assert.match(app, /Sinking Fund \/ Pos Dana/);
+  assert.match(app, /Tidak menghitung uang dua kali/);
+  assert.match(app, /SinkingFundAdjustmentModal/);
+  assert.match(styles, /\.sinking-fund-card/);
+  assert.match(client, /createFinanceSinkingFund/);
+  assert.match(client, /adjustFinanceSinkingFund/);
+  assert.match(schema, /sinkingFunds/);
+  assert.match(schema, /sinkingFundEntries/);
+  assert.match(route, /sinking_funds/);
+  assert.match(gas, /apiCreateSinkingFund/);
+  assert.match(gas, /apiAdjustSinkingFund/);
+  assert.match(config, /SINKING_FUNDS/);
+  assert.match(config, /SINKING_FUND_ENTRIES/);
+  assert.match(router, /createSinkingFund/);
+  assert.match(router, /adjustSinkingFund/);
+  assert.match(ai, /sinkingFundAllocated/);
+  assert.match(portability, /sinkingFundEntries/);
+});
+
+test("fitur opsional dapat disembunyikan secara persisten tanpa mematikan ledger inti", async () => {
+  const [app, styles, client, preferences, route, schema, gas, dashboard, router] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../app/globals.css"),
+    source("../lib/finance-client.ts"),
+    source("../lib/feature-preferences.ts"),
+    source("../app/api/finance/feature-preferences/route.ts"),
+    source("../db/schema.ts"),
+    source("../apps-script/FeaturePreferenceService.gs"),
+    source("../apps-script/DashboardService.gs"),
+    source("../apps-script/Router.gs"),
+  ]);
+  assert.match(app, /Fitur aktif/);
+  assert.match(app, /Fitur inti selalu aktif/);
+  assert.match(app, /isOptionalFeatureEnabled\(featurePreferences/);
+  assert.match(app, /Simpan pilihan fitur/);
+  assert.match(styles, /\.feature-preference-groups/);
+  assert.match(client, /updateFinanceFeaturePreferences/);
+  assert.match(client, /\/api\/finance\/feature-preferences/);
+  assert.match(preferences, /DEFAULT_FEATURE_PREFERENCES/);
+  assert.match(route, /feature_preferences\.update/);
+  assert.match(schema, /featurePreferences/);
+  assert.match(gas, /apiUpdateFeaturePreferences/);
+  assert.match(dashboard, /featurePreferences: featurePreferences_/);
+  assert.match(router, /updateFeaturePreferences/);
+});
+
+test("tanggal Google Sheets dinormalisasi sebelum ditampilkan dan dihitung", async () => {
+  const [client, repository] = await Promise.all([
+    source("../lib/finance-client.ts"),
+    source("../apps-script/SheetRepository.gs"),
+  ]);
+  assert.match(client, /function normalizeFinanceDate/);
+  assert.match(client, /timeZone: "Asia\/Jakarta"/);
+  assert.match(client, /date: normalizeFinanceDate\(row\.date\)/);
+  assert.match(repository, /function sheetCellValue_/);
+  assert.match(repository, /Utilities\.formatDate\(value, VINN_CONFIG\.TIMEZONE, 'yyyy-MM-dd'\)/);
+  assert.match(repository, /result\[String\(header\)\] = sheetCellValue_/);
 });

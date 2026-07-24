@@ -76,6 +76,16 @@ function receiptSchema_() {
   };
 }
 
+function parseAiJson_(text) {
+  const normalized = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  try { return JSON.parse(normalized); } catch (error) {
+    const start = normalized.indexOf('{');
+    const end = normalized.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(normalized.slice(start, end + 1));
+    throw error;
+  }
+}
+
 function apiOcrReceipt(payload) {
   const requestId = String(payload && payload.requestId || id_('req'));
   try {
@@ -88,7 +98,7 @@ function apiOcrReceipt(payload) {
     if (!bytes.length || bytes.length > 4 * 1024 * 1024) throw createError_('RECEIPT_TOO_LARGE', 'Gambar struk maksimal 4 MB setelah kompresi.');
     const ready = assertAiReady_();
     const categories = categoryRows_().filter(function(row) { return row.active && row.type === 'expense'; }).map(function(row) { return row.name; }).slice(0, 50);
-    const text = callGemini_(ready.apiKey, ready.model, {
+    const text = callAi_(ready.apiKey, ready.baseUrl, ready.model, {
       systemInstruction: { parts: [{ text: 'Ekstrak struk belanja Indonesia menjadi JSON sesuai schema. Jangan mengarang angka yang tidak terlihat. Nominal harus angka Rupiah tanpa simbol atau pemisah ribuan. Nilai confidence 0-1. Jika teks utama, total, atau tanggal tidak terbaca, tandai imageQuality blurry/unreadable dan jelaskan pada warnings.' }] },
       contents: [{
         role: 'user',
@@ -105,7 +115,7 @@ function apiOcrReceipt(payload) {
       }
     });
     let parsed;
-    try { parsed = JSON.parse(text); } catch (error) { throw createError_('OCR_INVALID_RESPONSE', 'Hasil OCR tidak dapat divalidasi. Coba foto lain.'); }
+    try { parsed = parseAiJson_(text); } catch (error) { throw createError_('OCR_INVALID_RESPONSE', 'Hasil OCR tidak dapat divalidasi. Coba foto lain.'); }
     const receipt = normalizeOcrReceipt_(parsed, categories);
     if (receipt.imageQuality !== 'clear' || receipt.confidence < 0.45 || receipt.total <= 0) {
       throw createError_('OCR_IMAGE_UNCLEAR', 'Foto struk kurang jelas. Ambil ulang dengan cahaya merata dan seluruh struk terlihat.', {

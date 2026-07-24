@@ -1,4 +1,5 @@
 import { ApiError, booleanValue, monthPeriod, readJsonObject, requiredString, resolveWorkspaceId, routeError } from "../../_lib/api";
+import { requireCapability } from "../../_lib/license";
 import { listExports, saveReport } from "../../_lib/portability";
 
 const reportSections = new Set(["summary", "cashflow", "categories", "accounts", "budgets", "bills", "goals", "roadmap", "forecast", "emergency", "debts", "investments", "recurring"]);
@@ -15,6 +16,7 @@ export async function POST(request: Request) {
   try {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
+    await requireCapability(workspaceId, "pdf_reports");
     if (!Array.isArray(payload.sections) || !payload.sections.length || payload.sections.length > reportSections.size
       || payload.sections.some((item) => typeof item !== "string" || !reportSections.has(item))
       || new Set(payload.sections).size !== payload.sections.length) {

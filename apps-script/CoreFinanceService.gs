@@ -207,6 +207,7 @@ function apiReconcileAccount(payload) {
         status: 'completed', direction: direction,
         created_at: timestamp, updated_at: timestamp, deleted_at: ''
       };
+      assertMonthlyPeriodsOpen_([transaction]);
       appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, [transaction]);
       const result = {
         accountId: accountId,
@@ -527,12 +528,44 @@ function auditClientRow_(row) {
 
 function recentAuditLogs_(limit) {
   const size = Math.max(1, Math.min(100, Number(limit) || 20));
-  return rowsAsObjects_(VINN_CONFIG.SHEETS.AUDIT_LOG)
+  return recentAuditRows_(size)
     .sort(function(a, b) {
       return String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id));
     })
     .slice(0, size)
     .map(auditClientRow_);
+}
+
+function recentAuditRows_(limit) {
+  const size = Math.max(1, Math.min(500, Number(limit) || 100));
+  const sheet = getWorkbook_().getSheetByName(VINN_CONFIG.SHEETS.AUDIT_LOG);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const lastRow = sheet.getLastRow();
+  const firstRow = Math.max(2, lastRow - size + 1);
+  const rowCount = lastRow - firstRow + 1;
+  const columnCount = Math.max(1, sheet.getLastColumn());
+  const headers = sheet.getRange(1, 1, 1, columnCount).getValues()[0];
+  const rows = sheet.getRange(firstRow, 1, rowCount, columnCount).getValues().map(function(values, rowIndex) {
+    const result = { _row: firstRow + rowIndex };
+    headers.forEach(function(header, index) { result[String(header)] = values[index]; });
+    return result;
+  });
+  return rows;
+}
+
+function apiMutationStatus(payload) {
+  const requestId = String(payload && payload.requestId || '').trim();
+  if (!requestId || requestId.length > 160) return fail_(createError_('INVALID_REQUEST_ID', 'requestId pemeriksaan tidak valid.'));
+  const audit = recentAuditRows_(300).reverse().find(function(row) {
+    return String(row.request_id || '') === requestId;
+  });
+  return ok_({
+    completed: Boolean(audit),
+    action: audit ? String(audit.action || '') : null,
+    module: audit ? String(audit.module || '') : null,
+    entityId: audit ? String(audit.entity_id || '') : null,
+    completedAt: audit ? String(audit.created_at || '') : null
+  }, requestId);
 }
 
 function parseJsonObject_(value) {

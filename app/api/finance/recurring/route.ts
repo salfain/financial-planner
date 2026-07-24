@@ -2,6 +2,7 @@ import { getD1 } from "@/db";
 import { RECURRING_FREQUENCIES, type RecurringTemplate } from "@/lib/recurring";
 import { auditStatement, auditStatementWhenRequestUnused } from "../../_lib/audit";
 import { ApiError, booleanValue, enumValue, isoDate, makeId, nowIso, optionalString, positiveInteger, readJsonObject, requiredString, resolveWorkspaceId, routeError, validateId } from "../../_lib/api";
+import { requireCapability } from "../../_lib/license";
 import { getAccountRow, requireWorkspace } from "../../_lib/repository";
 
 type RecurringRow = {
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "recurring");
     const requestId = optionalString(payload, "requestId", 120) ?? makeId("req");
     const replay = await getD1().prepare(`${select} WHERE workspace_id = ? AND id IN (SELECT id FROM recurring_templates WHERE workspace_id = ? AND request_id = ?) LIMIT 1`).bind(workspaceId, workspaceId, requestId).first<RecurringRow>();
     if (replay) return Response.json({ template: serialize(replay), replayed: true });

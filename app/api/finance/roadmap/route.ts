@@ -2,6 +2,7 @@ import { getD1 } from "@/db";
 import { DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "@/lib/roadmap";
 import { auditStatement } from "../../_lib/audit";
 import { ApiError, nowIso, readJsonObject, requiredString, resolveWorkspaceId, routeError } from "../../_lib/api";
+import { requireCapability } from "../../_lib/license";
 import { requireWorkspace } from "../../_lib/repository";
 
 type RoadmapRow = {
@@ -60,6 +61,7 @@ export async function PATCH(request: Request) {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "planning");
     const requestId = requiredString(payload, "requestId", 120);
     const next = parseSettings(payload);
     const d1 = getD1();

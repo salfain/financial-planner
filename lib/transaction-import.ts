@@ -1,9 +1,11 @@
 import type { Account, FinanceCategory, Transaction, TransactionSplit, TransactionType } from "./finance";
+import { findCategoryRule, type CategoryRule } from "./category-rules";
 
 export type TransactionImportPreviewRow = {
   rowNumber: number;
   raw: Record<string, string>;
   transaction?: Transaction;
+  matchedRule?: CategoryRule;
   errors: string[];
 };
 
@@ -92,7 +94,7 @@ const parseSplits = (value: string, amount: number): { splits: TransactionSplit[
   return { splits };
 };
 
-export function previewTransactionCsv(source: string, accounts: Account[], categories: FinanceCategory[]): TransactionImportPreview {
+export function previewTransactionCsv(source: string, accounts: Account[], categories: FinanceCategory[], categoryRules: CategoryRule[] = []): TransactionImportPreview {
   const records = parseCsvRecords(source);
   const activeAccounts = accounts.filter((account) => account.type !== "Investment");
   const activeCategories = categories.filter((category) => category.active);
@@ -102,11 +104,14 @@ export function previewTransactionCsv(source: string, accounts: Account[], categ
     const type = parseType(raw.type || "");
     const amount = parseMoney(raw.amount || "");
     const title = (raw.title || "").trim();
-    const category = (raw.category || "").trim();
+    const importedCategory = (raw.category || "").trim();
     const accountValue = (raw.account || "").trim().toLowerCase();
     const account = activeAccounts.find((item) => item.id.toLowerCase() === accountValue || item.name.toLowerCase() === accountValue);
     const status = (raw.status || "completed").trim().toLowerCase();
     const time = (raw.time || "").trim();
+    const parsedSplits = parseSplits(raw.splits || "", amount);
+    const matchedRule = !parsedSplits.splits.length && type ? findCategoryRule(categoryRules, [title, raw.notes || "", raw.location || ""].filter(Boolean).join(" "), type === "income" ? "income" : "expense") : null;
+    const category = matchedRule?.category || importedCategory;
     if (!date) errors.push("Tanggal tidak valid.");
     if (!type) errors.push("Jenis harus pemasukan, pengeluaran, atau refund.");
     if (!title) errors.push("Deskripsi wajib diisi.");
@@ -116,7 +121,6 @@ export function previewTransactionCsv(source: string, accounts: Account[], categ
     if (type && !activeCategories.some((item) => item.name.toLowerCase() === category.toLowerCase() && item.type === (type === "income" ? "income" : "expense"))) errors.push("Kategori tidak cocok dengan jenis transaksi.");
     if (!['completed', 'pending'].includes(status)) errors.push("Status harus completed atau pending.");
     if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) errors.push("Waktu harus HH:mm.");
-    const parsedSplits = parseSplits(raw.splits || "", amount);
     if (parsedSplits.error) errors.push(parsedSplits.error);
     if (parsedSplits.splits.some((split) => !activeCategories.some((item) => item.name.toLowerCase() === split.category.toLowerCase() && item.type === (type === "income" ? "income" : "expense")))) errors.push("Kategori pada split tidak ditemukan atau tidak cocok.");
     const transaction = errors.length || !type || !account ? undefined : {
@@ -135,7 +139,7 @@ export function previewTransactionCsv(source: string, accounts: Account[], categ
       amount,
       status: status as Transaction["status"],
     };
-    return { rowNumber: index + 2, raw, transaction, errors };
+    return { rowNumber: index + 2, raw, transaction, matchedRule: errors.length ? undefined : matchedRule ?? undefined, errors };
   });
   if (records.length > 100) rows.push({ rowNumber: 102, raw: {}, errors: ["Maksimal 100 transaksi per impor."] });
   const valid = rows.flatMap((row) => row.transaction ? [row.transaction] : []);

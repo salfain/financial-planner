@@ -30,7 +30,18 @@ const [javascript, css] = await Promise.all([
   readFile(requireSingleAsset(".css"), "utf8"),
 ]);
 
-const safeJavascript = javascript
+function makeLargeBase64LiteralsTemplateSafe(source) {
+  return source.replace(/(["'])([A-Za-z0-9+/=]{16384,})\1/g, (_match, quote, value) =>
+    Array.from({ length: Math.ceil(value.length / 8_192) }, (_unused, index) => {
+      const chunk = value.slice(index * 8_192, (index + 1) * 8_192);
+      // HtmlService's contextual parser can lose string context on very long
+      // Base64 literals and treat `//` inside the data as a line comment.
+      return `${quote}${chunk.replaceAll("/", "\\/")}${quote}`;
+    }).join("+"),
+  );
+}
+
+const safeJavascript = makeLargeBase64LiteralsTemplateSafe(javascript)
   .replace(/<\/script/gi, "<\\/script")
   // core-js ships a whitespace lookup as a multiline template literal. Escape
   // its trailing tab so the generated Apps Script bundle stays diff-clean.

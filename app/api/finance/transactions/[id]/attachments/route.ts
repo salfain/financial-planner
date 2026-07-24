@@ -2,6 +2,7 @@ import { getD1 } from "@/db";
 import { auditStatement } from "../../../../_lib/audit";
 import { ApiError, makeId, nowIso, resolveWorkspaceId, routeError, validateId } from "../../../../_lib/api";
 import { getFilesBucket } from "../../../../_lib/files";
+import { requireCapability } from "../../../../_lib/license";
 import { getTransactionRow, requireWorkspace } from "../../../../_lib/repository";
 
 type Context = { params: Promise<{ id: string }> };
@@ -12,6 +13,7 @@ export async function POST(request: Request, context: Context) {
   try {
     const workspaceId = resolveWorkspaceId(request);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "attachments");
     const transactionId = validateId((await context.params).id);
     if (!await getTransactionRow(workspaceId, transactionId)) {
       throw new ApiError(404, "NOT_FOUND", "Transaksi tidak ditemukan.");

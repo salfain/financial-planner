@@ -2,6 +2,7 @@ import { getD1 } from "@/db";
 import { auditStatement } from "../../../_lib/audit";
 import { ApiError, nowIso, readJsonObject, requiredString, resolveWorkspaceId, routeError } from "../../../_lib/api";
 import { parseAccount, type AccountInput } from "../../../_lib/domain";
+import { requireCapability } from "../../../_lib/license";
 import { requireWorkspace } from "../../../_lib/repository";
 
 export async function POST(request: Request) {
@@ -9,6 +10,7 @@ export async function POST(request: Request) {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "imports");
     const requestId = requiredString(payload, "requestId", 120);
     const d1 = getD1();
     const existingAudit = await d1

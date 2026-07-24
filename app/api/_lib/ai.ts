@@ -9,6 +9,8 @@ import {
   normalizeOcrReceipt,
   receiptNeedsRetake,
   stripDataUrlPrefix,
+  aiChatCompletionsUrl,
+  normalizeAiBaseUrl,
   type AiAnswer,
   type AiChatMessage,
   type AiSettingsStatus,
@@ -19,14 +21,16 @@ import { auditStatement } from "./audit";
 import { getBootstrap, requireWorkspace } from "./repository";
 
 type RuntimeAiEnv = {
-  GEMINI_API_KEY?: string;
-  GEMINI_MODEL?: string;
+  AI_API_KEY?: string;
+  AI_BASE_URL?: string;
+  AI_MODEL?: string;
   AI_KEY_ENCRYPTION_SECRET?: string;
 };
 
 type AiSettingsRow = {
   workspaceId: string;
   provider: string;
+  baseUrl: string;
   model: string;
   enabled: number;
   consentAccepted: number;
@@ -45,7 +49,8 @@ type AiMessageRow = {
 };
 
 const runtimeEnv = () => env as unknown as RuntimeAiEnv;
-const currentModel = () => runtimeEnv().GEMINI_MODEL?.trim() || DEFAULT_AI_MODEL;
+const currentModel = () => runtimeEnv().AI_MODEL?.trim() || DEFAULT_AI_MODEL;
+const currentBaseUrl = () => runtimeEnv().AI_BASE_URL?.trim() || "";
 
 const bytesToBase64 = (bytes: Uint8Array) => {
   let binary = "";
@@ -101,6 +106,7 @@ async function getSettingsRow(workspaceId: string) {
   return getD1()
     .prepare(
       `SELECT workspace_id AS workspaceId, provider, model, enabled,
+              base_url AS baseUrl,
               consent_accepted AS consentAccepted,
               encrypted_api_key AS encryptedApiKey, api_key_iv AS apiKeyIv,
               updated_at AS updatedAt
@@ -112,10 +118,11 @@ async function getSettingsRow(workspaceId: string) {
 
 const serializeSettings = (row: AiSettingsRow | null): AiSettingsStatus => ({
   provider: DEFAULT_AI_PROVIDER,
+  baseUrl: row?.baseUrl || currentBaseUrl(),
   model: row?.model || currentModel(),
   enabled: Boolean(row?.enabled),
   consentAccepted: Boolean(row?.consentAccepted),
-  configured: Boolean(runtimeEnv().GEMINI_API_KEY?.trim() || (row?.encryptedApiKey && row.apiKeyIv)),
+  configured: Boolean((runtimeEnv().AI_API_KEY?.trim() || (row?.encryptedApiKey && row.apiKeyIv)) && (row?.baseUrl || currentBaseUrl())),
   storesReceiptImages: false,
 });
 
@@ -126,7 +133,7 @@ export async function getAiSettings(workspaceId: string) {
 
 export async function updateAiSettings(
   workspaceId: string,
-  input: { enabled: boolean; consentAccepted: boolean; apiKey?: string; removeApiKey?: boolean },
+  input: { enabled: boolean; consentAccepted: boolean; baseUrl?: string; model?: string; apiKey?: string; removeApiKey?: boolean },
 ) {
   await requireWorkspace(workspaceId);
   const existing = await getSettingsRow(workspaceId);
@@ -138,16 +145,29 @@ export async function updateAiSettings(
   }
   if (input.apiKey !== undefined) {
     const normalized = input.apiKey.trim();
-    if (normalized.length < 20 || normalized.length > 512) {
-      throw new ApiError(400, "INVALID_AI_KEY", "API key Gemini tidak valid.");
+    if (normalized.length < 8 || normalized.length > 2048) {
+      throw new ApiError(400, "INVALID_AI_KEY", "API key AI tidak valid.");
     }
     ({ encryptedApiKey, apiKeyIv } = await encryptApiKey(normalized));
   }
   if (input.enabled && !input.consentAccepted) {
     throw new ApiError(400, "AI_CONSENT_REQUIRED", "Persetujuan privasi wajib sebelum AI diaktifkan.");
   }
-  if (input.enabled && !runtimeEnv().GEMINI_API_KEY?.trim() && (!encryptedApiKey || !apiKeyIv)) {
-    throw new ApiError(400, "AI_NOT_CONFIGURED", "Tambahkan API key Gemini sebelum AI diaktifkan.");
+  let baseUrl: string;
+  try {
+    baseUrl = normalizeAiBaseUrl(input.baseUrl === undefined ? existing?.baseUrl || currentBaseUrl() : input.baseUrl);
+  } catch (error) {
+    throw new ApiError(400, "INVALID_AI_URL", error instanceof Error ? error.message : "Base URL AI tidak valid.");
+  }
+  const model = (input.model === undefined ? existing?.model || currentModel() : input.model).trim();
+  if (!model || model.length > 120 || !/^[A-Za-z0-9._:\/-]+$/.test(model)) {
+    throw new ApiError(400, "INVALID_AI_MODEL", "Nama model AI tidak valid.");
+  }
+  if (input.enabled && !baseUrl) {
+    throw new ApiError(400, "AI_NOT_CONFIGURED", "Tambahkan Base URL API sebelum AI diaktifkan.");
+  }
+  if (input.enabled && !runtimeEnv().AI_API_KEY?.trim() && (!encryptedApiKey || !apiKeyIv)) {
+    throw new ApiError(400, "AI_NOT_CONFIGURED", "Tambahkan API key sebelum AI diaktifkan.");
   }
 
   const d1 = getD1();
@@ -155,12 +175,13 @@ export async function updateAiSettings(
   await d1.batch([
     d1
       .prepare(
-        `INSERT INTO ai_settings
-           (workspace_id, provider, model, enabled, consent_accepted,
+         `INSERT INTO ai_settings
+           (workspace_id, provider, base_url, model, enabled, consent_accepted,
             encrypted_api_key, api_key_iv, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(workspace_id) DO UPDATE SET
            provider = excluded.provider,
+           base_url = excluded.base_url,
            model = excluded.model,
            enabled = excluded.enabled,
            consent_accepted = excluded.consent_accepted,
@@ -171,7 +192,8 @@ export async function updateAiSettings(
       .bind(
         workspaceId,
         DEFAULT_AI_PROVIDER,
-        currentModel(),
+        baseUrl,
+        model,
         input.enabled ? 1 : 0,
         input.consentAccepted ? 1 : 0,
         encryptedApiKey,
@@ -187,6 +209,8 @@ export async function updateAiSettings(
       details: {
         enabled: input.enabled,
         consentAccepted: input.consentAccepted,
+        endpointHost: baseUrl ? new URL(baseUrl).host : "",
+        model,
         keyChanged: input.apiKey !== undefined || Boolean(input.removeApiKey),
       },
     }),
@@ -198,35 +222,82 @@ async function requireReadyAi(workspaceId: string) {
   const row = await getSettingsRow(workspaceId);
   if (!row?.enabled) throw new ApiError(409, "AI_DISABLED", "AI masih dinonaktifkan di Pengaturan.");
   if (!row.consentAccepted) throw new ApiError(409, "AI_CONSENT_REQUIRED", "Persetujuan privasi AI belum diberikan.");
-  const runtimeKey = runtimeEnv().GEMINI_API_KEY?.trim();
-  if (runtimeKey) return { apiKey: runtimeKey, model: row.model || currentModel() };
+  const baseUrl = row.baseUrl || currentBaseUrl();
+  const runtimeKey = runtimeEnv().AI_API_KEY?.trim();
+  if (!baseUrl) throw new ApiError(409, "AI_NOT_CONFIGURED", "Tambahkan Base URL API di Pengaturan terlebih dahulu.");
+  if (runtimeKey) return { apiKey: runtimeKey, baseUrl, model: row.model || currentModel() };
   if (!row.encryptedApiKey || !row.apiKeyIv) {
-    throw new ApiError(409, "AI_NOT_CONFIGURED", "Tambahkan API key Gemini di Pengaturan terlebih dahulu.");
+    throw new ApiError(409, "AI_NOT_CONFIGURED", "Tambahkan API key di Pengaturan terlebih dahulu.");
   }
-  return { apiKey: await decryptApiKey(row.encryptedApiKey, row.apiKeyIv), model: row.model || currentModel() };
+  return { apiKey: await decryptApiKey(row.encryptedApiKey, row.apiKeyIv), baseUrl, model: row.model || currentModel() };
 }
 
-type GeminiPart = { text?: string };
-type GeminiResponse = {
-  candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
-  error?: { message?: string; status?: string };
+type UniversalAiResponse = {
+  choices?: Array<{ message?: { content?: string | Array<{ text?: string; output_text?: string }> } }>;
+  output_text?: string;
+  output?: Array<{ content?: Array<{ text?: string }> }>;
+  error?: { message?: string };
 };
 
-async function callGemini(
+const textFromUniversalResponse = (payload: UniversalAiResponse) => {
+  const content = payload.choices?.[0]?.message?.content ?? payload.output_text;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) return content.map((part) => part.text ?? part.output_text ?? "").join("").trim();
+  return payload.output?.flatMap((item) => item.content ?? []).map((part) => part.text ?? "").join("").trim() ?? "";
+};
+
+function toOpenAiMessages(body: Record<string, unknown>) {
+  const messages: Array<Record<string, unknown>> = [];
+  const systemInstruction = body.systemInstruction as { parts?: Array<{ text?: string }> } | undefined;
+  const systemText = systemInstruction?.parts?.map((part) => part.text ?? "").join("").trim();
+  if (systemText) messages.push({ role: "system", content: systemText });
+  const contents = Array.isArray(body.contents)
+    ? body.contents as Array<{ role?: string; parts?: Array<{ text?: string; inlineData?: { mimeType?: string; data?: string } }> }>
+    : [];
+  contents.forEach((message) => {
+    const role = message.role === "model" ? "assistant" : "user";
+    const parts = message.parts ?? [];
+    const hasImage = parts.some((part) => Boolean(part.inlineData?.data));
+    if (!hasImage) {
+      messages.push({ role, content: parts.map((part) => part.text ?? "").join("") });
+      return;
+    }
+    messages.push({
+      role,
+      content: parts.map((part) => part.inlineData?.data
+        ? { type: "image_url", image_url: { url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` } }
+        : { type: "text", text: part.text ?? "" }),
+    });
+  });
+  return messages;
+}
+
+async function callAi(
   apiKey: string,
+  baseUrl: string,
   model: string,
   body: Record<string, unknown>,
 ) {
+  const generation = (body.generationConfig ?? {}) as Record<string, unknown>;
+  const requestBody: Record<string, unknown> = {
+    model: model || DEFAULT_AI_MODEL,
+    messages: toOpenAiMessages(body),
+    temperature: typeof generation.temperature === "number" ? generation.temperature : 0.25,
+    max_tokens: typeof generation.maxOutputTokens === "number" ? generation.maxOutputTokens : 900,
+    stream: false,
+    store: false,
+  };
+  if (generation.responseMimeType === "application/json") requestBody.response_format = { type: "json_object" };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
   let response: Response;
   try {
     response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      aiChatCompletionsUrl(baseUrl),
       {
         method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-        body: JSON.stringify({ ...body, store: false }),
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       },
     );
@@ -238,33 +309,33 @@ async function callGemini(
   } finally {
     clearTimeout(timeout);
   }
-  const payload = await response.json().catch(() => ({})) as GeminiResponse;
+  const payload = await response.json().catch(() => ({})) as UniversalAiResponse;
   if (!response.ok) {
     const providerMessage = payload.error?.message ?? "Permintaan ditolak penyedia AI.";
     const safeMessage = response.status === 400 || response.status === 401 || response.status === 403
-      ? "API key atau konfigurasi Gemini tidak dapat digunakan. Periksa Pengaturan."
+      ? "API key, model, atau Base URL tidak dapat digunakan. Periksa Pengaturan AI."
       : response.status === 429
-        ? "Kuota Gemini sedang habis. Coba lagi nanti."
+        ? "Kuota penyedia AI sedang habis. Coba lagi nanti."
         : providerMessage.slice(0, 240);
     throw new ApiError(response.status === 429 ? 429 : 502, "AI_PROVIDER_ERROR", safeMessage);
   }
-  const text = payload.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text ?? "")
-    .join("")
-    .trim();
-  if (!text) throw new ApiError(502, "AI_EMPTY_RESPONSE", "Gemini tidak mengembalikan jawaban yang dapat dibaca.");
+  const text = textFromUniversalResponse(payload);
+  if (!text) throw new ApiError(502, "AI_EMPTY_RESPONSE", "Penyedia AI tidak mengembalikan jawaban yang dapat dibaca.");
   return text;
 }
 
 function contextIntent(question: string) {
   const normalized = question.toLocaleLowerCase("id-ID");
+  const holistic = /bertahan|runway|bulan (ke )?depan|cukup|aman|kondisi|rencana|kemampuan|analisis|evaluasi|saran|darurat/.test(normalized);
   return {
-    accounts: /saldo|utang|aset|kekayaan|likuid|rekening|akun/.test(normalized),
-    budgets: /budget|anggaran|kategori|makan|transport|hiburan|belanja|pengeluaran/.test(normalized),
-    goals: /target|tujuan|dana darurat|menabung|tabungan/.test(normalized),
-    bills: /tagihan|jatuh tempo|bayar|kartu kredit|paylater/.test(normalized),
+    holistic,
+    accounts: holistic || /saldo|utang|aset|kekayaan|likuid|rekening|akun|uang|kas/.test(normalized),
+    budgets: holistic || /budget|anggaran|kategori|makan|transport|hiburan|belanja|pengeluaran/.test(normalized),
+    goals: holistic || /target|tujuan|dana darurat|menabung|tabungan/.test(normalized),
+    funds: holistic || /pos dana|sinking|servis|pajak|liburan|pendidikan|alokasi/.test(normalized),
+    bills: holistic || /tagihan|jatuh tempo|bayar|kartu kredit|paylater/.test(normalized),
     investments: /invest|saham|reksadana|kripto|emas|portofolio|profit|untung|rugi/.test(normalized),
-    transactions: /mengapa|kenapa|turun|naik|merchant|transaksi|riwayat/.test(normalized),
+    transactions: holistic || /mengapa|kenapa|turun|naik|merchant|transaksi|riwayat/.test(normalized),
   };
 }
 
@@ -288,6 +359,24 @@ async function buildFinanceContext(workspaceId: string, period: string, question
     const direction = transaction.type === "refund" ? -1 : transaction.type === "expense" ? 1 : 0;
     if (direction) categoryMap.set(transaction.category, (categoryMap.get(transaction.category) ?? 0) + direction * transaction.amount);
   });
+  const assets = snapshot.accounts.filter((account) => !account.liability).reduce((sum, account) => sum + account.balance, 0);
+  const liabilities = snapshot.accounts.filter((account) => account.liability).reduce((sum, account) => sum + account.balance, 0);
+  const liquidFunds = snapshot.accounts
+    .filter((account) => !account.liability && account.type.toLocaleLowerCase("id-ID") !== "investment")
+    .reduce((sum, account) => sum + account.balance, 0);
+  const unpaidBills = snapshot.bills.filter((bill) => !bill.paid);
+  const budgetLimitTotal = snapshot.budgets.reduce((sum, budget) => sum + budget.limit, 0);
+  const budgetSpentTotal = snapshot.budgets.reduce(
+    (sum, budget) => sum + Math.max(0, categoryMap.get(budget.category) ?? 0),
+    0,
+  );
+  const unpaidBillAmount = unpaidBills.reduce((sum, bill) => sum + bill.amount, 0);
+  const goalRemaining = snapshot.goals.reduce(
+    (sum, goal) => sum + Math.max(0, goal.target - goal.current),
+    0,
+  );
+  const sinkingFundAllocated = snapshot.sinkingFunds.reduce((sum, fund) => sum + fund.currentAmount, 0);
+  const sinkingFundRemaining = snapshot.sinkingFunds.reduce((sum, fund) => sum + Math.max(0, fund.targetAmount - fund.currentAmount), 0);
   const context: Record<string, unknown> = {
     period,
     currency: snapshot.profile.currency,
@@ -302,14 +391,46 @@ async function buildFinanceContext(workspaceId: string, period: string, question
       .filter((item) => item.amount > 0)
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 10),
+    financialPosition: {
+      assets,
+      liabilities,
+      netWorth: assets - liabilities,
+      liquidFunds,
+      activeAccountCount: snapshot.accounts.length,
+    },
+    dataAvailability: {
+      transactionCount: transactions.length,
+      expenseTransactionCount: operating.filter((transaction) => transaction.type === "expense").length,
+      activeAccountCount: snapshot.accounts.length,
+      budgetCount: snapshot.budgets.length,
+      activeGoalCount: snapshot.goals.length,
+      activeSinkingFundCount: snapshot.sinkingFunds.length,
+      unpaidBillCount: unpaidBills.length,
+    },
+    planningSummary: {
+      budgetLimitTotal,
+      budgetSpentTotal,
+      unpaidBillAmount,
+      goalRemaining,
+      sinkingFundAllocated,
+      sinkingFundRemaining,
+    },
+    runway: {
+      liquidFunds,
+      observedMonthlyExpense: expense,
+      estimatedMonths: expense > 0 ? Number((liquidFunds / expense).toFixed(1)) : null,
+      calculable: expense > 0,
+    },
   };
-  const manifest = [`Ringkasan ${period}`, "Agregat kategori"];
+  const manifest = [
+    `Ringkasan ${period}`,
+    "Posisi keuangan agregat",
+    "Ketersediaan data",
+    "Komitmen finansial agregat",
+  ];
   const intent = contextIntent(question);
 
   if (intent.accounts) {
-    const assets = snapshot.accounts.filter((account) => !account.liability).reduce((sum, account) => sum + account.balance, 0);
-    const liabilities = snapshot.accounts.filter((account) => account.liability).reduce((sum, account) => sum + account.balance, 0);
-    context.accountSummary = { assets, liabilities, netWorth: assets - liabilities };
     context.selectedAccounts = snapshot.accounts.slice(0, 20).map((account) => ({
       name: account.name,
       type: account.type,
@@ -334,6 +455,18 @@ async function buildFinanceContext(workspaceId: string, period: string, question
       deadline: goal.deadline,
     }));
     manifest.push("Target finansial");
+  }
+  if (intent.funds) {
+    context.sinkingFunds = snapshot.sinkingFunds.slice(0, 20).map((fund) => ({
+      name: fund.name,
+      purpose: fund.purpose,
+      targetAmount: fund.targetAmount,
+      currentAmount: fund.currentAmount,
+      monthlyContribution: fund.monthlyContribution,
+      targetDate: fund.targetDate,
+      accountId: fund.accountId,
+    }));
+    manifest.push("Pos dana aktif");
   }
   if (intent.bills) {
     context.bills = snapshot.bills.slice(0, 30).map((bill) => ({
@@ -410,7 +543,7 @@ export async function askAi(workspaceId: string, question: string, period: strin
   if (!normalizedQuestion || normalizedQuestion.length > MAX_AI_QUESTION_LENGTH) {
     throw new ApiError(400, "INVALID_QUESTION", `Pertanyaan wajib diisi dan maksimal ${MAX_AI_QUESTION_LENGTH} karakter.`);
   }
-  const { apiKey, model } = await requireReadyAi(workspaceId);
+  const { apiKey, baseUrl, model } = await requireReadyAi(workspaceId);
   const { context, manifest } = await buildFinanceContext(workspaceId, period, normalizedQuestion);
   const historyResult = await getD1()
     .prepare(
@@ -423,10 +556,10 @@ export async function askAi(workspaceId: string, question: string, period: strin
     role: message.role === "assistant" ? "model" : "user",
     parts: [{ text: message.content.slice(0, 2000) }],
   }));
-  const answer = await callGemini(apiKey, model, {
+  const answer = await callAi(apiKey, baseUrl, model, {
     systemInstruction: {
       parts: [{
-        text: "Anda adalah Financial Insight, asisten keuangan read-only berbahasa Indonesia. Gunakan hanya data JSON yang diberikan. Sebutkan periode dan data yang digunakan. Pisahkan fakta, perhitungan, dan saran umum. Jangan mengubah data, menjanjikan keuntungan, melakukan transaksi investasi, atau mengaku sebagai penasihat berlisensi. Harga investasi berstatus manual/delayed tidak boleh disebut real-time. Jika data tidak cukup, katakan dengan jelas. Jangan meminta PIN, OTP, CVV, password, atau nomor kartu lengkap.",
+        text: "Anda adalah Financial Insight, asisten keuangan read-only berbahasa Indonesia. Gunakan hanya data JSON yang diberikan, terutama financialPosition, dataAvailability, planningSummary, dan runway. Sebutkan periode dan data yang digunakan. Pisahkan fakta, perhitungan, dan saran umum. transactionCount atau expenseTransactionCount bernilai 0 berarti belum ada transaksi tercatat pada periode tersebut, bukan bukti bahwa kebutuhan hidup pengguna nol. Jika runway.calculable bernilai false, jangan mengarang durasi ketahanan dana; jelaskan data pengeluaran yang masih dibutuhkan. Jangan mengubah data, menjanjikan keuntungan, melakukan transaksi investasi, atau mengaku sebagai penasihat berlisensi. Harga investasi berstatus manual/delayed tidak boleh disebut real-time. Jika data tidak cukup, katakan dengan jelas. Jangan meminta PIN, OTP, CVV, password, atau nomor kartu lengkap.",
       }],
     },
     contents: [
@@ -537,12 +670,24 @@ function jakartaToday() {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
+function parseAiJson(text: string) {
+  const normalized = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  try {
+    return JSON.parse(normalized) as unknown;
+  } catch (error) {
+    const start = normalized.indexOf("{");
+    const end = normalized.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(normalized.slice(start, end + 1)) as unknown;
+    throw error;
+  }
+}
+
 export async function scanReceipt(
   workspaceId: string,
   input: { imageBase64: string; mimeType: string; fileName?: string },
 ): Promise<{ receipt: OcrReceipt; model: string; imageStored: false }> {
   await requireWorkspace(workspaceId);
-  const { apiKey, model } = await requireReadyAi(workspaceId);
+  const { apiKey, baseUrl, model } = await requireReadyAi(workspaceId);
   if (!/^image\/(jpeg|png|webp)$/.test(input.mimeType)) {
     throw new ApiError(400, "INVALID_RECEIPT_TYPE", "Gunakan gambar JPG, PNG, atau WebP.");
   }
@@ -560,7 +705,7 @@ export async function scanReceipt(
     .bind(workspaceId)
     .all<{ name: string }>();
   const categories = categoryResult.results.map((row) => row.name);
-  const text = await callGemini(apiKey, model, {
+  const text = await callAi(apiKey, baseUrl, model, {
     systemInstruction: {
       parts: [{
         text: "Ekstrak struk belanja Indonesia menjadi JSON sesuai schema. Jangan mengarang angka yang tidak terlihat. Nominal harus angka Rupiah tanpa simbol atau pemisah ribuan. Nilai confidence 0-1. Jika teks utama, total, atau tanggal tidak terbaca, tandai imageQuality blurry/unreadable dan jelaskan pada warnings.",
@@ -582,7 +727,7 @@ export async function scanReceipt(
   });
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseAiJson(text);
   } catch {
     throw new ApiError(502, "OCR_INVALID_RESPONSE", "Hasil OCR tidak dapat divalidasi. Coba foto lain.");
   }

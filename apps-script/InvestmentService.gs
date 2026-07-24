@@ -10,8 +10,8 @@ function investmentUnits_(value) {
   return micro / INVESTMENT_UNIT_PRECISION;
 }
 
-function investmentPosition_(assetId) {
-  const rows = rowsAsObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX).filter(function(row) {
+function investmentPosition_(assetId, transactionRows) {
+  const rows = (Array.isArray(transactionRows) ? transactionRows : rowsAsObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX)).filter(function(row) {
     return String(row.asset_id) === String(assetId);
   });
   if (!rows.length) return { units: 0, costBasis: 0, realizedPl: 0, averageCost: 0 };
@@ -26,8 +26,8 @@ function investmentPosition_(assetId) {
   };
 }
 
-function investmentAssetClientRow_(asset) {
-  const position = investmentPosition_(asset.id);
+function investmentAssetClientRow_(asset, transactionRows) {
+  const position = investmentPosition_(asset.id, transactionRows);
   const marketPrice = Number(asset.manual_price || asset.latest_price_cache || 0);
   const marketValue = Math.round(position.units * marketPrice);
   return {
@@ -46,10 +46,10 @@ function investmentAssetClientRow_(asset) {
   };
 }
 
-function investmentAssetClientRows_() {
+function investmentAssetClientRows_(transactionRows) {
   return rowsAsObjects_(VINN_CONFIG.SHEETS.ASSETS)
     .filter(function(asset) { return accountIsActive_({ is_active: asset.is_active }); })
-    .map(investmentAssetClientRow_);
+    .map(function(asset) { return investmentAssetClientRow_(asset, transactionRows); });
 }
 
 function investmentTransactionClientRow_(row) {

@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Account, FinanceCategory, Transaction } from "../lib/finance";
 import { budgetSpent } from "../lib/finance";
 import { parseCsvRecords, previewTransactionCsv } from "../lib/transaction-import";
+import type { CategoryRule } from "../lib/category-rules";
 
 const accounts: Account[] = [{ id: "cash", name: "Kas Utama", type: "Cash", institution: "", balance: 2_000_000, mask: "", color: "#16876f" }];
 const categories: FinanceCategory[] = [
@@ -34,6 +35,22 @@ test("preview CSV menolak akun yang tidak ada dan total split yang berbeda", () 
   assert.equal(preview.errorCount, 1);
   assert.match(preview.rows[0].errors.join(" "), /Akun tidak ditemukan/);
   assert.match(preview.rows[0].errors.join(" "), /Total split/);
+});
+
+test("aturan kategori mengisi dan menimpa kategori CSV pada tahap preview", () => {
+  const rules: CategoryRule[] = [
+    { id: "rule-pln", keyword: "PLN", category: "Transportasi", transactionType: "expense", matchType: "contains", priority: 100, active: false },
+    { id: "rule-indomaret", keyword: "Indomaret", category: "Makanan", transactionType: "expense", matchType: "contains", priority: 100, active: true },
+  ];
+  const preview = previewTransactionCsv(
+    "tanggal,jenis,deskripsi,kategori,akun,nominal\n2026-07-18,pengeluaran,INDOMARET 012,,Kas Utama,125000",
+    accounts,
+    categories,
+    rules,
+  );
+  assert.equal(preview.errorCount, 0);
+  assert.equal(preview.valid[0].category, "Makanan");
+  assert.equal(preview.rows[0].matchedRule?.id, "rule-indomaret");
 });
 
 test("realisasi anggaran memakai alokasi split, bukan kategori induk saja", () => {

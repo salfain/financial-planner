@@ -1,10 +1,40 @@
-export const DEFAULT_AI_PROVIDER = "gemini" as const;
-export const DEFAULT_AI_MODEL = "gemini-3.5-flash";
+export const DEFAULT_AI_PROVIDER = "openai-compatible" as const;
+export const DEFAULT_AI_MODEL = "default";
+export const DEFAULT_AI_BASE_URL = "";
 export const MAX_AI_QUESTION_LENGTH = 600;
 export const MAX_RECEIPT_BYTES = 4 * 1024 * 1024;
 
+export function normalizeAiBaseUrl(value: string) {
+  const normalized = value.trim().replace(/\/+$/, "");
+  if (!normalized) return "";
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error("Base URL harus berupa alamat HTTPS yang valid.");
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("Base URL harus menggunakan HTTPS tanpa kredensial, query, atau fragment.");
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === "localhost" || host.endsWith(".local") || host === "0.0.0.0" || host === "::1" ||
+    /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  ) {
+    throw new Error("Base URL jaringan lokal tidak diizinkan.");
+  }
+  return normalized;
+}
+
+export const aiChatCompletionsUrl = (baseUrl: string) => {
+  const normalized = normalizeAiBaseUrl(baseUrl);
+  return /\/chat\/completions$/i.test(normalized) ? normalized : `${normalized}/chat/completions`;
+};
+
 export type AiSettingsStatus = {
   provider: typeof DEFAULT_AI_PROVIDER;
+  baseUrl: string;
   model: string;
   enabled: boolean;
   consentAccepted: boolean;

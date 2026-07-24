@@ -13,6 +13,8 @@ import {
   routeError,
 } from "../../../_lib/api";
 import { parseInvestmentTrade } from "../../../_lib/investment-domain";
+import { requireCapability } from "../../../_lib/license";
+import { assertMonthlyPeriodOpen } from "../../../_lib/monthly-closing";
 import {
   getAccountRow,
   getInvestmentAssetRow,
@@ -45,7 +47,9 @@ export async function POST(request: Request) {
     const payload = await readJsonObject(request);
     workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "investments");
     const trade = parseInvestmentTrade(payload);
+    await assertMonthlyPeriodOpen(workspaceId, trade.date);
     requestId = trade.requestId;
     const replay = await getInvestmentTransactionByRequest(workspaceId, requestId);
     if (replay) {

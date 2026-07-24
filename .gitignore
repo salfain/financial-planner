@@ -21,6 +21,7 @@
 # misc
 .DS_Store
 *.pem
+*.license
 
 # debug
 npm-debug.log*
@@ -43,5 +44,6 @@ next-env.d.ts
 /.codex-d1-smoke.*.log
 /outputs/
 /work/
+/.clasp.json
 node_modules/
 package-lock.json

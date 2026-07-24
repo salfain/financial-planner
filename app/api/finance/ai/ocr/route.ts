@@ -1,5 +1,6 @@
 import { ApiError, readJsonObject, resolveWorkspaceId, routeError } from "../../../_lib/api";
 import { scanReceipt } from "../../../_lib/ai";
+import { requireCapability } from "../../../_lib/license";
 
 export async function POST(request: Request) {
   try {
@@ -13,7 +14,9 @@ export async function POST(request: Request) {
     if (payload.fileName !== undefined && typeof payload.fileName !== "string") {
       throw new ApiError(400, "INVALID_FIELD", "fileName harus berupa teks.");
     }
-    return Response.json(await scanReceipt(resolveWorkspaceId(request, payload), {
+    const workspaceId = resolveWorkspaceId(request, payload);
+    await requireCapability(workspaceId, "ocr");
+    return Response.json(await scanReceipt(workspaceId, {
       imageBase64: payload.imageBase64,
       mimeType: payload.mimeType,
       fileName: payload.fileName,

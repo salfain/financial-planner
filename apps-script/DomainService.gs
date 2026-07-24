@@ -4,6 +4,7 @@ function apiSetupWorkspace(payload) {
     setupFinancialPlanner();
     return withDocumentLock_(function() {
       payload = payload || {};
+      ensureSheet_(VINN_CONFIG.SHEETS.BILLS, VINN_CONFIG.HEADERS.Bills);
       const existingAccounts = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS)
         .filter(function(row) { return row.is_active !== false && String(row.is_active).toLowerCase() !== 'false'; });
       if (existingAccounts.length) {
@@ -594,14 +595,24 @@ function apiCreateBill(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {
     return withDocumentLock_(function() {
+      ensureSheet_(VINN_CONFIG.SHEETS.BILLS, VINN_CONFIG.HEADERS.Bills);
       payload = payload || {};
       const amount = assertPositiveMoney_(payload.amount);
       const frequency = String(payload.frequency || 'monthly');
       if (frequency !== 'monthly') throw createError_('INVALID_BILL_FREQUENCY', 'Frekuensi tagihan belum didukung.');
       const reminderDays = Array.isArray(payload.reminderDays) ? payload.reminderDays.map(Number).filter(function(day, index, values) { return [7, 3, 1, 0].indexOf(day) >= 0 && values.indexOf(day) === index; }).sort(function(a, b) { return b - a; }) : [7, 3, 1, 0];
       if (!reminderDays.length) throw createError_('INVALID_REMINDER_DAYS', 'Pilih minimal satu jadwal reminder tagihan.');
+      const liabilityAccountId = String(payload.liabilityAccountId || '');
+      const liabilityAccount = liabilityAccountId ? findById_(VINN_CONFIG.SHEETS.ACCOUNTS, liabilityAccountId) : null;
+      if (liabilityAccountId && (!liabilityAccount || !truthy_(liabilityAccount.is_liability))) {
+        throw createError_('LIABILITY_ACCOUNT_REQUIRED', 'Akun tujuan cicilan harus berupa Paylater, kartu kredit, atau akun utang.');
+      }
+      const durationMonths = billDurationMonths_(payload.durationMonths, '');
+      const paidCount = billPaidCount_(payload.paidCount === undefined ? payload.paid_count : payload.paidCount, 0);
+      if (!durationMonths && paidCount > 0) throw createError_('BILL_DURATION_REQUIRED', 'Isi total tenor sebelum memasukkan cicilan yang sudah dibayar.');
+      if (durationMonths && paidCount > Number(durationMonths)) throw createError_('INVALID_BILL_PAID_COUNT', 'Jumlah cicilan yang sudah dibayar tidak boleh melebihi total tenor.');
       const now = nowIso_();
-      const bill = { id: id_('bill'), name: String(payload.name || '').trim().slice(0, 100), amount: amount, category: String(payload.category || 'Tagihan'), account_id: String(payload.accountId || ''), frequency: frequency, due_date: dateIso_(payload.dueDate), reminder_days: reminderDays.join(','), status: 'active', last_paid_period: '', created_at: now, updated_at: now };
+      const bill = { id: id_('bill'), name: String(payload.name || '').trim().slice(0, 100), amount: amount, category: String(payload.category || 'Tagihan'), account_id: String(payload.accountId || ''), frequency: frequency, due_date: dateIso_(payload.dueDate), reminder_days: reminderDays.join(','), status: durationMonths && paidCount >= Number(durationMonths) ? 'completed' : 'active', last_paid_period: '', created_at: now, updated_at: now, liability_account_id: liabilityAccountId, duration_months: durationMonths, paid_count: paidCount };
       if (!bill.name || !bill.account_id || !findById_(VINN_CONFIG.SHEETS.ACCOUNTS, bill.account_id)) throw createError_('INVALID_BILL', 'Nama dan akun pembayaran tagihan wajib diisi.');
       appendObjects_(VINN_CONFIG.SHEETS.BILLS, [bill]);
       audit_('CREATE', 'bills', bill.id, requestId, { name: bill.name, amount: amount });
@@ -615,6 +626,7 @@ function apiUpdateBill(payload) {
   const requestId = String(payload && payload.requestId || id_('req'));
   try {
     return withDocumentLock_(function() {
+      ensureSheet_(VINN_CONFIG.SHEETS.BILLS, VINN_CONFIG.HEADERS.Bills);
       const bill = findById_(VINN_CONFIG.SHEETS.BILLS, payload.billId);
       if (!bill) throw createError_('NOT_FOUND', 'Tagihan tidak ditemukan.');
       const name = String(payload.name === undefined ? bill.name : payload.name).trim().slice(0, 100);
@@ -622,6 +634,17 @@ function apiUpdateBill(payload) {
       const accountId = String(payload.accountId === undefined ? bill.account_id : payload.accountId);
       const frequency = String(payload.frequency === undefined ? bill.frequency || 'monthly' : payload.frequency);
       const reminderDays = Array.isArray(payload.reminderDays) ? payload.reminderDays.map(Number).filter(function(day, index, values) { return [7, 3, 1, 0].indexOf(day) >= 0 && values.indexOf(day) === index; }).sort(function(a, b) { return b - a; }) : String(bill.reminder_days || '7,3,1,0').split(',').map(Number);
+      const liabilityAccountId = String(payload.liabilityAccountId === undefined ? bill.liability_account_id || '' : payload.liabilityAccountId || '');
+      const liabilityAccount = liabilityAccountId ? findById_(VINN_CONFIG.SHEETS.ACCOUNTS, liabilityAccountId) : null;
+      if (liabilityAccountId && (!liabilityAccount || !truthy_(liabilityAccount.is_liability))) {
+        throw createError_('LIABILITY_ACCOUNT_REQUIRED', 'Akun tujuan cicilan harus berupa Paylater, kartu kredit, atau akun utang.');
+      }
+      const durationMonths = billDurationMonths_(payload.durationMonths, bill.duration_months || '');
+      const paidCount = billPaidCount_(payload.paidCount === undefined ? payload.paid_count : payload.paidCount, bill.paid_count || 0);
+      if (!durationMonths && paidCount > 0) throw createError_('BILL_DURATION_REQUIRED', 'Isi total tenor sebelum memasukkan cicilan yang sudah dibayar.');
+      if (durationMonths && Number(durationMonths) < paidCount) {
+        throw createError_('INVALID_BILL_DURATION', 'Durasi tidak boleh lebih kecil dari jumlah cicilan yang sudah dibayar.');
+      }
       if (!name || !findById_(VINN_CONFIG.SHEETS.ACCOUNTS, accountId)) throw createError_('INVALID_BILL', 'Nama dan akun pembayaran tagihan wajib diisi.');
       if (frequency !== 'monthly') throw createError_('INVALID_BILL_FREQUENCY', 'Frekuensi tagihan belum didukung.');
       if (!reminderDays.length) throw createError_('INVALID_REMINDER_DAYS', 'Pilih minimal satu jadwal reminder tagihan.');
@@ -634,6 +657,10 @@ function apiUpdateBill(payload) {
       bill.frequency = frequency;
       bill.due_date = dateIso_(payload.dueDate === undefined ? bill.due_date : payload.dueDate);
       bill.reminder_days = reminderDays.join(',');
+      bill.liability_account_id = liabilityAccountId;
+      bill.duration_months = durationMonths;
+      bill.paid_count = paidCount;
+      bill.status = durationMonths && bill.paid_count >= Number(durationMonths) ? 'completed' : 'active';
       bill.updated_at = nowIso_();
       delete bill._row;
       updateObjectRow_(VINN_CONFIG.SHEETS.BILLS, rowNumber, bill);
@@ -648,6 +675,7 @@ function apiDeleteBill(payload) {
   const requestId = String(payload && payload.requestId || id_('req'));
   try {
     return withDocumentLock_(function() {
+      ensureSheet_(VINN_CONFIG.SHEETS.BILLS, VINN_CONFIG.HEADERS.Bills);
       const bill = findById_(VINN_CONFIG.SHEETS.BILLS, payload.billId);
       if (!bill) throw createError_('NOT_FOUND', 'Tagihan tidak ditemukan.');
       const before = Object.assign({}, bill); delete before._row;
@@ -663,9 +691,14 @@ function apiMarkBillPaid(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {
     return withDocumentLock_(function() {
+      ensureSheet_(VINN_CONFIG.SHEETS.BILLS, VINN_CONFIG.HEADERS.Bills);
       const bill = findById_(VINN_CONFIG.SHEETS.BILLS, payload.billId);
       if (!bill) throw createError_('NOT_FOUND', 'Tagihan tidak ditemukan.');
-      if (String(bill.category) === 'Kewajiban') {
+      const liabilityAccountId = String(bill.liability_account_id || '');
+      if (String(bill.status || 'active') === 'completed') {
+        return ok_({ bill: bill, transactionId: '', duplicate: true, completed: true }, requestId);
+      }
+      if (String(bill.category) === 'Kewajiban' && !liabilityAccountId) {
         throw createError_('DEBT_PAYMENT_REQUIRES_TRANSFER', 'Pembayaran kartu kredit harus dicatat sebagai transfer ke akun kewajiban agar tidak menjadi pengeluaran ganda.');
       }
       const period = String(payload.period || Utilities.formatDate(new Date(), VINN_CONFIG.TIMEZONE, 'yyyy-MM'));
@@ -683,28 +716,71 @@ function apiMarkBillPaid(payload) {
       const timestamp = nowIso_();
       let transactionId = existingPayment ? existingPayment.id : '';
       if (!existingPayment) {
-        transactionId = id_('tx');
-        const paymentTransaction = {
-          id: transactionId, transfer_group_id: '', request_id: requestId,
-          date: dateIso_(payload.date || new Date()), time: '', type: 'expense',
-          account_id: accountId, destination_account_id: '', amount: assertPositiveMoney_(bill.amount),
-          category: String(bill.category || 'Tagihan'), merchant: 'Bayar ' + String(bill.name || 'Tagihan'),
+        const amount = assertPositiveMoney_(bill.amount);
+        const paymentDate = dateIso_(payload.date || new Date());
+        const base = {
+          id: id_('tx'), transfer_group_id: '', request_id: requestId,
+          date: paymentDate, time: '', type: liabilityAccountId ? 'transfer' : 'expense',
+          account_id: accountId, destination_account_id: liabilityAccountId, amount: amount,
+          category: liabilityAccountId ? 'Transfer' : String(bill.category || 'Tagihan'),
+          merchant: 'Bayar ' + String(bill.name || 'Tagihan'),
           notes: 'Pembayaran tagihan ' + String(bill.id), status: 'completed', direction: '',
-          created_at: timestamp, updated_at: timestamp, deleted_at: ''
+          created_at: timestamp, updated_at: timestamp, deleted_at: '',
+          tags_json: '[]', location: '', splits_json: '[]',
+          receipt_file_id: '', receipt_filename: '', receipt_content_type: '', receipt_size_bytes: ''
         };
-        validateLedgerMutation_([], [paymentTransaction]);
-        appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, [paymentTransaction]);
+        if (liabilityAccountId) {
+          const liabilityAccount = findById_(VINN_CONFIG.SHEETS.ACCOUNTS, liabilityAccountId);
+          if (!liabilityAccount || !truthy_(liabilityAccount.is_liability)) {
+            throw createError_('LIABILITY_ACCOUNT_REQUIRED', 'Akun Paylater atau utang tujuan tidak ditemukan.');
+          }
+          if (accountId === liabilityAccountId) throw createError_('SAME_ACCOUNT', 'Akun pembayaran dan akun utang harus berbeda.');
+          const groupId = id_('trf');
+          const transferRows = [
+            Object.assign({}, base, { id: id_('tx'), transfer_group_id: groupId, direction: 'out' }),
+            Object.assign({}, base, { id: id_('tx'), transfer_group_id: groupId, account_id: liabilityAccountId, destination_account_id: accountId, direction: 'in' })
+          ];
+          validateLedgerMutation_([], transferRows);
+          appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, transferRows);
+          transactionId = groupId;
+        } else {
+          transactionId = base.id;
+          validateLedgerMutation_([], [base]);
+          appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, [base]);
+        }
       }
       bill.last_paid_period = period;
+      bill.paid_count = Number(bill.paid_count || 0) + (existingPayment ? 0 : 1);
+      const durationMonths = Number(bill.duration_months || 0);
+      if (durationMonths && bill.paid_count >= durationMonths) bill.status = 'completed';
       bill.updated_at = timestamp;
       const rowNumber = bill._row;
       delete bill._row;
       updateObjectRow_(VINN_CONFIG.SHEETS.BILLS, rowNumber, bill);
-      audit_('MARK_PAID', 'bills', bill.id, requestId, { period: period, transactionId: transactionId });
+      audit_('MARK_PAID', 'bills', bill.id, requestId, { period: period, transactionId: transactionId, liabilityAccountId: liabilityAccountId, paidCount: bill.paid_count, status: bill.status });
       invalidateDashboard_(period);
       return ok_({ bill: bill, transactionId: transactionId, duplicate: Boolean(existingPayment) }, requestId);
     });
   } catch (error) { return fail_(error, requestId); }
+}
+
+function billDurationMonths_(value, fallback) {
+  const raw = value === undefined ? fallback : value;
+  if (raw === null || raw === '') return '';
+  const duration = Number(raw);
+  if (!Number.isSafeInteger(duration) || duration < 1 || duration > 120) {
+    throw createError_('INVALID_BILL_DURATION', 'Durasi cicilan harus antara 1 sampai 120 bulan.');
+  }
+  return duration;
+}
+
+function billPaidCount_(value, fallback) {
+  const raw = value === undefined || value === null || value === '' ? fallback : value;
+  const paidCount = Number(raw || 0);
+  if (!Number.isSafeInteger(paidCount) || paidCount < 0 || paidCount > 120) {
+    throw createError_('INVALID_BILL_PAID_COUNT', 'Jumlah cicilan yang sudah dibayar harus antara 0 sampai 120.');
+  }
+  return paidCount;
 }
 
 function upsertSetting_(key, value) {

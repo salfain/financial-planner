@@ -47,6 +47,7 @@ type VinnStoreGasBridge = {
 declare global {
   interface Window {
     vinnStoreGas: VinnStoreGasBridge;
+    __FINANCE_DEMO__?: boolean;
   }
 }
 
@@ -92,6 +93,15 @@ function GasHost() {
       setBridgeState(nextState);
       broadcastBridgeState(nextState);
     };
+
+    if (window.__FINANCE_DEMO__ === true) {
+      update({
+        status: "connected",
+        message: "Mode demo read-only siap.",
+        health: { appName: "Financial Planner Demo", schemaVersion: "demo-read-only", sheets: [] },
+      });
+      return () => { active = false; };
+    }
 
     if (!hasAppsScriptBridge()) {
       update({

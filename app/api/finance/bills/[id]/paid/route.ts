@@ -17,6 +17,7 @@ import {
   validateDeltas,
 } from "../../../../_lib/accounting";
 import { parseTransaction } from "../../../../_lib/domain";
+import { assertMonthlyPeriodOpen } from "../../../../_lib/monthly-closing";
 import {
   getBillRow,
   getTransactionRow,
@@ -66,12 +67,22 @@ export async function POST(request: Request, context: Context) {
     const period = monthPeriod(payload);
     paymentPeriod = period;
     const date = isoDate(payload, "date");
+    await assertMonthlyPeriodOpen(workspaceId, date);
     const requestId = requiredString(payload, "requestId", 120);
     idempotencyKey = `bill-payment:${requestId}`;
 
     const bill = await getBillRow(workspaceId, billId);
     if (!bill) throw new ApiError(404, "NOT_FOUND", "Tagihan tidak ditemukan.");
-    if (bill.category === "Kewajiban") {
+    if (bill.completed) {
+      return Response.json({
+        bill: serializeBill(bill, period),
+        transaction: null,
+        period,
+        replayed: true,
+        alreadyPaid: true,
+      });
+    }
+    if (bill.category === "Kewajiban" && !bill.liabilityAccountId) {
       throw new ApiError(
         422,
         "DEBT_PAYMENT_REQUIRES_TRANSFER",
@@ -111,12 +122,13 @@ export async function POST(request: Request, context: Context) {
 
     const transaction = parseTransaction(
       {
-        type: "expense",
+        type: bill.liabilityAccountId ? "transfer" : "expense",
         date,
         title: `Bayar ${bill.name}`,
         merchant: bill.name,
-        category: bill.category === "Kewajiban" ? "Tagihan" : bill.category,
+        category: bill.liabilityAccountId ? "Transfer" : bill.category,
         accountId: bill.accountId,
+        destinationAccountId: bill.liabilityAccountId,
         amount: bill.amount,
         status: "completed",
       },
@@ -177,7 +189,13 @@ export async function POST(request: Request, context: Context) {
       d1
         .prepare(
           `UPDATE bills
-           SET paid = 1, paid_at = ?, last_paid_period = ?, updated_at = ?
+           SET paid = 1, paid_at = ?, last_paid_period = ?,
+               paid_count = paid_count + 1,
+               completed = CASE
+                 WHEN duration_months IS NOT NULL AND paid_count + 1 >= duration_months THEN 1
+                 ELSE completed
+               END,
+               updated_at = ?
            WHERE workspace_id = ? AND id = ?
              AND COALESCE(last_paid_period, '') <> ?`,
         )
@@ -190,8 +208,8 @@ export async function POST(request: Request, context: Context) {
           entityType: "transaction",
           entityId: transaction.id,
           requestId: idempotencyKey,
-          after: { ...transaction, transferGroupId: null, updatedAt: now },
-          details: { source: "bill.payment", billId, period },
+          after: { ...transaction, transferGroupId: bill.liabilityAccountId ? transaction.id : null, updatedAt: now },
+          details: { source: "bill.payment", billId, period, liabilityAccountId: bill.liabilityAccountId },
           createdAt: now,
         },
         transaction.id,
@@ -209,6 +227,8 @@ export async function POST(request: Request, context: Context) {
             ...serializeBill(bill, period),
             paid: true,
             lastPaidPeriod: period,
+            paidCount: bill.paidCount + 1,
+            completed: bill.durationMonths !== null && bill.paidCount + 1 >= bill.durationMonths,
           },
           details: { transactionId: transaction.id, period },
           createdAt: now,

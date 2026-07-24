@@ -1,5 +1,5 @@
 export const BACKUP_FORMAT = "vinn-store-backup";
-export const BACKUP_SCHEMA_VERSION = "1.11.0";
+export const BACKUP_SCHEMA_VERSION = "1.12.0";
 export const BACKUP_MAX_RECORDS = 5_000;
 
 export const PORTABLE_COLLECTIONS = [
@@ -8,6 +8,8 @@ export const PORTABLE_COLLECTIONS = [
   "transactions",
   "budgets",
   "goals",
+  "sinkingFunds",
+  "sinkingFundEntries",
   "bills",
   "investmentAssets",
   "investmentPositions",
@@ -52,6 +54,15 @@ export type PortableBackup = {
     emergencyMonthlyExpenseOverride?: number;
     emergencyMonthlyContribution?: number;
     emergencyAccountIds?: string[];
+    categoryRules?: Array<{
+      id: string;
+      keyword: string;
+      category: string;
+      transactionType: "expense" | "income";
+      matchType: "contains" | "starts_with" | "exact";
+      priority: number;
+      active: boolean;
+    }>;
   };
   data: PortableData;
 };
@@ -106,6 +117,8 @@ const emptyData = (): PortableData => ({
   transactions: [],
   budgets: [],
   goals: [],
+  sinkingFunds: [],
+  sinkingFundEntries: [],
   bills: [],
   investmentAssets: [],
   investmentPositions: [],
@@ -152,6 +165,8 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
   data.transactions = collection(rawData, "transactions", "Transactions");
   data.budgets = collection(rawData, "budgets", "Budgets");
   data.goals = collection(rawData, "goals", "Goals");
+  data.sinkingFunds = collection(rawData, "sinkingFunds", "sinking_funds", "SinkingFunds");
+  data.sinkingFundEntries = collection(rawData, "sinkingFundEntries", "sinking_fund_entries", "SinkingFundEntries");
   data.bills = collection(rawData, "bills", "Bills");
   data.investmentAssets = collection(rawData, "investmentAssets", "investment_assets", "assets", "Assets");
   data.investmentPositions = collection(rawData, "investmentPositions", "investment_positions", "positions", "Positions");
@@ -207,6 +222,18 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
       ...(Number.isSafeInteger(Number(settings.emergencyMonthlyExpenseOverride)) ? { emergencyMonthlyExpenseOverride: Math.max(0, Number(settings.emergencyMonthlyExpenseOverride)) } : {}),
       ...(Number.isSafeInteger(Number(settings.emergencyMonthlyContribution)) ? { emergencyMonthlyContribution: Math.max(0, Number(settings.emergencyMonthlyContribution)) } : {}),
       ...(Array.isArray(settings.emergencyAccountIds) ? { emergencyAccountIds: settings.emergencyAccountIds.map(String).filter(Boolean) } : {}),
+      ...(Array.isArray(settings.categoryRules) ? { categoryRules: settings.categoryRules.map((value, index) => {
+        const rule = object(value) ?? {};
+        return {
+          id: text(rule.id, `rule-${index + 1}`),
+          keyword: text(rule.keyword).slice(0, 80),
+          category: text(rule.category).slice(0, 100),
+          transactionType: rule.transactionType === "income" ? "income" as const : "expense" as const,
+          matchType: (["contains", "starts_with", "exact"].includes(text(rule.matchType)) ? text(rule.matchType) : "contains") as "contains" | "starts_with" | "exact",
+          priority: Math.max(0, Math.min(1000, Number(rule.priority ?? 100))),
+          active: rule.active === undefined ? true : Boolean(rule.active),
+        };
+      }).filter((rule) => rule.keyword.length >= 2 && rule.category) } : {}),
     },
     data,
   };
@@ -228,6 +255,7 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
 
   const accountIds = new Set(data.accounts.map(idOf).filter(Boolean));
   const assetIds = new Set(data.investmentAssets.map(idOf).filter(Boolean));
+  const fundIds = new Set(data.sinkingFunds.map(idOf).filter(Boolean));
   data.transactions.forEach((row, index) => {
     const accountId = refOf(row, "accountId", "account_id");
     const destinationId = refOf(row, "destinationAccountId", "destination_account_id");
@@ -240,6 +268,16 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
     const accountId = refOf(row, "accountId", "account_id");
     if (!accountId) errors.push(`Tagihan baris ${index + 1} tidak memiliki akun pembayaran.`);
     else if (!accountIds.has(accountId)) errors.push(`Tagihan baris ${index + 1} merujuk akun yang tidak ada.`);
+  });
+  data.sinkingFunds.forEach((row, index) => {
+    const accountId = refOf(row, "accountId", "account_id");
+    if (!accountId) errors.push(`Pos dana baris ${index + 1} tidak memiliki akun.`);
+    else if (!accountIds.has(accountId)) errors.push(`Pos dana baris ${index + 1} merujuk akun yang tidak ada.`);
+  });
+  data.sinkingFundEntries.forEach((row, index) => {
+    const fundId = refOf(row, "fundId", "fund_id");
+    if (!fundId) errors.push(`Riwayat pos dana baris ${index + 1} tidak memiliki pos.`);
+    else if (!fundIds.has(fundId)) errors.push(`Riwayat pos dana baris ${index + 1} merujuk pos yang tidak ada.`);
   });
   data.recurringTemplates.forEach((row, index) => {
     const accountId = refOf(row, "accountId", "account_id");

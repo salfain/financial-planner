@@ -3,11 +3,12 @@ import { auditStatement } from "../../../_lib/audit";
 import { ApiError, makeId, nowIso, readJsonObject, requiredString, resolveWorkspaceId, routeError } from "../../../_lib/api";
 import { aggregateMutationDeltas, balanceUpdateStatements, loadBalanceAccounts, validateDeltas } from "../../../_lib/accounting";
 import { parseTransaction, type TransactionInput } from "../../../_lib/domain";
+import { assertMonthlyPeriodOpen } from "../../../_lib/monthly-closing";
 import { getTransactionRowIncludingDeleted, requireWorkspace, serializeTransaction } from "../../../_lib/repository";
 
 type UndoableAudit = {
   id: string;
-  action: "transaction.create" | "transaction.update" | "transaction.delete" | "transaction.import";
+  action: "transaction.create" | "transaction.update" | "transaction.delete" | "transaction.import" | "transaction.loan_drawdown";
   entityId: string | null;
   beforeJson: string | null;
   afterJson: string | null;
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
       `SELECT a.id, a.action, a.entity_id AS entityId, a.before_json AS beforeJson, a.after_json AS afterJson
        FROM audit_logs a
        WHERE a.workspace_id = ?
-         AND a.action IN ('transaction.create', 'transaction.update', 'transaction.delete', 'transaction.import')
+         AND a.action IN ('transaction.create', 'transaction.update', 'transaction.delete', 'transaction.import', 'transaction.loan_drawdown')
          AND NOT EXISTS (SELECT 1 FROM transaction_undo_events u WHERE u.workspace_id = a.workspace_id AND u.target_audit_id = a.id)
        ORDER BY a.created_at DESC, a.id DESC LIMIT 1`,
     ).bind(workspaceId).first<UndoableAudit>();
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
     let auditBefore: unknown = null;
     let auditAfter: unknown = null;
 
-    if (audit.action === "transaction.import") {
+    if (audit.action === "transaction.import" || audit.action === "transaction.loan_drawdown") {
       const imported = parseJson(audit.afterJson);
       if (!Array.isArray(imported) || !imported.length) throw new ApiError(409, "UNDO_STATE_INVALID", "Data impor tidak dapat dipulihkan.");
       for (const value of imported) {
@@ -107,6 +108,10 @@ export async function POST(request: Request) {
       }
     }
 
+    await Promise.all(
+      [...new Set([...previous, ...next].map((transaction) => transaction.date.slice(0, 7)))]
+        .map((period) => assertMonthlyPeriodOpen(workspaceId, period)),
+    );
     const accounts = await loadBalanceAccounts(workspaceId, [...previous, ...next]);
     const deltas = aggregateMutationDeltas(accounts, previous, next);
     validateDeltas(accounts, deltas);

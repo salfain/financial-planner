@@ -1,28 +1,29 @@
 function apiSaveAiKey(provider, apiKey) {
   try {
-    if (!apiKey || String(apiKey).trim().length < 20) throw createError_('INVALID_KEY', 'API key tidak valid.');
-    const keyName = String(provider || 'gemini').toUpperCase() + '_API_KEY';
-    PropertiesService.getUserProperties().setProperty(keyName, String(apiKey).trim());
-    audit_('SAVE_SECRET', 'settings', keyName, id_('req'), { provider: provider || 'gemini' });
-    return ok_({ saved: true, provider: provider || 'gemini' });
+    const normalized = String(apiKey || '').trim();
+    if (normalized.length < 8 || normalized.length > 2048) throw createError_('INVALID_KEY', 'API key AI tidak valid.');
+    PropertiesService.getUserProperties().setProperty('AI_API_KEY', normalized);
+    audit_('SAVE_SECRET', 'settings', 'AI_API_KEY', id_('req'), { provider: 'openai-compatible' });
+    return ok_({ saved: true, provider: 'openai-compatible' });
   } catch (error) { return fail_(error); }
 }
 
 function apiAiKeyStatus(provider) {
-  const keyName = String(provider || 'gemini').toUpperCase() + '_API_KEY';
-  return ok_({ configured: Boolean(PropertiesService.getUserProperties().getProperty(keyName)) });
+  return ok_({ configured: Boolean(PropertiesService.getUserProperties().getProperty('AI_API_KEY')) });
 }
 
 function aiPreferences_() {
   const properties = PropertiesService.getUserProperties();
   let preferences = {};
   try { preferences = JSON.parse(properties.getProperty('VINN_AI_PREFERENCES') || '{}'); } catch (error) { preferences = {}; }
+  const baseUrl = String(preferences.baseUrl || '').trim();
   return {
-    provider: 'gemini',
-    model: String(preferences.model || 'gemini-3.5-flash'),
+    provider: 'openai-compatible',
+    baseUrl: baseUrl,
+    model: String(preferences.model || 'default'),
     enabled: truthy_(preferences.enabled),
     consentAccepted: truthy_(preferences.consentAccepted),
-    configured: Boolean(properties.getProperty('GEMINI_API_KEY')),
+    configured: Boolean(properties.getProperty('AI_API_KEY') && baseUrl),
     storesReceiptImages: false
   };
 }
@@ -38,21 +39,33 @@ function apiUpdateAiSettings(payload) {
     const consentAccepted = truthy_(payload.consentAccepted);
     if (enabled && !consentAccepted) throw createError_('AI_CONSENT_REQUIRED', 'Persetujuan privasi wajib sebelum AI diaktifkan.');
     const properties = PropertiesService.getUserProperties();
-    if (truthy_(payload.removeApiKey)) properties.deleteProperty('GEMINI_API_KEY');
+    let current = {};
+    try { current = JSON.parse(properties.getProperty('VINN_AI_PREFERENCES') || '{}'); } catch (error) { current = {}; }
+    const baseUrl = normalizeAiBaseUrl_(payload.baseUrl === undefined ? current.baseUrl : payload.baseUrl);
+    const model = String(payload.model === undefined ? current.model || 'default' : payload.model).trim();
+    if (!model || model.length > 120 || !/^[A-Za-z0-9._:\/-]+$/.test(model)) throw createError_('INVALID_AI_MODEL', 'Nama model AI tidak valid.');
+    if (truthy_(payload.removeApiKey)) {
+      properties.deleteProperty('AI_API_KEY');
+      properties.deleteProperty('GEMINI_API_KEY');
+    }
     if (payload.apiKey) {
       const key = String(payload.apiKey).trim();
-      if (key.length < 20 || key.length > 512) throw createError_('INVALID_AI_KEY', 'API key Gemini tidak valid.');
-      properties.setProperty('GEMINI_API_KEY', key);
+      if (key.length < 8 || key.length > 2048) throw createError_('INVALID_AI_KEY', 'API key AI tidak valid.');
+      properties.setProperty('AI_API_KEY', key);
     }
-    if (enabled && !properties.getProperty('GEMINI_API_KEY')) throw createError_('AI_NOT_CONFIGURED', 'Tambahkan API key Gemini sebelum AI diaktifkan.');
+    if (enabled && !baseUrl) throw createError_('AI_NOT_CONFIGURED', 'Tambahkan Base URL API sebelum AI diaktifkan.');
+    if (enabled && !properties.getProperty('AI_API_KEY')) throw createError_('AI_NOT_CONFIGURED', 'Tambahkan API key sebelum AI diaktifkan.');
     properties.setProperty('VINN_AI_PREFERENCES', JSON.stringify({
       enabled: enabled,
       consentAccepted: consentAccepted,
-      model: 'gemini-3.5-flash'
+      baseUrl: baseUrl,
+      model: model
     }));
     audit_('UPDATE_AI_SETTINGS', 'ai_settings', '', id_('req'), {
       enabled: enabled,
       consentAccepted: consentAccepted,
+      endpointHost: baseUrl ? baseUrl.replace(/^https:\/\//, '').split('/')[0] : '',
+      model: model,
       keyChanged: Boolean(payload.apiKey || payload.removeApiKey)
     });
     return ok_(aiPreferences_());

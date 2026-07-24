@@ -10,6 +10,7 @@ import {
   validateId,
 } from "../../../../_lib/api";
 import { parseInvestmentAsset } from "../../../../_lib/investment-domain";
+import { requireCapability } from "../../../../_lib/license";
 import {
   getAccountRow,
   getInvestmentAssetRow,
@@ -24,6 +25,7 @@ export async function PATCH(request: Request, context: Context) {
     const payload = await readJsonObject(request);
     const workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "investments");
     const id = validateId((await context.params).id);
     const requestId = requiredString(payload, "requestId", 120);
     const current = await getInvestmentAssetRow(workspaceId, id);

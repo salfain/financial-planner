@@ -114,6 +114,7 @@ function transactionBalanceEffect_(account, transaction) {
 }
 
 function validateLedgerMutation_(previousTransactions, nextTransactions) {
+  assertMonthlyPeriodsOpen_((previousTransactions || []).concat(nextTransactions || []));
   const currentTransactions = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS);
   const accounts = {};
   const deltas = {};

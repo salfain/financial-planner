@@ -2,9 +2,14 @@ function api(action, payload) {
   const routes = {
     setup: function() { return setupFinancialPlanner(); },
     health: function() { return apiHealthCheck(); },
+    mutationStatus: function() { return apiMutationStatus(payload || {}); },
     bootstrap: function() { return apiGetBootstrap(payload && payload.month); },
+    licenseStatus: function() { return apiLicenseStatus(); },
+    activateLicense: function() { return apiActivateLicense(payload || {}); },
+    deactivateLicense: function() { return apiDeactivateLicense(payload || {}); },
     setupWorkspace: function() { return apiSetupWorkspace(payload || {}); },
     updateProfile: function() { return apiUpdateProfile(payload || {}); },
+    updateFeaturePreferences: function() { return apiUpdateFeaturePreferences(payload || {}); },
     getRoadmapSettings: function() { return apiRoadmapSettings(); },
     updateRoadmapSettings: function() { return apiUpdateRoadmapSettings(payload || {}); },
     getDebtPlanner: function() { return apiDebtPlanner(); },
@@ -13,11 +18,15 @@ function api(action, payload) {
     updateCashflowForecastSettings: function() { return apiUpdateCashflowForecastSettings(payload || {}); },
     getEmergencyFundSettings: function() { return apiEmergencyFundSettings(); },
     updateEmergencyFundSettings: function() { return apiUpdateEmergencyFundSettings(payload || {}); },
+    monthlyClosingStatus: function() { return apiMonthlyClosingStatus(payload || {}); },
+    closeMonthlyBook: function() { return apiCloseMonthlyBook(payload || {}); },
+    reopenMonthlyBook: function() { return apiReopenMonthlyBook(payload || {}); },
     createAccount: function() { return apiCreateAccount(payload || {}); },
     updateAccount: function() { return apiUpdateAccount(payload || {}); },
     importAccounts: function() { return apiImportAccounts(payload || {}); },
     archiveAccount: function() { return apiArchiveAccount(payload || {}); },
     createTransaction: function() { return apiCreateTransaction(payload || {}); },
+    recordLoanDrawdown: function() { return apiRecordLoanDrawdown(payload || {}); },
     updateTransaction: function() { return apiUpdateTransaction(payload || {}); },
     listTransactions: function() { return apiListTransactions(payload || {}); },
     deleteTransaction: function() { return apiDeleteTransaction(payload.transactionId, payload.requestId, payload.expectedUpdatedAt); },
@@ -32,6 +41,10 @@ function api(action, payload) {
     createCategory: function() { return apiCreateCategory(payload || {}); },
     updateCategory: function() { return apiUpdateCategory(payload || {}); },
     archiveCategory: function() { return apiArchiveCategory(payload || {}); },
+    categoryRules: function() { return apiCategoryRules(); },
+    createCategoryRule: function() { return apiCreateCategoryRule(payload || {}); },
+    updateCategoryRule: function() { return apiUpdateCategoryRule(payload || {}); },
+    deleteCategoryRule: function() { return apiDeleteCategoryRule(payload || {}); },
     listAuditLogs: function() { return apiListAuditLogs(payload || {}); },
     upsertBudget: function() { return apiUpsertBudget(payload || {}); },
     updateBudget: function() { return apiUpdateBudget(payload || {}); },
@@ -40,6 +53,10 @@ function api(action, payload) {
     updateGoal: function() { return apiUpdateGoal(payload || {}); },
     deleteGoal: function() { return apiDeleteGoal(payload || {}); },
     contributeGoal: function() { return apiContributeGoal(payload || {}); },
+    createSinkingFund: function() { return apiCreateSinkingFund(payload || {}); },
+    updateSinkingFund: function() { return apiUpdateSinkingFund(payload || {}); },
+    archiveSinkingFund: function() { return apiArchiveSinkingFund(payload || {}); },
+    adjustSinkingFund: function() { return apiAdjustSinkingFund(payload || {}); },
     createBill: function() { return apiCreateBill(payload || {}); },
     updateBill: function() { return apiUpdateBill(payload || {}); },
     deleteBill: function() { return apiDeleteBill(payload || {}); },
@@ -75,6 +92,7 @@ function api(action, payload) {
   };
   try {
     if (!routes[action]) throw createError_('ROUTE_NOT_FOUND', 'Aksi API tidak dikenal: ' + action);
+    requireActionPlan_(action, payload || {});
     return routes[action]();
   } catch (error) { return fail_(error, payload && payload.requestId); }
 }

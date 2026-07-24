@@ -50,11 +50,21 @@ export async function PATCH(request: Request, context: Context) {
         "paid",
         "frequency",
         "reminderDays",
+        "liabilityAccountId",
+        "durationMonths",
+        "paidCount",
       ]),
       id,
     );
     if (!(await getAccountRow(workspaceId, bill.accountId))) {
       throw new ApiError(400, "ACCOUNT_NOT_FOUND", "Akun pembayaran tidak ditemukan.");
+    }
+    const liabilityAccount = bill.liabilityAccountId ? await getAccountRow(workspaceId, bill.liabilityAccountId) : null;
+    if (bill.liabilityAccountId && !liabilityAccount?.liability) {
+      throw new ApiError(400, "LIABILITY_ACCOUNT_REQUIRED", "Akun tujuan cicilan harus berupa Paylater, kartu kredit, atau akun utang.");
+    }
+    if (bill.durationMonths !== null && bill.durationMonths < bill.paidCount) {
+      throw new ApiError(400, "INVALID_BILL_DURATION", "Durasi tidak boleh lebih kecil dari cicilan yang sudah dibayar.");
     }
     const requestId = optionalString(payload, "requestId", 120) ?? null;
     const before = serializeBill(current);
@@ -69,6 +79,8 @@ export async function PATCH(request: Request, context: Context) {
                WHEN ? = 1 THEN COALESCE(last_paid_period, substr(?, 1, 7))
                ELSE NULL
              END,
+             liability_account_id = ?, duration_months = ?, paid_count = ?,
+             completed = CASE WHEN ? IS NOT NULL AND ? >= ? THEN 1 ELSE 0 END,
              updated_at = ?
          WHERE workspace_id = ? AND id = ?`,
       )
@@ -85,6 +97,12 @@ export async function PATCH(request: Request, context: Context) {
         now,
         bill.paid ? 1 : 0,
         bill.dueDate,
+        bill.liabilityAccountId,
+        bill.durationMonths,
+        bill.paidCount,
+        bill.durationMonths,
+        bill.paidCount,
+        bill.durationMonths ?? 0,
         now,
         workspaceId,
         id,

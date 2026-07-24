@@ -53,8 +53,24 @@ function monthAverage(transactions: Transaction[], type: "income" | "expense") {
 function billAmountForDate(bills: Bill[], date: Date) {
   const day = date.getUTCDate();
   const period = dateKey(date).slice(0, 7);
-  return bills.filter((bill) => (period !== bill.dueDate.slice(0, 7) || !bill.paid) && Math.min(28, Number(bill.dueDate.slice(8, 10)) || 1) === Math.min(28, day))
+  return bills.filter((bill) => billActiveInPeriod(bill, period) && (period !== bill.dueDate.slice(0, 7) || !bill.paid) && Math.min(28, Number(bill.dueDate.slice(8, 10)) || 1) === Math.min(28, day))
     .reduce((sum, bill) => sum + bill.amount, 0);
+}
+
+function billActiveInPeriod(bill: Bill, period: string) {
+  if (bill.completed) return false;
+  // `dueDate` is normalized to the next/current installment. This keeps an
+  // imported 2-of-9 schedule at seven future charges instead of replaying the
+  // two historical payments from its original start date.
+  const startPeriod = bill.dueDate.slice(0, 7);
+  if (period < startPeriod) return false;
+  if (!bill.durationMonths) return true;
+  const [startYear, startMonth] = startPeriod.split("-").map(Number);
+  const [year, month] = period.split("-").map(Number);
+  const elapsed = (year - startYear) * 12 + month - startMonth;
+  const remaining = Math.max(0, bill.remainingMonths ?? bill.durationMonths - (bill.paidCount ?? 0));
+  const occurrenceLimit = remaining + (bill.paid ? 1 : 0);
+  return elapsed >= 0 && elapsed < occurrenceLimit;
 }
 
 export function buildCashflowForecast(input: {
@@ -69,7 +85,7 @@ export function buildCashflowForecast(input: {
   const incomeHistory = monthAverage(transactions, "income");
   const expenseHistory = monthAverage(transactions, "expense");
   const monthlyIncome = settings.monthlyIncomeOverride > 0 ? settings.monthlyIncomeOverride : incomeHistory.average;
-  const monthlyBills = bills.reduce((sum, bill) => sum + bill.amount, 0);
+  const monthlyBills = bills.filter((bill) => billActiveInPeriod(bill, input.asOfDate.slice(0, 7))).reduce((sum, bill) => sum + bill.amount, 0);
   const monthlyLivingExpense = Math.max(0, expenseHistory.average - monthlyBills);
   const dailyExpense = Math.round(monthlyLivingExpense / 30.4375);
   const points: CashflowForecastPoint[] = [{ date: input.asOfDate, balance: startingBalance, income: 0, bills: 0, dailyExpense: 0 }];

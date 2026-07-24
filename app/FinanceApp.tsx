@@ -28,6 +28,7 @@ import {
   Landmark,
   KeyRound,
   LayoutDashboard,
+  LockKeyhole,
   LogOut,
   Menu,
   Moon,
@@ -41,6 +42,7 @@ import {
   Search,
   Send,
   Settings,
+  SlidersHorizontal,
   Scale,
   ScanLine,
   ShieldCheck,
@@ -69,10 +71,30 @@ import { addMonthsToPeriod, compareDebtStrategies, DEFAULT_DEBT_SETTINGS, simula
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "../lib/cashflow-forecast";
 import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "../lib/emergency-fund";
 import { buildRecurringOverview, type RecurringTemplate } from "../lib/recurring";
+import { addCalendarDays, buildFinancialCalendarEvents, calendarMonthRange, financialCalendarWindow, type FinancialCalendarEvent } from "../lib/financial-calendar";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
 import { DEFAULT_NOTIFICATION_SETTINGS, type FinanceNotification, type NotificationOverview, type NotificationSettings } from "../lib/notifications";
+import { financeDemoWhatsAppUrl, isFinanceDemoMode } from "../lib/demo-finance";
+import { buildMonthlyReview, type MonthlyClosing } from "../lib/monthly-review";
+import type { CategoryRule } from "../lib/category-rules";
+import { formatMoneyInput, moneyInputDigits, moneyInputNumber } from "../lib/money-input";
+import {
+  DEFAULT_FEATURE_PREFERENCES,
+  isOptionalFeatureEnabled,
+  type FeaturePreferences,
+  type OptionalFeatureKey,
+} from "../lib/feature-preferences";
+import {
+  sinkingFundMonthlyNeed,
+  sinkingFundProgress,
+  sinkingFundRemaining,
+  unallocatedCash,
+  type SinkingFund,
+  type SinkingFundEntry,
+  type SinkingFundPurpose,
+} from "../lib/sinking-funds";
 import {
   Account,
   AuditLog,
@@ -95,26 +117,35 @@ import {
 import {
   FinanceProfile,
   FinanceSecurityStatus,
+  LoanDrawdownInput,
   SetupWorkspaceInput,
+  activateFinanceLicense,
   askFinanceAi,
   archiveFinanceAccount,
   archiveFinanceCategory,
   clearFinanceAiMessages,
   contributeFinanceGoal,
+  adjustFinanceSinkingFund,
+  archiveFinanceSinkingFund,
   createFinanceAccount,
   createFinanceBackup,
   createFinanceBill,
   createFinanceCategory,
+  createFinanceCategoryRule,
   createFinanceGoal,
+  createFinanceSinkingFund,
   createFinanceInvestmentAsset,
   createFinanceInvestmentTrade,
+  createFinanceLoanDrawdown,
   createFinanceTransaction,
   createFinanceRecurringTemplate,
   deleteFinanceBill,
   deleteFinanceBudget,
   deleteFinanceGoal,
+  deleteFinanceCategoryRule,
   deleteFinanceTransaction,
   deleteFinanceTransactionReceipt,
+  deactivateFinanceLicense,
   financeBackendLabel,
   getFinanceAiSettings,
   loadFinanceBackups,
@@ -131,25 +162,30 @@ import {
   loadFinanceSnapshot,
   loadFinanceTransactions,
   loadFinanceAiMessages,
+  loadFinanceMonthlyClosing,
   markFinanceBillPaid,
   importFinanceTransactions,
   importFinanceAccounts,
+  isFinanceMutationCommittedError,
   reconcileFinanceAccount,
   repairFinanceLedger,
   setupFinanceWorkspace,
   scanFinanceReceipt,
   saveFinanceReport,
   updateFinanceCategory,
+  updateFinanceCategoryRule,
   updateFinanceAccount,
   updateFinanceBill,
   updateFinanceBudget,
   updateFinanceGoal,
+  updateFinanceSinkingFund,
   updateFinanceBackupSchedule,
   updateFinanceAiSettings,
   updateFinanceInvestmentAsset,
   updateFinanceNotificationSettings,
   updateFinanceNotificationStates,
   updateFinanceProfile,
+  updateFinanceFeaturePreferences,
   updateFinanceRoadmapSettings,
   updateFinanceDebtPlannerSettings,
   upsertFinanceDebtPlan,
@@ -165,7 +201,10 @@ import {
   previewFinanceMigration,
   applyFinanceMigration,
   cancelFinanceMigration,
+  closeFinanceMonthlyBook,
+  reopenFinanceMonthlyBook,
 } from "../lib/finance-client";
+import { freeEntitlement, type PlanCapability, type PlanEntitlement } from "../lib/plans";
 
 type PageKey =
   | "dashboard"
@@ -177,9 +216,12 @@ type PageKey =
   | "accounts"
   | "budgets"
   | "goals"
+  | "funds"
   | "bills"
+  | "calendar"
   | "recurring"
   | "investments"
+  | "review"
   | "reports"
   | "assistant"
   | "settings";
@@ -192,25 +234,97 @@ const today = () => {
 };
 const monthLabel = (month: string) => formatMonthLabel(month);
 
-const navPrimary: { key: PageKey; label: string; icon: LucideIcon }[] = [
-  { key: "dashboard", label: "Ringkasan", icon: LayoutDashboard },
-  { key: "roadmap", label: "Roadmap", icon: Route },
-  { key: "forecast", label: "Cashflow Forecast", icon: Activity },
-  { key: "emergency", label: "Dana Darurat", icon: Umbrella },
-  { key: "transactions", label: "Transaksi", icon: ReceiptText },
-  { key: "accounts", label: "Akun", icon: WalletCards },
-  { key: "budgets", label: "Anggaran", icon: BarChart3 },
-  { key: "goals", label: "Target", icon: Target },
-  { key: "bills", label: "Tagihan", icon: CalendarDays },
-  { key: "recurring", label: "Transaksi Rutin", icon: Repeat2 },
-  { key: "debts", label: "Pelunasan Utang", icon: TrendingDown },
-  { key: "investments", label: "Investasi", icon: TrendingUp },
+type NavItem = { key: PageKey; label: string; icon: LucideIcon };
+
+const navGroups: Array<{ key: string; label: string; icon: LucideIcon; items: NavItem[] }> = [
+  {
+    key: "finance",
+    label: "Keuangan",
+    icon: WalletCards,
+    items: [
+      { key: "dashboard", label: "Ringkasan", icon: LayoutDashboard },
+      { key: "transactions", label: "Transaksi", icon: ReceiptText },
+      { key: "accounts", label: "Akun", icon: WalletCards },
+      { key: "budgets", label: "Anggaran", icon: BarChart3 },
+    ],
+  },
+  {
+    key: "planning",
+    label: "Perencanaan",
+    icon: Target,
+    items: [
+      { key: "goals", label: "Target", icon: Target },
+      { key: "funds", label: "Pos Dana", icon: CircleDollarSign },
+      { key: "roadmap", label: "Roadmap", icon: Route },
+      { key: "forecast", label: "Cashflow Forecast", icon: Activity },
+      { key: "emergency", label: "Dana Darurat", icon: Umbrella },
+    ],
+  },
+  {
+    key: "liabilities",
+    label: "Tagihan & Utang",
+    icon: CreditCard,
+    items: [
+      { key: "bills", label: "Tagihan", icon: CalendarDays },
+      { key: "calendar", label: "Kalender Keuangan", icon: Clock3 },
+      { key: "recurring", label: "Transaksi Rutin", icon: Repeat2 },
+      { key: "debts", label: "Pelunasan Utang", icon: TrendingDown },
+    ],
+  },
+  {
+    key: "insights",
+    label: "Analisis & Sistem",
+    icon: Sparkles,
+    items: [
+      { key: "investments", label: "Investasi", icon: TrendingUp },
+      { key: "review", label: "Review Bulanan", icon: CheckCircle2 },
+      { key: "reports", label: "Laporan", icon: FileText },
+      { key: "assistant", label: "Insight", icon: Sparkles },
+      { key: "settings", label: "Pengaturan", icon: Settings },
+    ],
+  },
 ];
 
-const navSecondary: { key: PageKey; label: string; icon: LucideIcon }[] = [
-  { key: "reports", label: "Laporan", icon: FileText },
-  { key: "assistant", label: "Insight", icon: Sparkles },
-  { key: "settings", label: "Pengaturan", icon: Settings },
+const navPrimary = navGroups.flatMap((group) => group.items);
+
+const featurePreferenceGroups: Array<{
+  label: string;
+  items: Array<{ key: OptionalFeatureKey; label: string; description: string }>;
+}> = [
+  {
+    label: "Pengelolaan",
+    items: [
+      { key: "budgets", label: "Anggaran", description: "Batas pengeluaran dan realisasi kategori." },
+      { key: "goals", label: "Target", description: "Tujuan finansial dan kontribusi berkala." },
+      { key: "funds", label: "Pos Dana", description: "Alokasi dana untuk kebutuhan mendatang." },
+    ],
+  },
+  {
+    label: "Perencanaan",
+    items: [
+      { key: "roadmap", label: "Roadmap", description: "Simulasi kondisi finansial jangka panjang." },
+      { key: "forecast", label: "Cashflow Forecast", description: "Proyeksi saldo dan kebutuhan kas." },
+      { key: "emergency", label: "Dana Darurat", description: "Target perlindungan biaya hidup." },
+    ],
+  },
+  {
+    label: "Tagihan & utang",
+    items: [
+      { key: "bills", label: "Tagihan", description: "Tagihan rutin, cicilan, dan jatuh tempo." },
+      { key: "calendar", label: "Kalender Keuangan", description: "Agenda finansial dalam tampilan kalender." },
+      { key: "recurring", label: "Transaksi Rutin", description: "Template pemasukan dan pengeluaran berulang." },
+      { key: "debts", label: "Pelunasan Utang", description: "Strategi avalanche dan snowball." },
+    ],
+  },
+  {
+    label: "Analisis",
+    items: [
+      { key: "investments", label: "Investasi", description: "Portofolio, transaksi aset, dan profit/loss." },
+      { key: "review", label: "Review Bulanan", description: "Tutup buku dan snapshot bulanan." },
+      { key: "reports", label: "Laporan", description: "Laporan PDF dan ringkasan keuangan." },
+      { key: "assistant", label: "Insight AI", description: "Analisis AI berbasis data finansial." },
+    ],
+  },
 ];
 
 const categoryColors: Record<string, string> = {
@@ -235,12 +349,15 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   accounts: { eyebrow: "6 akun aktif", title: "Akun & saldo", subtitle: "Semua rekening, dompet, kewajiban, dan investasi dalam satu tampilan." },
   budgets: { eyebrow: "Rencana Juli", title: "Anggaran bulanan", subtitle: "Kendalikan pengeluaran sebelum melewati batas yang kamu tentukan." },
   goals: { eyebrow: "3 target aktif", title: "Target finansial", subtitle: "Lihat kemajuan dan kebutuhan kontribusi bulanan untuk setiap tujuan." },
+  funds: { eyebrow: "Dana terencana", title: "Sinking Fund / Pos Dana", subtitle: "Pisahkan tujuan penggunaan uang tanpa mengubah saldo akun atau menghitung dana dua kali." },
   bills: { eyebrow: "3 menunggu", title: "Tagihan rutin", subtitle: "Jangan lewatkan jatuh tempo dan hindari pencatatan ganda." },
+  calendar: { eyebrow: "Jadwal terpadu", title: "Kalender keuangan", subtitle: "Lihat pemasukan, tagihan, cicilan, dan deadline target dalam satu garis waktu." },
   recurring: { eyebrow: "Recurring tracker", title: "Transaksi rutin & langganan", subtitle: "Rencanakan pemasukan, biaya tetap, dan renewal tanpa mencatat saldo secara otomatis." },
   debts: { eyebrow: "Strategi pelunasan", title: "Debt Payoff Planner", subtitle: "Bandingkan metode avalanche dan snowball, lalu lihat kapan kamu bisa bebas utang." },
   investments: { eyebrow: "Portofolio", title: "Portofolio investasi", subtitle: "Pantau unit, cost basis, harga, dan profit/loss tanpa mengubah arus kas operasional." },
+  review: { eyebrow: "Kontrol bulanan", title: "Review & tutup buku", subtitle: "Periksa hasil bulan berjalan, simpan snapshot, lalu kunci ledger ketika semuanya sudah sesuai." },
   reports: { eyebrow: "Laporan bulanan", title: "Laporan keuangan", subtitle: "Ringkasan siap cetak dengan data yang dapat ditelusuri kembali." },
-  assistant: { eyebrow: "Gemini · read-only", title: "Financial Insight", subtitle: "Tanyakan kondisi keuanganmu dengan konteks terpilih dan kontrol privasi yang jelas." },
+  assistant: { eyebrow: "AI universal · read-only", title: "Financial Insight", subtitle: "Tanyakan kondisi keuanganmu dengan konteks terpilih dan kontrol privasi yang jelas." },
   settings: { eyebrow: "Workspace personal", title: "Pengaturan", subtitle: "Kelola preferensi, keamanan data, backup, dan koneksi Google." },
 };
 
@@ -269,12 +386,13 @@ function ProgressBar({ value, color, label }: { value: number; color: string; la
   );
 }
 
-function NavButton({ item, active, onClick }: { item: { key: PageKey; label: string; icon: LucideIcon }; active: boolean; onClick: () => void }) {
+function NavButton({ item, active, onClick, locked = false, requiredTier }: { item: { key: PageKey; label: string; icon: LucideIcon }; active: boolean; onClick: () => void; locked?: boolean; requiredTier?: "Pro" | "Premium" }) {
   const Icon = item.icon;
   return (
-    <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick} aria-current={active ? "page" : undefined}>
+    <button className={`nav-item ${active ? "active" : ""} ${locked ? "locked" : ""}`} onClick={onClick} aria-current={active ? "page" : undefined}>
       <Icon size={19} strokeWidth={active ? 2.4 : 1.8} />
       <span>{item.label}</span>
+      {locked && <small className="nav-plan-lock"><LockKeyhole size={11} />{requiredTier}</small>}
     </button>
   );
 }
@@ -293,14 +411,20 @@ export function FinanceApp() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [sinkingFunds, setSinkingFunds] = useState<SinkingFund[]>([]);
+  const [sinkingFundEntries, setSinkingFundEntries] = useState<SinkingFundEntry[]>([]);
   const [bills, setBills] = useState<Bill[]>([]);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
+  const [categoryRules, setCategoryRules] = useState<CategoryRule[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [investmentAssets, setInvestmentAssets] = useState<InvestmentAsset[]>([]);
   const [investmentTransactions, setInvestmentTransactions] = useState<InvestmentTransaction[]>([]);
   const [notificationOverview, setNotificationOverview] = useState<NotificationOverview | null>(null);
   const [profile, setProfile] = useState<FinanceProfile>({ name: "Pemilik", storeName: "Financial Planner", currency: "IDR", timezone: "Asia/Jakarta" });
+  const [featurePreferences, setFeaturePreferences] = useState<FeaturePreferences>({ ...DEFAULT_FEATURE_PREFERENCES });
   const [configured, setConfigured] = useState(false);
+  const [entitlement, setEntitlement] = useState<PlanEntitlement>(() => freeEntitlement("setup-pending"));
+  const [licenseOpen, setLicenseOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -315,13 +439,17 @@ export function FinanceApp() {
   const [accountImportOpen, setAccountImportOpen] = useState(false);
   const [reconcileTarget, setReconcileTarget] = useState<Account | null>(null);
   const [categoryModal, setCategoryModal] = useState<{ category?: FinanceCategory } | null>(null);
+  const [categoryRuleModal, setCategoryRuleModal] = useState<{ rule?: CategoryRule } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [loanDrawdownOpen, setLoanDrawdownOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [goalOpen, setGoalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [goalProgressTarget, setGoalProgressTarget] = useState<Goal | null>(null);
+  const [sinkingFundModal, setSinkingFundModal] = useState<{ fund?: SinkingFund } | null>(null);
+  const [sinkingFundAdjustment, setSinkingFundAdjustment] = useState<{ fund: SinkingFund; type: "allocate" | "release" } | null>(null);
   const [billOpen, setBillOpen] = useState(false);
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
   const [investmentAssetModal, setInvestmentAssetModal] = useState<{ asset?: InvestmentAsset } | null>(null);
@@ -330,19 +458,26 @@ export function FinanceApp() {
   const [toast, setToast] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const month = currentMonth();
+  const demoMode = hydrated && isFinanceDemoMode();
+  const demoWhatsAppUrl = demoMode ? financeDemoWhatsAppUrl() : null;
 
   const applySnapshot = (snapshot: Awaited<ReturnType<typeof loadFinanceSnapshot>>) => {
     setConfigured(snapshot.configured);
+    setEntitlement(snapshot.entitlement);
     setProfile(snapshot.profile);
     setAccounts(snapshot.accounts);
     setTransactions(snapshot.transactions);
     setBudgets(snapshot.budgets);
     setGoals(snapshot.goals);
+    setSinkingFunds(snapshot.sinkingFunds);
+    setSinkingFundEntries(snapshot.sinkingFundEntries);
     setBills(snapshot.bills);
     setCategories(snapshot.categories);
+    setCategoryRules(snapshot.categoryRules);
     setAuditLogs(snapshot.auditLogs);
     setInvestmentAssets(snapshot.investmentAssets);
     setInvestmentTransactions(snapshot.investmentTransactions);
+    setFeaturePreferences(snapshot.featurePreferences);
   };
 
   const refreshData = async () => {
@@ -400,7 +535,33 @@ export function FinanceApp() {
     window.setTimeout(() => setToast(null), 2800);
   };
 
+  const pageCapability = (page: PageKey): PlanCapability | null => {
+    if (["roadmap", "forecast", "emergency", "debts", "calendar", "funds"].includes(page)) return "planning";
+    if (page === "recurring") return "recurring";
+    if (page === "investments") return "investments";
+    if (page === "reports") return "pdf_reports";
+    if (page === "review") return "pdf_reports";
+    if (page === "assistant") return "ai";
+    return null;
+  };
+
+  const requirePlan = (capability: PlanCapability) => {
+    if (entitlement.capabilities[capability]) return true;
+    setLicenseOpen(true);
+    setSidebarOpen(false);
+    showToast(`Fitur ini memerlukan paket ${capability === "investments" || capability === "ai" || capability === "ocr" ? "Premium" : "Pro"}.`);
+    return false;
+  };
+
   const selectPage = (page: PageKey) => {
+    if (!isOptionalFeatureEnabled(featurePreferences, page)) {
+      setActivePage("settings");
+      setSidebarOpen(false);
+      showToast("Fitur tersebut sedang dinonaktifkan. Aktifkan kembali melalui Pengaturan.");
+      return;
+    }
+    const capability = pageCapability(page);
+    if (capability && !requirePlan(capability)) return;
     setActivePage(page);
     setSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -411,17 +572,27 @@ export function FinanceApp() {
     setSaving(true);
     try {
       await work();
-      try {
-        await refreshData();
+      setDataError(null);
+      showToast(successMessage);
+      void refreshData()
+        .then(() => {
         setDataError(null);
-        showToast(successMessage);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Data terbaru belum dapat dimuat.";
-        setDataError(message);
-        showToast("Perubahan tersimpan; muat ulang data untuk melihat hasil terbaru.");
-      }
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : "Data terbaru belum dapat dimuat.";
+          setDataError(message);
+          showToast("Perubahan tersimpan; sinkronisasi tampilan perlu dicoba kembali.");
+        });
       return true;
     } catch (error) {
+      if (isFinanceMutationCommittedError(error)) {
+        setDataError(null);
+        showToast(successMessage);
+        void refreshData().catch((refreshError) => {
+          setDataError(refreshError instanceof Error ? refreshError.message : "Data terbaru belum dapat dimuat.");
+        });
+        return true;
+      }
       showToast(error instanceof Error ? error.message : "Perubahan tidak dapat disimpan.");
       return false;
     } finally {
@@ -456,6 +627,11 @@ export function FinanceApp() {
     `${items.length} akun beserta saldo awal berhasil diimpor.`,
   );
 
+  const recordLoanDrawdown = async (payload: LoanDrawdownInput) => runMutation(
+    () => createFinanceLoanDrawdown(payload),
+    "Pinjaman tercatat: uang diterima, total kewajiban, dan biaya pembiayaan sudah sinkron.",
+  );
+
   const undoLastTransaction = async () => runMutation(
     () => undoLastFinanceTransactionAction(),
     "Aksi transaksi terakhir berhasil dibatalkan.",
@@ -463,13 +639,45 @@ export function FinanceApp() {
 
   const payBill = async (bill: Bill) => {
     if (bill.paid) return;
-    if (bill.category === "Kewajiban") {
+    if (bill.category === "Kewajiban" && !bill.liabilityAccountId) {
       showToast("Gunakan Tambah transaksi > Transfer ke akun kartu kredit agar pembayaran tidak menjadi pengeluaran ganda.");
       return;
     }
     await runMutation(
       () => markFinanceBillPaid(bill, month, today()),
-      `${bill.name} dibayar dan dicatat sebagai pengeluaran.`,
+      bill.liabilityAccountId
+        ? `${bill.name} dibayar dan saldo utang diperbarui.`
+        : `${bill.name} dibayar dan dicatat sebagai pengeluaran.`,
+    );
+  };
+
+  const payBillGroup = async (account: Account, groupBills: Bill[]) => {
+    const unpaidBills = groupBills.filter((bill) => !bill.paid && !bill.completed);
+    if (!unpaidBills.length) return;
+    const total = unpaidBills.reduce((sum, bill) => sum + bill.amount, 0);
+    const requiredByAccount = unpaidBills.reduce<Map<string, number>>((result, bill) => result.set(bill.accountId, (result.get(bill.accountId) ?? 0) + bill.amount), new Map());
+    const insufficientAccount = [...requiredByAccount].find(([accountId, required]) => (accounts.find((item) => item.id === accountId)?.balance ?? 0) < required);
+    if (insufficientAccount) {
+      const source = accounts.find((item) => item.id === insufficientAccount[0]);
+      showToast(`Saldo ${source?.name ?? "akun pembayaran"} tidak cukup untuk membayar tagihan gabungan.`);
+      return;
+    }
+    if (account.balance < total) {
+      showToast(`Total pembayaran melebihi saldo utang ${account.name}. Periksa kembali nominal cicilan.`);
+      return;
+    }
+    if (!window.confirm(`Bayar ${unpaidBills.length} cicilan ${account.name} dengan total ${formatIDR(total)}?`)) return;
+    await runMutation(
+      async () => {
+        for (const bill of unpaidBills) {
+          try {
+            await markFinanceBillPaid(bill, month, today());
+          } catch (error) {
+            if (!isFinanceMutationCommittedError(error)) throw error;
+          }
+        }
+      },
+      `${unpaidBills.length} cicilan ${account.name} berhasil dibayar.`,
     );
   };
 
@@ -488,6 +696,10 @@ export function FinanceApp() {
 
   const removeBudget = async (budget: Budget) => runMutation(() => deleteFinanceBudget(budget.id), `Anggaran ${budget.category} berhasil dihapus.`);
   const removeGoal = async (goal: Goal) => runMutation(() => deleteFinanceGoal(goal.id), `Target ${goal.name} berhasil dihapus.`);
+  const removeSinkingFund = async (fund: SinkingFund) => runMutation(
+    () => archiveFinanceSinkingFund(fund.id),
+    `Pos dana ${fund.name} berhasil diarsipkan. Saldo akun tidak berubah.`,
+  );
   const removeBill = async (bill: Bill) => runMutation(() => deleteFinanceBill(bill.id), `Tagihan ${bill.name} berhasil dihapus.`);
 
   const reconcileAccount = async (account: Account, actualBalance: number, date: string, note: string, requestId: string) => runMutation(
@@ -504,6 +716,15 @@ export function FinanceApp() {
 
   const archiveCategory = async (categoryId: string) => {
     await runMutation(() => archiveFinanceCategory(categoryId), "Kategori berhasil diarsipkan.");
+  };
+
+  const saveCategoryRule = async (payload: Omit<CategoryRule, "id" | "createdAt" | "updatedAt">, rule?: CategoryRule) => runMutation(
+    () => rule ? updateFinanceCategoryRule(rule.id, payload) : createFinanceCategoryRule(payload),
+    rule ? "Aturan kategori berhasil diperbarui." : "Aturan kategori berhasil ditambahkan.",
+  );
+
+  const removeCategoryRule = async (ruleId: string) => {
+    await runMutation(() => deleteFinanceCategoryRule(ruleId), "Aturan kategori berhasil dihapus.");
   };
 
   const saveOwnerProfile = async (name: string) => runMutation(
@@ -555,16 +776,35 @@ export function FinanceApp() {
     return result.settings;
   };
 
+  const saveFeaturePreferences = async (preferences: FeaturePreferences) => {
+    if (saving) return false;
+    setSaving(true);
+    try {
+      const saved = await updateFinanceFeaturePreferences(preferences);
+      setFeaturePreferences(saved);
+      if (!isOptionalFeatureEnabled(saved, activePage)) setActivePage("dashboard");
+      setDataError(null);
+      showToast("Pilihan fitur berhasil disimpan.");
+      return true;
+    } catch (reason) {
+      showToast(reason instanceof Error ? reason.message : "Pilihan fitur tidak dapat disimpan.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const openCreateForPage = () => {
     if (activePage === "accounts") return setAccountOpen(true);
     if (activePage === "budgets") return setBudgetOpen(true);
     if (activePage === "goals") return setGoalOpen(true);
+    if (activePage === "funds") return setSinkingFundModal({});
     if (activePage === "bills") return setBillOpen(true);
     if (activePage === "investments") return setInvestmentAssetModal({});
     setTransactionOpen(true);
   };
 
-  const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
+  const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "funds" ? "Buat pos dana" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
   const notifications = notificationOverview?.notifications ?? [];
   const unreadNotifications = notificationOverview?.unreadCount ?? 0;
 
@@ -576,7 +816,9 @@ export function FinanceApp() {
   if (activePage === "accounts") title.eyebrow = `${accounts.length} akun aktif`;
   if (activePage === "budgets") title.eyebrow = `Rencana ${monthLabel(month)}`;
   if (activePage === "goals") title.eyebrow = `${goals.length} target aktif`;
+  if (activePage === "funds") title.eyebrow = `${sinkingFunds.length} pos aktif`;
   if (activePage === "bills") title.eyebrow = `${bills.filter((bill) => !bill.paid).length} menunggu`;
+  if (activePage === "calendar") title.eyebrow = `Jadwal mulai ${monthLabel(month)}`;
   if (activePage === "debts") title.eyebrow = `${accounts.filter((account) => account.liability).length} akun kewajiban`;
   if (activePage === "investments") title.eyebrow = `${investmentAssets.length} aset aktif`;
   if (activePage === "reports") title.eyebrow = `Laporan ${monthLabel(month)}`;
@@ -608,21 +850,35 @@ export function FinanceApp() {
           <button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Tutup menu"><X size={20} /></button>
         </div>
         <nav className="sidebar-nav" aria-label="Navigasi utama">
-          <span className="nav-label">Workspace</span>
-          {navPrimary.map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
-          <span className="nav-label lower">Lainnya</span>
-          {navSecondary.map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
+          {navGroups.map((group) => {
+            const GroupIcon = group.icon;
+            const visibleItems = group.items.filter((item) => isOptionalFeatureEnabled(featurePreferences, item.key));
+            const containsActivePage = visibleItems.some((item) => item.key === activePage);
+            if (!visibleItems.length) return null;
+            return <section className={`nav-group ${containsActivePage ? "contains-active" : ""}`} key={group.key}>
+              <div className="nav-group-label">
+                <GroupIcon size={17} />
+                <span>{group.label}</span>
+              </div>
+              <div className="nav-group-items">
+                {visibleItems.map((item) => {
+                  const capability = pageCapability(item.key);
+                  const locked = Boolean(capability && !entitlement.capabilities[capability]);
+                  return <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} locked={locked} requiredTier={capability === "investments" || capability === "ai" ? "Premium" : "Pro"} />;
+                })}
+              </div>
+            </section>;
+          })}
         </nav>
-        <div className="sidebar-card">
-          <div className="sidebar-card-icon"><Database size={20} /></div>
-          <div><strong>{financeBackendLabel()}</strong><p>Data finansial tersimpan permanen dan setiap perubahan melewati validasi ledger.</p></div>
-          <span className="status-pill"><span /> Terhubung</span>
+        <div className="sidebar-card" title={demoMode ? "Mode demo menggunakan data contoh hanya-baca." : "Data finansial tersimpan permanen dan divalidasi oleh ledger."}>
+          <span className="sidebar-card-icon"><Database size={17} /></span>
+          <span className="sidebar-card-copy"><strong>{financeBackendLabel()}</strong><small className="status-pill"><span /> {demoMode ? "Demo read-only" : "Terhubung"}</small></span>
         </div>
-        <div className="profile-row">
+        <button className="profile-row" onClick={() => demoMode ? showToast("Semua fitur Premium sudah terbuka selama mode demo.") : setLicenseOpen(true)} aria-label={`Paket aktif ${entitlement.label}`}>
           <div className="avatar">{profile.name.slice(0, 2).toUpperCase()}</div>
-          <div><strong>{profile.name}</strong><small>Owner</small></div>
+          <div><strong>{profile.name}</strong><small>Owner · <b className={`plan-badge ${entitlement.tier}`}>{entitlement.label}</b></small></div>
           <MoreHorizontal size={18} />
-        </div>
+        </button>
       </aside>
 
       {sidebarOpen && <button className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="Tutup menu" />}
@@ -630,16 +886,16 @@ export function FinanceApp() {
       <main className="main-area">
         <header className="topbar">
           <button className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Buka menu"><Menu size={20} /></button>
-          <div className="global-search">
+          <label className="global-search" htmlFor="global-transaction-search">
             <Search size={18} />
             <input id="global-transaction-search" aria-label="Cari transaksi" placeholder="Cari transaksi, akun, atau kategori..." value={transactionQuery} onChange={(event) => { setTransactionQuery(event.target.value); setActivePage("transactions"); }} onFocus={() => activePage !== "transactions" && setActivePage("transactions")} />
             <kbd>⌘ K</kbd>
-          </div>
+          </label>
           <div className="topbar-actions">
             <button className="privacy-toggle" onClick={() => setPrivacy((value) => !value)} aria-pressed={privacy} title="Privacy mode">
               {privacy ? <EyeOff size={17} /> : <Eye size={17} />}<span>{privacy ? "Tampilkan" : "Sembunyikan"}</span>
             </button>
-            <button className="icon-button" onClick={() => setDarkMode((value) => !value)} aria-label={darkMode ? "Gunakan tema terang" : "Gunakan tema gelap"}>
+            <button className="icon-button theme-toggle" onClick={() => setDarkMode((value) => !value)} aria-label={darkMode ? "Gunakan tema terang" : "Gunakan tema gelap"}>
               {darkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <div className="notification-wrap">
@@ -661,12 +917,18 @@ export function FinanceApp() {
           </div>
         </header>
 
+        {demoMode && <section className="demo-banner" aria-label="Mode demo aktif">
+          <span className="demo-banner-icon"><Sparkles size={17} /></span>
+          <div><strong>Mode Demo Premium · hanya-baca</strong><small>Semua menu terbuka dengan data contoh. Penyimpanan, AI, OCR, backup, dan migrasi dinonaktifkan.</small></div>
+          {demoWhatsAppUrl && <a href={demoWhatsAppUrl} target="_blank" rel="noreferrer"><Send size={15} /> Beli via WhatsApp</a>}
+        </section>}
+
         <div className="page-wrap">
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
-            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "debts" && activePage !== "recurring" && activePage !== "assistant" && activePage !== "settings" && (
-              <button className="primary-button" onClick={openCreateForPage}><Plus size={18} /> {createLabel}</button>
+            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "debts" && activePage !== "calendar" && activePage !== "recurring" && activePage !== "assistant" && activePage !== "settings" && activePage !== "review" && (
+              <button className="primary-button" onClick={() => activePage === "investments" ? requirePlan("investments") && openCreateForPage() : openCreateForPage()}><Plus size={18} /> {createLabel}</button>
             )}
           </section>
 
@@ -675,36 +937,44 @@ export function FinanceApp() {
           {activePage === "forecast" && <CashflowForecastPage transactions={transactions} accounts={accounts} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "emergency" && <EmergencyFundPage month={month} transactions={transactions} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "debts" && <DebtPayoffPage month={month} accounts={accounts} privacy={privacy} onToast={showToast} />}
-          {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
-          {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onImport={() => setAccountImportOpen(true)} onEdit={setEditingAccount} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
+          {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => requirePlan("imports") && setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
+          {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onBorrow={() => setLoanDrawdownOpen(true)} onImport={() => requirePlan("imports") && setAccountImportOpen(true)} onEdit={setEditingAccount} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} onEdit={setEditingBudget} onDelete={removeBudget} />}
           {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onProgress={setGoalProgressTarget} onEdit={setEditingGoal} onDelete={removeGoal} onAdd={() => setGoalOpen(true)} />}
-          {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} onPay={payBill} onEdit={setEditingBill} onDelete={removeBill} onAdd={() => setBillOpen(true)} />}
+          {activePage === "funds" && <SinkingFundsPage funds={sinkingFunds} entries={sinkingFundEntries} accounts={accounts} privacy={privacy} onAdd={() => setSinkingFundModal({})} onEdit={(fund) => setSinkingFundModal({ fund })} onAdjust={(fund, type) => setSinkingFundAdjustment({ fund, type })} onDelete={removeSinkingFund} />}
+          {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} saving={saving} onPay={payBill} onPayAll={payBillGroup} onEdit={setEditingBill} onDelete={removeBill} onAdd={() => setBillOpen(true)} />}
+          {activePage === "calendar" && <FinancialCalendarPage accounts={accounts} bills={bills} goals={goals} privacy={privacy} initialMonth={month} />}
           {activePage === "recurring" && <RecurringPage accounts={accounts} categories={categories} privacy={privacy} onRefresh={refreshData} onToast={showToast} />}
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
+          {activePage === "review" && <MonthlyReviewPage period={month} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
-          {activePage === "settings" && <SettingsPage profile={profile} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} categories={categories} auditLogs={auditLogs} backendLabel={financeBackendLabel()} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onToast={showToast} onRefresh={refreshData} />}
+          {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} />}
         </div>
       </main>
 
       <nav className="mobile-nav" aria-label="Navigasi seluler">
-        {navPrimary.filter((item) => ["dashboard", "transactions", "budgets", "goals"].includes(item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
+        {navPrimary.filter((item) => ["dashboard", "transactions", "budgets", "goals"].includes(item.key) && isOptionalFeatureEnabled(featurePreferences, item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
         <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={23} /></button>
       </nav>
 
-      {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
-      {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
+      {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} transactions={transactions} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
+      {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} categoryRules={categoryRules} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
       {accountImportOpen && <AccountImportModal accounts={accounts} saving={saving} onClose={() => setAccountImportOpen(false)} onSubmit={async (items) => { const ok = await importAccounts(items); if (ok) setAccountImportOpen(false); return ok; }} />}
       {(accountOpen || editingAccount) && <AccountModal account={editingAccount ?? undefined} saving={saving} onClose={() => { setAccountOpen(false); setEditingAccount(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingAccount ? updateFinanceAccount(editingAccount.id, payload) : createFinanceAccount(payload), editingAccount ? "Akun berhasil diperbarui." : "Akun baru berhasil ditambahkan."); if (ok) { setAccountOpen(false); setEditingAccount(null); } }} />}
+      {loanDrawdownOpen && <LoanDrawdownModal accounts={accounts} saving={saving} onClose={() => setLoanDrawdownOpen(false)} onSubmit={async (transaction) => { const ok = await recordLoanDrawdown(transaction); if (ok) setLoanDrawdownOpen(false); return ok; }} />}
       {(budgetOpen || editingBudget) && <BudgetModal budget={editingBudget ?? undefined} month={month} categories={categories} saving={saving} onClose={() => { setBudgetOpen(false); setEditingBudget(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingBudget ? updateFinanceBudget(editingBudget.id, payload) : upsertFinanceBudget(payload), "Anggaran berhasil disimpan."); if (ok) { setBudgetOpen(false); setEditingBudget(null); } }} />}
       {(goalOpen || editingGoal) && <GoalModal goal={editingGoal ?? undefined} saving={saving} onClose={() => { setGoalOpen(false); setEditingGoal(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingGoal ? updateFinanceGoal(editingGoal.id, payload) : createFinanceGoal(payload), editingGoal ? "Target finansial berhasil diperbarui." : "Target finansial berhasil dibuat."); if (ok) { setGoalOpen(false); setEditingGoal(null); } }} />}
       {goalProgressTarget && <GoalProgressModal goal={goalProgressTarget} privacy={privacy} saving={saving} onClose={() => setGoalProgressTarget(null)} onSubmit={async (amount, mode) => { const ok = await adjustGoalProgress(goalProgressTarget, amount, mode); if (ok) setGoalProgressTarget(null); }} />}
+      {sinkingFundModal && <SinkingFundModal fund={sinkingFundModal.fund} accounts={accounts} funds={sinkingFunds} saving={saving} onClose={() => setSinkingFundModal(null)} onSubmit={async (payload) => { const current = sinkingFundModal.fund; const ok = await runMutation(() => current ? updateFinanceSinkingFund(current.id, payload) : createFinanceSinkingFund(payload), current ? "Pos dana berhasil diperbarui." : "Pos dana berhasil dibuat tanpa mengubah saldo akun."); if (ok) setSinkingFundModal(null); }} />}
+      {sinkingFundAdjustment && <SinkingFundAdjustmentModal fund={sinkingFundAdjustment.fund} type={sinkingFundAdjustment.type} saving={saving} onClose={() => setSinkingFundAdjustment(null)} onSubmit={async (amount, date, note) => { const action = sinkingFundAdjustment; const ok = await runMutation(() => adjustFinanceSinkingFund(action.fund.id, amount, action.type, date, note), action.type === "allocate" ? `${formatIDR(amount)} dialokasikan ke ${action.fund.name}.` : `${formatIDR(amount)} dilepas dari ${action.fund.name}.`); if (ok) setSinkingFundAdjustment(null); }} />}
       {(billOpen || editingBill) && <BillModal bill={editingBill ?? undefined} accounts={accounts} categories={categories} saving={saving} onClose={() => { setBillOpen(false); setEditingBill(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingBill ? updateFinanceBill(editingBill.id, payload) : createFinanceBill(payload), editingBill ? "Tagihan berhasil diperbarui." : "Tagihan rutin berhasil ditambahkan."); if (ok) { setBillOpen(false); setEditingBill(null); } }} />}
       {reconcileTarget && <ReconcileModal account={reconcileTarget} privacy={privacy} saving={saving} onClose={() => setReconcileTarget(null)} onSubmit={async (actualBalance, date, note, requestId) => { const ok = await reconcileAccount(reconcileTarget, actualBalance, date, note, requestId); if (ok) setReconcileTarget(null); }} />}
       {categoryModal && <CategoryModal category={categoryModal.category} saving={saving} onClose={() => setCategoryModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveCategory(payload, categoryModal.category, requestId); if (ok) setCategoryModal(null); }} />}
+      {categoryRuleModal && <CategoryRuleModal rule={categoryRuleModal.rule} categories={categories} saving={saving} onClose={() => setCategoryRuleModal(null)} onSubmit={async (payload) => { const ok = await saveCategoryRule(payload, categoryRuleModal.rule); if (ok) setCategoryRuleModal(null); }} />}
       {investmentAssetModal && <InvestmentAssetModal asset={investmentAssetModal.asset} accounts={accounts} saving={saving} onClose={() => setInvestmentAssetModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveInvestmentAsset(payload, investmentAssetModal.asset, requestId); if (ok) setInvestmentAssetModal(null); }} />}
       {investmentTradeModal && <InvestmentTradeModal type={investmentTradeModal.type} initialAsset={investmentTradeModal.asset} assets={investmentAssets} accounts={accounts} privacy={privacy} saving={saving} onClose={() => setInvestmentTradeModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveInvestmentTrade(payload, requestId); if (ok) setInvestmentTradeModal(null); }} />}
+      {licenseOpen && <LicenseModal entitlement={entitlement} onClose={() => setLicenseOpen(false)} onChanged={async (next) => { setEntitlement(next); await refreshData(); showToast(`Paket ${next.label} aktif.`); }} />}
       {toast && <div className="toast"><span><Check size={16} /></span>{toast}</div>}
     </div>
   );
@@ -741,6 +1011,10 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   const upcomingBills = [...bills].filter((bill) => !bill.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 3);
   const recent = [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
   const healthLabel = healthScore >= 80 ? "Sehat" : healthScore >= 60 ? "Baik" : healthScore >= 40 ? "Cukup" : "Perlu perhatian";
+  const consumerLiabilities = accounts.filter((account) => account.liability && ["Paylater", "Credit Card"].includes(account.type));
+  const longTermLiabilities = accounts.filter((account) => account.liability && ["Loan", "Mortgage"].includes(account.type));
+  const activeInstallments = bills.filter((bill) => bill.liabilityAccountId && !bill.completed);
+  const nearestInstallment = [...activeInstallments].filter((bill) => !bill.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
 
   return (
     <div className="dashboard-grid">
@@ -753,6 +1027,28 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         <div className="hero-mini-stats">
           <div><span>Total aset</span><Amount value={accountTotals.assets} privacy={privacy} /><small>{accounts.filter((item) => !item.liability).length} akun aset</small></div>
           <div><span>Total kewajiban</span><Amount value={accountTotals.liabilities} privacy={privacy} /><small className="muted-change">{accounts.filter((item) => item.liability).length} akun kewajiban</small></div>
+        </div>
+        <div className="hero-liability-details" aria-label="Rincian kewajiban">
+          <button type="button" onClick={() => onNavigate("bills")}>
+            <span>Paylater & kartu</span>
+            <Amount value={consumerLiabilities.reduce((sum, account) => sum + account.balance, 0)} privacy={privacy} />
+            <small>{consumerLiabilities.length} akun</small>
+          </button>
+          <button type="button" onClick={() => onNavigate("bills")}>
+            <span>Kredit & pinjaman</span>
+            <Amount value={longTermLiabilities.reduce((sum, account) => sum + account.balance, 0)} privacy={privacy} />
+            <small>{longTermLiabilities.length} kontrak</small>
+          </button>
+          <button type="button" onClick={() => onNavigate("bills")}>
+            <span>Cicilan bulan ini</span>
+            <Amount value={activeInstallments.reduce((sum, bill) => sum + bill.amount, 0)} privacy={privacy} />
+            <small>{activeInstallments.length} jadwal aktif</small>
+          </button>
+          <button type="button" onClick={() => onNavigate("bills")}>
+            <span>Jatuh tempo terdekat</span>
+            <strong>{nearestInstallment ? shortDate(nearestInstallment.dueDate) : "Tidak ada"}</strong>
+            <small>{nearestInstallment?.name ?? "Belum ada cicilan"}</small>
+          </button>
         </div>
         <div className="hero-pattern" aria-hidden="true"><span /><span /><span /><span /><span /></div>
       </section>
@@ -930,7 +1226,7 @@ function TransactionTable({ transactions, accounts, privacy, compact = false, on
   </div>;
 }
 
-function AccountsPage({ accounts, privacy, onAdd, onImport, onEdit, onArchive, onReconcile, onInspect }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onImport: () => void; onEdit: (account: Account) => void; onArchive: (id: string) => void; onReconcile: (account: Account) => void; onInspect: (account: Account) => void }) {
+function AccountsPage({ accounts, privacy, onAdd, onBorrow, onImport, onEdit, onArchive, onReconcile, onInspect }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onBorrow: () => void; onImport: () => void; onEdit: (account: Account) => void; onArchive: (id: string) => void; onReconcile: (account: Account) => void; onInspect: (account: Account) => void }) {
   const totals = accountSummary(accounts);
   return <div className="content-stack">
     <div className="summary-strip account-summary">
@@ -939,7 +1235,7 @@ function AccountsPage({ accounts, privacy, onAdd, onImport, onEdit, onArchive, o
       <div><span>Total kewajiban</span><Amount value={totals.liabilities} privacy={privacy} /><small className="negative-text">Perlu dibayar</small></div>
       <div><span>Kekayaan bersih</span><Amount value={totals.netWorth} privacy={privacy} /><small>Setelah kewajiban</small></div>
     </div>
-    <div className="account-import-bar"><div><FileUp size={18} /><span><strong>Pindahkan daftar akun sekaligus</strong><small>Impor hingga 100 akun dan tetapkan saldo awal dari CSV.</small></span></div><button className="secondary-button" onClick={onImport}><FileUp size={16} /> Impor akun</button></div>
+    <div className="account-import-bar"><div><CreditCard size={18} /><span><strong>Pinjaman baru atau pencairan Paylater</strong><small>Dana masuk ke rekening dan saldo kewajiban bertambah tanpa dihitung sebagai pendapatan.</small></span></div><span className="account-tool-actions"><button className="primary-button" onClick={onBorrow}><ArrowDownLeft size={16} /> Catat pinjaman</button><button className="secondary-button" onClick={onImport}><FileUp size={16} /> Impor akun</button></span></div>
     <div className="account-grid">
       {accounts.map((account) => <article className={`account-card ${account.liability ? "liability" : ""}`} key={account.id}>
         <div className="account-card-top"><span className="large-account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={22} /> : account.type === "Investment" ? <TrendingUp size={22} /> : account.liability ? <CreditCard size={22} /> : <WalletCards size={22} />}</span><span className="account-card-actions"><button className="icon-button small" onClick={() => onEdit(account)} aria-label={`Edit ${account.name}`} title="Edit akun"><Pencil size={16} /></button><button className="icon-button small" onClick={() => onReconcile(account)} aria-label={`Rekonsiliasi ${account.name}`} title="Cocokkan saldo"><Scale size={16} /></button><button className="icon-button small" onClick={() => window.confirm(`Arsipkan ${account.name}?`) && onArchive(account.id)} aria-label={`Arsipkan ${account.name}`}><Trash2 size={16} /></button></span></div>
@@ -987,7 +1283,61 @@ function GoalsPage({ goals, privacy, onProgress, onEdit, onDelete, onAdd }: { go
       <div className="goal-meta"><span><small>Tercapai</small><strong>{percent.toFixed(1)}%</strong></span><span><small>Sisa</small><Amount value={remaining} privacy={privacy} compact /></span><span><small>Rekomendasi/bln</small><Amount value={remaining / months} privacy={privacy} compact /></span></div>
       <button className="secondary-button full" onClick={() => onProgress(goal)}><Plus size={16} /> Atur progress</button>
     </article>; })}
-    <button className="add-card goal-add" onClick={onAdd}><span><Plus size={21} /></span><strong>Buat target baru</strong><small>Tentukan nominal, deadline, dan kontribusi rutin</small></button>
+    <button className={`add-card goal-add ${goals.length ? "" : "is-empty"}`} onClick={onAdd}>
+      <span><Plus size={21} /></span>
+      <strong>{goals.length ? "Tambah target baru" : "Belum ada target finansial"}</strong>
+      <small>{goals.length ? "Tentukan nominal, deadline, dan kontribusi rutin" : "Mulai dari satu tujuan yang ingin dicapai, lalu pantau progresnya secara berkala."}</small>
+      <span className="goal-add-cta"><Plus size={15} /> {goals.length ? "Tambah target" : "Buat target pertama"}</span>
+    </button>
+  </div>;
+}
+
+function SinkingFundsPage({ funds, entries, accounts, privacy, onAdd, onEdit, onAdjust, onDelete }: {
+  funds: SinkingFund[];
+  entries: SinkingFundEntry[];
+  accounts: Account[];
+  privacy: boolean;
+  onAdd: () => void;
+  onEdit: (fund: SinkingFund) => void;
+  onAdjust: (fund: SinkingFund, type: "allocate" | "release") => void;
+  onDelete: (fund: SinkingFund) => void;
+}) {
+  const totalTarget = funds.reduce((sum, fund) => sum + fund.targetAmount, 0);
+  const totalAllocated = funds.reduce((sum, fund) => sum + fund.currentAmount, 0);
+  const freeCash = unallocatedCash(accounts, funds);
+  const accountName = (id: string) => accounts.find((account) => account.id === id)?.name ?? "Akun tidak tersedia";
+  return <div className="content-stack sinking-funds-page">
+    <section className="sinking-fund-hero">
+      <div><span className="card-kicker light">Dana yang sudah diberi tujuan</span><Amount value={totalAllocated} privacy={privacy} className="sinking-fund-hero-value" /><p>Dari target keseluruhan <Amount value={totalTarget} privacy={privacy} />.</p></div>
+      <div className="sinking-fund-hero-metrics">
+        <span><small>Saldo bebas</small><Amount value={freeCash} privacy={privacy} /><b>Belum dialokasikan</b></span>
+        <span><small>Progress total</small><strong>{totalTarget ? Math.round(totalAllocated / totalTarget * 100) : 0}%</strong><b>{funds.length} pos aktif</b></span>
+      </div>
+    </section>
+    <div className="sinking-fund-note"><ShieldCheck size={18} /><span><strong>Tidak menghitung uang dua kali</strong><small>Pos Dana hanya memberi label pada sebagian saldo akun. Mengalokasikan atau melepas dana tidak mengubah saldo, kekayaan bersih, maupun arus kas.</small></span></div>
+    <section className="sinking-fund-grid">
+      {funds.map((fund) => {
+        const percent = sinkingFundProgress(fund);
+        const remaining = sinkingFundRemaining(fund);
+        const monthlyNeed = sinkingFundMonthlyNeed(fund);
+        const account = accounts.find((item) => item.id === fund.accountId);
+        const overAllocated = Boolean(account && funds.filter((item) => item.accountId === account.id).reduce((sum, item) => sum + item.currentAmount, 0) > account.balance);
+        return <article className="sinking-fund-card" key={fund.id}>
+          <div className="sinking-fund-card-head"><span style={{ background: `${fund.color}18`, color: fund.color }}><CircleDollarSign size={21} /></span><div><small>{fund.purpose}</small><h2>{fund.name}</h2></div><span className="account-card-actions"><button className="icon-button small" onClick={() => onEdit(fund)} aria-label={`Edit ${fund.name}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Arsipkan pos ${fund.name}? Dana yang dialokasikan akan kembali menjadi saldo bebas.`) && onDelete(fund)} aria-label={`Arsipkan ${fund.name}`}><Trash2 size={15} /></button></span></div>
+          <div className="sinking-fund-amount"><Amount value={fund.currentAmount} privacy={privacy} /><small>dari <Amount value={fund.targetAmount} privacy={privacy} /></small></div>
+          <ProgressBar value={percent} color={fund.color} label={`Progress ${fund.name}`} />
+          <div className="sinking-fund-meta">
+            <span><small>Target</small><strong>{shortDate(fund.targetDate)}</strong></span>
+            <span><small>Sisa</small><Amount value={remaining} privacy={privacy} compact /></span>
+            <span><small>Perlu/bln</small><Amount value={fund.monthlyContribution || monthlyNeed} privacy={privacy} compact /></span>
+          </div>
+          <div className={`sinking-fund-account ${overAllocated ? "warning" : ""}`}><Landmark size={15} /><span><strong>{accountName(fund.accountId)}</strong><small>{overAllocated ? "Alokasi melebihi saldo akun saat ini" : "Saldo akun tetap utuh"}</small></span></div>
+          <div className="sinking-fund-actions"><button className="primary-button" onClick={() => onAdjust(fund, "allocate")} disabled={percent >= 100}><Plus size={15} /> Alokasikan</button><button className="secondary-button" onClick={() => onAdjust(fund, "release")} disabled={fund.currentAmount <= 0}><Undo2 size={15} /> Lepas</button></div>
+        </article>;
+      })}
+      <button className={`add-card sinking-fund-add ${funds.length ? "" : "is-empty"}`} onClick={onAdd}><span><Plus size={21} /></span><strong>{funds.length ? "Tambah pos dana" : "Buat pos dana pertama"}</strong><small>Siapkan servis kendaraan, pajak, liburan, pendidikan, atau kebutuhan tahunan.</small><span className="goal-add-cta"><Plus size={15} /> Buat pos</span></button>
+    </section>
+    {entries.length > 0 && <section className="panel sinking-fund-history"><div className="card-title-row"><div><span className="card-kicker">Riwayat alokasi</span><h2>Perubahan terbaru</h2></div></div><div>{entries.slice(0, 8).map((entry) => { const fund = funds.find((item) => item.id === entry.fundId); return <div key={entry.id}><span className={entry.type}><History size={15} /></span><div><strong>{fund?.name ?? "Pos diarsipkan"}</strong><small>{entry.note || (entry.type === "allocate" ? "Alokasi dana" : "Pelepasan dana")} · {shortDate(entry.date)}</small></div><Amount value={entry.amount} privacy={privacy} className={entry.type === "allocate" ? "positive-text" : ""} /></div>; })}</div></section>}
   </div>;
 }
 
@@ -1173,7 +1523,7 @@ function RoadmapPage({ month, transactions, accounts, goals, investmentAssets, p
 
     <section className="panel roadmap-goal-panel">
       <div className="card-title-row"><div><span className="card-kicker">Goal forecast</span><h2>Kesiapan target finansial</h2></div><span className="roadmap-data-badge">Prioritas berdasarkan deadline</span></div>
-      <div className="roadmap-goal-list">{roadmap.goalForecasts.map((goal) => <div key={goal.id}><span className={goal.onTrack ? "roadmap-goal-icon on-track" : "roadmap-goal-icon at-risk"}>{goal.onTrack ? <CheckCircle2 size={17} /> : <Clock3 size={17} />}</span><span><strong>{goal.name}</strong><small>Sisa <Amount value={goal.remaining} privacy={privacy} /> · kebutuhan <Amount value={goal.recommendedMonthly} privacy={privacy} compact />/bulan</small></span><span><small>Perkiraan</small><strong className={goal.onTrack ? "positive-text" : "warning-text"}>{goal.projectedMonth ? formatMonthLabel(goal.projectedMonth) : "Belum terjangkau"}</strong></span></div>)}{!roadmap.goalForecasts.length && <div className="settings-empty">Semua target sudah tercapai atau belum ada target aktif.</div>}</div>
+      <div className="roadmap-goal-list">{roadmap.goalForecasts.map((goal) => <div key={goal.id}><span className={goal.onTrack ? "roadmap-goal-icon on-track" : "roadmap-goal-icon at-risk"}>{goal.onTrack ? <CheckCircle2 size={17} /> : <Clock3 size={17} />}</span><span><strong>{goal.name}</strong><small>Sisa <Amount value={goal.remaining} privacy={privacy} /> · kebutuhan <Amount value={goal.recommendedMonthly} privacy={privacy} compact />/bulan</small></span><span><small>Perkiraan</small><strong className={goal.onTrack ? "positive-text" : "warning-text"}>{goal.projectedMonth ? formatMonthLabel(goal.projectedMonth) : "Belum terjangkau"}</strong></span></div>)}{!roadmap.goalForecasts.length && <div className="roadmap-goal-empty"><span><Target size={18} /></span><div><strong>Belum ada target aktif</strong><small>Target baru akan muncul di sini beserta estimasi kesiapan dan prioritas deadline.</small></div></div>}</div>
     </section>
   </div>;
 }
@@ -1261,7 +1611,7 @@ function DebtPlanModal({ account, plan, saving, onClose, onSubmit }: { account: 
   const [dueDay, setDueDay] = useState(plan ? String(plan.dueDay) : "1");
   return <SimpleModal title={`Atur ${account.name}`} kicker="Debt terms" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ accountId: account.id, annualInterestRatePct: Number(rate.replace(",", ".") || 0), minimumPayment: Number(minimum || 0), dueDay: Number(dueDay || 1) }); }}>
     <div className="debt-modal-balance"><small>Saldo utang saat ini</small><strong>{formatIDR(account.balance)}</strong></div>
-    <div className="form-grid"><label><span>Bunga per tahun (%)</span><input type="number" min={0} max={100} step="0.01" value={rate} onChange={(event) => setRate(event.target.value)} required autoFocus/></label><label><span>Cicilan minimum / bulan</span><input value={minimum} onChange={(event) => setMinimum(event.target.value.replace(/\D/g, ""))} inputMode="numeric" required/></label><label><span>Tanggal jatuh tempo</span><input type="number" min={1} max={31} value={dueDay} onChange={(event) => setDueDay(event.target.value)} required/></label></div>
+    <div className="form-grid"><label><span>Bunga per tahun (%)</span><input type="number" min={0} max={100} step="0.01" value={rate} onChange={(event) => setRate(event.target.value)} required autoFocus/></label><label><span>Cicilan minimum / bulan</span><input value={formatMoneyInput(minimum)} onChange={(event) => setMinimum(moneyInputDigits(event.target.value))} inputMode="numeric" required/></label><label><span>Tanggal jatuh tempo</span><input type="number" min={1} max={31} value={dueDay} onChange={(event) => setDueDay(event.target.value)} required/></label></div>
   </SimpleModal>;
 }
 
@@ -1321,8 +1671,32 @@ function RecurringPage({ accounts, categories, privacy, onRefresh, onToast }: { 
   </div>;
 }
 
-function BillsPage({ bills, accounts, privacy, onPay, onEdit, onDelete, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; onPay: (bill: Bill) => void; onEdit: (bill: Bill) => void; onDelete: (bill: Bill) => void; onAdd: () => void }) {
-  const pending = bills.filter((bill) => !bill.paid);
+function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onEdit, onDelete, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; saving: boolean; onPay: (bill: Bill) => void; onPayAll: (account: Account, bills: Bill[]) => void; onEdit: (bill: Bill) => void; onDelete: (bill: Bill) => void; onAdd: () => void }) {
+  const activeBills = bills.filter((bill) => !bill.completed);
+  const pending = activeBills.filter((bill) => !bill.paid);
+  const installmentGroups = accounts.filter((account) => account.liability).map((account) => {
+    const schedules = activeBills.filter((bill) => bill.liabilityAccountId === account.id);
+    return { account, schedules, monthly: schedules.reduce((sum, bill) => sum + bill.amount, 0) };
+  }).filter((group) => group.schedules.length);
+  const consumerInstallmentGroups = installmentGroups.filter(({ account }) => ["Paylater", "Credit Card"].includes(account.type));
+  const longTermInstallmentGroups = installmentGroups.filter(({ account }) => !["Paylater", "Credit Card"].includes(account.type));
+  const ordinaryBills = bills.filter((bill) => !bill.liabilityAccountId);
+  const installmentSections = [
+    {
+      key: "consumer",
+      kicker: "Paylater & kartu kredit",
+      title: "Cicilan konsumtif",
+      description: "Beberapa cicilan dalam satu penyedia seperti Kredivo, SPayLater, atau kartu kredit.",
+      groups: consumerInstallmentGroups,
+    },
+    {
+      key: "long-term",
+      kicker: "Kredit kendaraan & pinjaman",
+      title: "Cicilan jangka panjang",
+      description: "Kontrak besar seperti motor, mobil, pinjaman tunai, atau KPR dipantau terpisah.",
+      groups: longTermInstallmentGroups,
+    },
+  ].filter((section) => section.groups.length);
   return <div className="content-stack">
     <div className="summary-strip">
       <div><span>Belum dibayar</span><strong>{pending.length} tagihan</strong><small>{monthLabel(currentMonth())}</small></div>
@@ -1330,19 +1704,144 @@ function BillsPage({ bills, accounts, privacy, onPay, onEdit, onDelete, onAdd }:
       <div><span>Sudah dibayar</span><strong>{bills.filter((bill) => bill.paid).length} tagihan</strong><small className="positive-text">Tepat waktu</small></div>
       <div><span>Pencatatan tagihan</span><strong>Konfirmasi manual</strong><small>Setiap pembayaran tetap kamu kendalikan</small></div>
     </div>
+    {installmentSections.map((section) => <section className="panel installment-groups" key={section.key}>
+      <div className="card-title-row"><div><span className="card-kicker">{section.kicker}</span><h2>{section.title}</h2></div><small>{section.groups.reduce((sum, group) => sum + group.schedules.length, 0)} jadwal aktif</small></div>
+      <p className="installment-section-copy">{section.description}</p>
+      <div className="installment-group-grid">{section.groups.map(({ account, schedules, monthly }) => {
+        const unpaidSchedules = schedules.filter((bill) => !bill.paid);
+        const dueTotal = unpaidSchedules.reduce((sum, bill) => sum + bill.amount, 0);
+        return <article className="installment-group-card" key={account.id}>
+          <div className="installment-group-head">
+            <span className="bill-brand"><CreditCard size={18} /></span>
+            <span><span className="installment-account-title"><strong>{account.name}</strong><small className="installment-account-type">{account.type}</small></span><small>{schedules.length} cicilan aktif · saldo utang <Amount value={account.balance} privacy={privacy} /></small></span>
+            <span><small>Total per bulan</small><Amount value={monthly} privacy={privacy} /></span>
+          </div>
+          <div className="installment-group-items">{schedules.map((bill) => <div key={bill.id}>
+            <span><span className="installment-item-title"><strong>{bill.name}</strong><small className={bill.paid ? "paid-pill" : "installment-waiting"}>{bill.paid ? <><Check size={12} /> Dibayar</> : "Menunggu"}</small></span><small>Jatuh tempo {shortDate(bill.dueDate)}{bill.durationMonths ? ` · ${bill.remainingMonths ?? 0} bulan tersisa` : ""}</small></span>
+            <Amount value={bill.amount} privacy={privacy} />
+            <span className="installment-item-actions"><button className={bill.paid ? "secondary-button" : "primary-button"} onClick={() => onPay(bill)} disabled={saving || bill.paid}>{bill.paid ? "Selesai" : "Bayar"}</button><button className="icon-button small" onClick={() => onEdit(bill)} aria-label={`Edit ${bill.name}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus cicilan ${bill.name}?`) && onDelete(bill)} aria-label={`Hapus ${bill.name}`}><Trash2 size={15} /></button></span>
+          </div>)}</div>
+          <div className="installment-group-footer">
+            <span><small>Tagihan gabungan bulan ini</small><strong><Amount value={dueTotal} privacy={privacy} /> · {unpaidSchedules.length} belum dibayar</strong></span>
+            <button className={unpaidSchedules.length ? "primary-button" : "secondary-button"} disabled={saving || !unpaidSchedules.length} onClick={() => onPayAll(account, schedules)}><CheckCircle2 size={16} />{saving ? "Memproses…" : unpaidSchedules.length ? "Bayar semua" : "Lunas bulan ini"}</button>
+          </div>
+        </article>;
+      })}</div>
+    </section>)}
     <section className="panel bills-full-panel">
-      <div className="card-title-row"><div><span className="card-kicker">Jadwal</span><h2>Tagihan {monthLabel(currentMonth())}</h2></div><button className="secondary-button" onClick={onAdd}><Plus size={16} /> Tambah tagihan</button></div>
+      <div className="card-title-row"><div><span className="card-kicker">Tagihan biasa</span><h2>Kebutuhan rutin {monthLabel(currentMonth())}</h2></div><button className="secondary-button" onClick={onAdd}><Plus size={16} /> Tambah tagihan</button></div>
       <div className="bill-cards">
-        {[...bills].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((bill) => { const account = accounts.find((item) => item.id === bill.accountId); return <article className={bill.paid ? "paid" : ""} key={bill.id}>
+        {[...ordinaryBills].sort((a, b) => Number(Boolean(a.completed)) - Number(Boolean(b.completed)) || a.dueDate.localeCompare(b.dueDate)).map((bill) => { const account = accounts.find((item) => item.id === bill.accountId); return <article className={bill.paid ? "paid" : ""} key={bill.id}>
           <span className={`bill-brand bill-${bill.category.toLowerCase()}`}>{bill.name.slice(0, 1)}</span>
-          <div className="bill-card-main"><span><strong>{bill.name}</strong>{bill.paid && <small className="paid-pill"><Check size={12} /> Dibayar</small>}</span><small>{bill.category} · {account?.name}</small></div>
+          <div className="bill-card-main"><span><strong>{bill.name}</strong>{bill.completed ? <small className="paid-pill"><Check size={12} /> Lunas</small> : bill.paid && <small className="paid-pill"><Check size={12} /> Dibayar bulan ini</small>}</span><small>{bill.category} · {account?.name ?? "akun"}</small>{bill.durationMonths ? <small className="installment-progress">{bill.paidCount ?? 0}/{bill.durationMonths} pembayaran · {bill.remainingMonths ?? 0} bulan tersisa</small> : <small className="installment-progress">Berulang tanpa batas</small>}</div>
           <div className="bill-due"><small>Jatuh tempo</small><strong>{shortDate(bill.dueDate)}</strong></div>
           <Amount value={bill.amount} privacy={privacy} className="bill-amount" />
           <span className="bill-card-actions"><button className={bill.paid ? "secondary-button" : "primary-button"} onClick={() => onPay(bill)} disabled={bill.paid}>{bill.paid ? "Selesai" : "Bayar"}</button><button className="icon-button small" onClick={() => onEdit(bill)} aria-label={`Edit ${bill.name}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus tagihan ${bill.name}?`) && onDelete(bill)} aria-label={`Hapus ${bill.name}`}><Trash2 size={15} /></button></span>
         </article>; })}
-        {!bills.length && <div className="empty-state"><CalendarDays size={28} /><h3>Belum ada tagihan</h3><p>Tambahkan tagihan rutin agar jatuh tempo tidak terlewat.</p><button className="primary-button" onClick={onAdd}><Plus size={16} /> Tambah tagihan</button></div>}
+        {!ordinaryBills.length && <div className="empty-state compact"><CalendarDays size={28} /><h3>Belum ada tagihan biasa</h3><p>Listrik, internet, sewa, dan kebutuhan rutin lain akan tampil di sini.</p><button className="primary-button" onClick={onAdd}><Plus size={16} /> Tambah tagihan</button></div>}
       </div>
     </section>
+  </div>;
+}
+
+const calendarEventLabel: Record<FinancialCalendarEvent["kind"], string> = {
+  bill: "Tagihan",
+  installment: "Cicilan",
+  income: "Pemasukan",
+  recurring_expense: "Pengeluaran rutin",
+  goal: "Deadline target",
+};
+
+function FinancialCalendarPage({ accounts, bills, goals, privacy, initialMonth }: { accounts: Account[]; bills: Bill[]; goals: Goal[]; privacy: boolean; initialMonth: string }) {
+  const [viewMonth, setViewMonth] = useState(initialMonth);
+  const [selectedDate, setSelectedDate] = useState(today());
+  const [templates, setTemplates] = useState<RecurringTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    loadFinanceRecurringTemplates()
+      .then((items) => active && setTemplates(items))
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Transaksi rutin tidak dapat dimuat."))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
+  const monthRange = calendarMonthRange(viewMonth);
+  const ninetyDayEnd = addCalendarDays(today(), 90);
+  const eventStart = monthRange.startDate < today() ? monthRange.startDate : today();
+  const eventEnd = monthRange.endDate > ninetyDayEnd ? monthRange.endDate : ninetyDayEnd;
+  const events = useMemo(() => buildFinancialCalendarEvents({
+    bills,
+    goals,
+    recurringTemplates: templates,
+    fromDate: eventStart,
+    throughDate: eventEnd,
+  }), [bills, goals, templates, eventStart, eventEnd]);
+  const eventsByDate = useMemo(() => {
+    const index = new Map<string, FinancialCalendarEvent[]>();
+    events.forEach((event) => index.set(event.date, [...(index.get(event.date) ?? []), event]));
+    return index;
+  }, [events]);
+  const calendarDays = Array.from({ length: 42 }, (_, index) => addCalendarDays(monthRange.startDate, index));
+  const selectedEvents = eventsByDate.get(selectedDate) ?? [];
+  const agendaEnd = addCalendarDays(today(), 30);
+  const upcoming = events.filter((event) => event.date >= today() && event.date <= agendaEnd);
+  const needs7 = financialCalendarWindow(events, today(), 7);
+  const needs14 = financialCalendarWindow(events, today(), 14);
+  const needs30 = financialCalendarWindow(events, today(), 30);
+  const accountName = (event: FinancialCalendarEvent) => accounts.find((account) => account.id === (event.liabilityAccountId || event.accountId))?.name ?? "";
+  const changeMonth = (offset: number) => {
+    const next = addMonthsToPeriod(viewMonth, offset);
+    setViewMonth(next);
+    setSelectedDate(`${next}-01`);
+  };
+
+  return <div className="calendar-page">
+    <div className="calendar-horizon-strip">
+      <div><span>Kebutuhan 7 hari</span><Amount value={needs7.outgoing} privacy={privacy}/><small>Setelah pemasukan: <Amount value={needs7.netNeed} privacy={privacy}/></small></div>
+      <div><span>Kebutuhan 14 hari</span><Amount value={needs14.outgoing} privacy={privacy}/><small>Setelah pemasukan: <Amount value={needs14.netNeed} privacy={privacy}/></small></div>
+      <div><span>Kebutuhan 30 hari</span><Amount value={needs30.outgoing} privacy={privacy}/><small>{needs30.criticalDays} hari perlu dana</small></div>
+      <div><span>Pemasukan 30 hari</span><Amount value={needs30.incoming} privacy={privacy}/><small>{upcoming.filter((event) => event.kind === "income").length} jadwal pemasukan</small></div>
+    </div>
+    <div className="calendar-layout">
+      <section className="panel financial-calendar-panel">
+        <div className="calendar-toolbar">
+          <div><span className="card-kicker">Timeline bulanan</span><h2>{monthLabel(viewMonth)}</h2></div>
+          <span className="calendar-controls"><button className="icon-button" onClick={() => changeMonth(-1)} aria-label="Bulan sebelumnya"><ArrowRight size={17} /></button><button className="secondary-button" onClick={() => { setViewMonth(initialMonth); setSelectedDate(today()); }}>Hari ini</button><button className="icon-button" onClick={() => changeMonth(1)} aria-label="Bulan berikutnya"><ArrowRight size={17} /></button></span>
+        </div>
+        <div className="calendar-legend"><span><i className="income"/>Pemasukan</span><span><i className="bill"/>Tagihan</span><span><i className="installment"/>Cicilan</span><span><i className="goal"/>Target</span></div>
+        <div className="calendar-weekdays">{["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"].map((day) => <span key={day}>{day}</span>)}</div>
+        <div className="calendar-grid">{calendarDays.map((date) => {
+          const dayEvents = eventsByDate.get(date) ?? [];
+          const outgoing = dayEvents.filter((event) => event.countsTowardNeed).reduce((sum, event) => sum + event.amount, 0);
+          const incoming = dayEvents.filter((event) => event.kind === "income").reduce((sum, event) => sum + event.amount, 0);
+          const dayState = outgoing > incoming ? "critical" : dayEvents.length ? "safe" : "";
+          return <button type="button" key={date} className={`${date.slice(0, 7) === viewMonth ? "" : "outside"} ${date === today() ? "today" : ""} ${date === selectedDate ? "selected" : ""} ${dayState}`} onClick={() => setSelectedDate(date)} aria-label={`${shortDate(date)}, ${dayEvents.length} agenda`}>
+            <span>{Number(date.slice(-2))}</span>
+            <span className="calendar-day-events">{dayEvents.slice(0, 3).map((event) => <i className={event.kind} key={event.id} title={event.title}/>)}</span>
+            {dayEvents.length > 3 && <small>+{dayEvents.length - 3}</small>}
+          </button>;
+        })}</div>
+        <div className="selected-day-agenda">
+          <div><span className="card-kicker">Agenda terpilih</span><h3>{new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${selectedDate}T12:00:00`))}</h3></div>
+          {selectedEvents.length ? <div>{selectedEvents.map((event) => <article key={event.id}>
+            <span className={`calendar-event-icon ${event.kind}`}>{event.kind === "income" ? <ArrowDownLeft size={16}/> : event.kind === "goal" ? <Target size={16}/> : event.kind === "installment" ? <CreditCard size={16}/> : <ReceiptText size={16}/>}</span>
+            <span><strong>{event.title}</strong><small>{calendarEventLabel[event.kind]}{accountName(event) ? ` · ${accountName(event)}` : ""}{event.paid ? " · sudah dibayar" : ""}</small></span>
+            {event.amount > 0 && <Amount value={event.amount} privacy={privacy}/>}
+          </article>)}</div> : <p>Tidak ada agenda finansial pada tanggal ini.</p>}
+        </div>
+      </section>
+      <aside className="panel calendar-agenda-panel">
+        <div className="card-title-row"><div><span className="card-kicker">30 hari ke depan</span><h2>Agenda mendatang</h2></div><small>{upcoming.length} agenda</small></div>
+        {loading ? <div className="settings-empty">Menyatukan semua jadwal…</div> : error ? <div className="portability-error">{error}</div> : upcoming.length ? <div className="calendar-upcoming-list">{upcoming.slice(0, 14).map((event) => <button type="button" key={event.id} onClick={() => { setViewMonth(event.date.slice(0, 7)); setSelectedDate(event.date); }}>
+          <span className={`calendar-date-chip ${event.kind}`}><strong>{event.date.slice(-2)}</strong><small>{shortMonth(event.date)}</small></span>
+          <span><strong>{event.title}</strong><small>{calendarEventLabel[event.kind]}{accountName(event) ? ` · ${accountName(event)}` : ""}</small></span>
+          {event.amount > 0 && <Amount value={event.amount} privacy={privacy}/>}
+        </button>)}</div> : <div className="empty-state compact"><CalendarDays size={28}/><h3>Belum ada agenda</h3><p>Tambahkan tagihan, cicilan, target, atau transaksi rutin untuk mengisi kalender.</p></div>}
+        <div className="calendar-safety-note"><ShieldCheck size={16}/><span><strong>Aman berarti jadwal terlihat.</strong><small>Transaksi rutin tetap membutuhkan konfirmasi sebelum mengubah saldo ledger.</small></span></div>
+      </aside>
+    </div>
   </div>;
 }
 
@@ -1385,7 +1884,7 @@ function InvestmentsPage({ assets, transactions, accounts, privacy, onAddAsset, 
     </section>
     <section className="panel investment-history">
       <div className="card-title-row"><div><span className="card-kicker">Riwayat</span><h2>Transaksi investasi</h2></div><span className="price-status">Weighted average cost</span></div>
-      <div className="investment-history-list">{transactions.slice(0, 12).map((transaction) => { const asset = assets.find((item) => item.id === transaction.assetId); return <div key={transaction.id}><span className={transaction.type === "buy" ? "notice-icon good" : "notice-icon info"}>{transaction.type === "buy" ? <ArrowUpRight size={15} /> : <ArrowDownLeft size={15} />}</span><span><strong>{transaction.type === "buy" ? "Beli" : "Jual"} {asset?.ticker ?? "Aset"}</strong><small>{shortDate(transaction.date)} · {formatUnits(transaction.units)} unit @ {formatIDR(transaction.pricePerUnit)}</small></span><span><Amount value={transaction.netAmount} privacy={privacy} /><small>{transaction.type === "sell" ? `P/L ${privacy ? "disembunyikan" : formatIDR(transaction.realizedPl)}` : `Avg ${privacy ? "disembunyikan" : formatIDR(transaction.averageCostAfter)}`}</small></span></div>; })}{!transactions.length && <div className="settings-empty">Belum ada transaksi buy atau sell.</div>}</div>
+      <div className="investment-history-list">{transactions.slice(0, 12).map((transaction) => { const asset = assets.find((item) => item.id === transaction.assetId); return <div key={transaction.id}><span className={transaction.type === "buy" ? "notice-icon good" : "notice-icon info"}>{transaction.type === "buy" ? <ArrowUpRight size={15} /> : <ArrowDownLeft size={15} />}</span><span><strong>{transaction.type === "buy" ? "Beli" : "Jual"} {asset?.ticker ?? "Aset"}</strong><small>{shortDate(transaction.date)} · {formatUnits(transaction.units)} unit @ {formatIDR(transaction.pricePerUnit)}</small></span><span><Amount value={transaction.netAmount} privacy={privacy} /><small>{transaction.type === "sell" ? `P/L ${privacy ? "disembunyikan" : formatIDR(transaction.realizedPl)}` : `Avg ${privacy ? "disembunyikan" : formatIDR(transaction.averageCostAfter)}`}</small></span></div>; })}{!transactions.length && <div className="investment-history-empty">Belum ada transaksi buy atau sell.</div>}</div>
     </section>
   </div>;
 }
@@ -1418,6 +1917,111 @@ const downloadBrowserFile = (blob: Blob, filename: string) => {
 const fileSizeLabel = (value: number) => value >= 1024 * 1024
   ? `${(value / 1024 / 1024).toFixed(1)} MB`
   : `${Math.max(1, Math.round(value / 1024))} KB`;
+
+function MonthlyReviewPage({ period, transactions, accounts, budgets, goals, bills, privacy, onToast }: {
+  period: string;
+  transactions: Transaction[];
+  accounts: Account[];
+  budgets: Budget[];
+  goals: Goal[];
+  bills: Bill[];
+  privacy: boolean;
+  onToast: (message: string) => void;
+}) {
+  const review = useMemo(() => buildMonthlyReview({ period, transactions, accounts, budgets, goals, bills }), [period, transactions, accounts, budgets, goals, bills]);
+  const [closing, setClosing] = useState<MonthlyClosing>({ period, status: "open", closedAt: null, snapshot: null });
+  const [loadingClosing, setLoadingClosing] = useState(true);
+  const [savingClosing, setSavingClosing] = useState(false);
+  const [balanceConfirmed, setBalanceConfirmed] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoadingClosing(true);
+    setBalanceConfirmed(false);
+    loadFinanceMonthlyClosing(period)
+      .then((value) => { if (active) { setClosing(value); setError(""); } })
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Status tutup buku tidak dapat dimuat."))
+      .finally(() => active && setLoadingClosing(false));
+    return () => { active = false; };
+  }, [period]);
+
+  const displayed = closing.status === "closed" && closing.snapshot ? closing.snapshot : review;
+  const budgetPercent = displayed.budgetLimit > 0 ? displayed.budgetSpent / displayed.budgetLimit * 100 : 0;
+  const closeBook = async () => {
+    if (!balanceConfirmed || review.pendingCount || savingClosing) return;
+    setSavingClosing(true); setError("");
+    try {
+      const value = await closeFinanceMonthlyBook(period, review);
+      setClosing(value);
+      setBalanceConfirmed(false);
+      onToast(`${monthLabel(period)} berhasil ditutup dan snapshot disimpan.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Bulan tidak dapat ditutup.");
+    } finally { setSavingClosing(false); }
+  };
+  const reopenBook = async () => {
+    if (!window.confirm(`Buka kembali ${monthLabel(period)}? Ledger bulan ini akan dapat diubah lagi.`) || savingClosing) return;
+    setSavingClosing(true); setError("");
+    try {
+      const value = await reopenFinanceMonthlyBook(period);
+      setClosing(value);
+      onToast(`${monthLabel(period)} dibuka kembali.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Bulan tidak dapat dibuka kembali.");
+    } finally { setSavingClosing(false); }
+  };
+
+  return <div className="monthly-review-layout">
+    <section className={`monthly-review-hero ${closing.status}`}>
+      <div><span className="card-kicker light">{closing.status === "closed" ? "Snapshot tersimpan" : "Review berjalan"}</span><h2>{monthLabel(period)}</h2><p>{closing.status === "closed" ? "Ledger periode ini terkunci. Nilai di bawah berasal dari snapshot saat tutup buku." : "Periksa arus kas, anggaran, kewajiban, dan transaksi tidak biasa sebelum menutup bulan."}</p></div>
+      <span className="monthly-close-status">{closing.status === "closed" ? <LockKeyhole size={18} /> : <ShieldCheck size={18} />}<span><strong>{closing.status === "closed" ? "Bulan ditutup" : "Bulan masih terbuka"}</strong><small>{closing.closedAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(closing.closedAt)) : `${displayed.transactionCount} transaksi selesai`}</small></span></span>
+    </section>
+
+    <section className="monthly-review-metrics">
+      <article className="panel"><small>Arus kas bersih</small><Amount value={displayed.summary.cashflow} privacy={privacy} /><span className={displayed.summary.cashflow >= 0 ? "positive-text" : "negative-text"}>{displayed.summary.savingsRate.toFixed(1)}% savings rate</span></article>
+      <article className="panel"><small>Perubahan kekayaan bersih</small><Amount value={displayed.netWorthChange} privacy={privacy} /><span>Posisi akhir <Amount value={displayed.netWorth} privacy={privacy} compact /></span></article>
+      <article className="panel"><small>Realisasi anggaran</small><strong>{budgetPercent.toFixed(1)}%</strong><span><Amount value={displayed.budgetSpent} privacy={privacy} compact /> dari <Amount value={displayed.budgetLimit} privacy={privacy} compact /></span></article>
+      <article className="panel"><small>Perubahan kewajiban</small><Amount value={displayed.liabilityChange} privacy={privacy} /><span>Sisa <Amount value={displayed.liabilities} privacy={privacy} compact /></span></article>
+    </section>
+
+    <section className="panel monthly-review-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Rencana vs realisasi</span><h2>Kinerja anggaran</h2></div><span className="roadmap-data-badge">{displayed.budgetRows.length} kategori</span></div>
+      <div className="monthly-budget-list">{displayed.budgetRows.slice(0, 8).map((row) => <div key={row.category}><span><strong>{row.category}</strong><small><Amount value={row.spent} privacy={privacy} compact /> dari <Amount value={row.limit} privacy={privacy} compact /></small></span><span><strong className={row.percent > 100 ? "negative-text" : row.percent >= 80 ? "warning-text" : "positive-text"}>{row.percent.toFixed(0)}%</strong><ProgressBar value={row.percent} color={row.percent > 100 ? "var(--danger)" : row.percent >= 80 ? "var(--warning)" : "var(--primary)"} /></span></div>)}{!displayed.budgetRows.length && <div className="settings-empty">Belum ada anggaran pada periode ini.</div>}</div>
+    </section>
+
+    <section className="panel monthly-review-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Pengeluaran</span><h2>Terbesar & tidak biasa</h2></div><span className="roadmap-data-badge">{displayed.unusualExpenses.length} perlu ditinjau</span></div>
+      <div className="monthly-insight-columns">
+        <div><strong>Pengeluaran terbesar</strong>{displayed.topExpenses.map((item, index) => <div className="monthly-rank-row" key={item.label}><i>{index + 1}</i><span>{item.label}</span><Amount value={item.amount} privacy={privacy} /></div>)}{!displayed.topExpenses.length && <small>Belum ada pengeluaran selesai.</small>}</div>
+        <div><strong>Perubahan pola</strong>{displayed.unusualExpenses.map((item) => <div className="monthly-unusual-row" key={item.category}><TriangleAlert size={16} /><span><strong>{item.category}</strong><small>{item.reason}</small></span><Amount value={item.amount} privacy={privacy} compact /></div>)}{!displayed.unusualExpenses.length && <small>Tidak ada lonjakan besar dibanding tiga bulan sebelumnya.</small>}</div>
+      </div>
+    </section>
+
+    <section className="panel monthly-review-panel">
+      <div className="card-title-row"><div><span className="card-kicker">Kemajuan</span><h2>Target & kewajiban</h2></div><span className="roadmap-data-badge">{displayed.unpaidBills} tagihan menunggu</span></div>
+      <div className="monthly-goal-grid">{displayed.goals.slice(0, 6).map((goal) => <article key={goal.id}><span><strong>{goal.name}</strong><small><Amount value={goal.current} privacy={privacy} compact /> dari <Amount value={goal.target} privacy={privacy} compact /></small></span><strong>{goal.percent.toFixed(0)}%</strong><ProgressBar value={goal.percent} color="var(--primary)" /></article>)}{!displayed.goals.length && <div className="settings-empty">Belum ada target finansial aktif.</div>}</div>
+      <div className="monthly-liability-strip"><CreditCard size={18} /><span><small>Total kewajiban saat ini</small><Amount value={displayed.liabilities} privacy={privacy} /></span><span><small>Komitmen tagihan berikutnya</small><Amount value={displayed.billsDue} privacy={privacy} /></span></div>
+    </section>
+
+    <aside className="panel monthly-closing-panel">
+      <div className="settings-title"><span><LockKeyhole size={20} /></span><div><h2>Tutup buku bulanan</h2><p>Simpan snapshot dan hentikan perubahan ledger pada {monthLabel(period)}.</p></div></div>
+      {closing.status === "closed" ? <>
+        <div className="monthly-closed-notice"><CheckCircle2 size={20} /><span><strong>Snapshot aman</strong><small>Transaksi, impor, cicilan, rekonsiliasi, dan transaksi investasi pada bulan ini sudah dikunci.</small></span></div>
+        <button className="secondary-button full" onClick={reopenBook} disabled={savingClosing}>{savingClosing ? "Membuka…" : "Buka kembali bulan"}</button>
+      </> : <>
+        <div className="monthly-checklist">
+          <span className={review.pendingCount === 0 ? "done" : "blocked"}>{review.pendingCount === 0 ? <Check size={16} /> : <TriangleAlert size={16} />}<span><strong>Transaksi pending</strong><small>{review.pendingCount === 0 ? "Tidak ada transaksi pending." : `${review.pendingCount} transaksi harus diselesaikan.`}</small></span></span>
+          <span className={accounts.length ? "done" : "blocked"}>{accounts.length ? <Check size={16} /> : <TriangleAlert size={16} />}<span><strong>Akun tersedia</strong><small>{accounts.length} akun masuk dalam pemeriksaan.</small></span></span>
+          <span className="done"><Check size={16} /><span><strong>Snapshot siap</strong><small>{review.transactionCount} transaksi dan {review.budgetRows.length} anggaran diringkas.</small></span></span>
+        </div>
+        <label className="monthly-confirm"><input type="checkbox" checked={balanceConfirmed} onChange={(event) => setBalanceConfirmed(event.target.checked)} /><span><strong>Saya sudah memeriksa saldo akun</strong><small>Penutupan akan mengunci seluruh perubahan ledger pada periode ini.</small></span></label>
+        <button className="primary-button full" onClick={closeBook} disabled={loadingClosing || savingClosing || review.pendingCount > 0 || !balanceConfirmed}><LockKeyhole size={17} />{savingClosing ? "Menutup bulan…" : "Tutup bulan & simpan snapshot"}</button>
+      </>}
+      {error && <div className="portability-error" role="alert">{error}</div>}
+    </aside>
+  </div>;
+}
 
 function ReportsPage({ period, profile, transactions, accounts, budgets, goals, bills, categories, investmentAssets, investmentTransactions, monthly, accountTotals, privacy, onToast }: {
   period: string;
@@ -1606,8 +2210,8 @@ function AssistantPage({ period, onOpenSettings }: { period: string; onOpenSetti
 
   return <div className="assistant-layout">
     <section className="assistant-chat panel">
-      <div className="assistant-banner"><span><Bot size={21} /></span><div><strong>Financial Insight</strong><small>Gemini · {monthLabel(period)} · Read-only</small></div><span className={`online ${ready ? "" : "offline"}`}><i /> {loading ? "Memeriksa" : ready ? "Siap" : "Perlu setup"}</span></div>
-      {!loading && !ready && <div className="ai-setup-callout"><KeyRound size={18} /><div><strong>Aktifkan AI terlebih dahulu</strong><small>Tambahkan API key Gemini dan setujui disclosure privasi di Pengaturan. Key hanya disimpan terenkripsi di server.</small></div><button className="secondary-button" onClick={onOpenSettings}>Buka Pengaturan</button></div>}
+      <div className="assistant-banner"><span><Bot size={21} /></span><div><strong>Financial Insight</strong><small>{settings?.model || "AI universal"} · {monthLabel(period)} · Read-only</small></div><span className={`online ${ready ? "" : "offline"}`}><i /> {loading ? "Memeriksa" : ready ? "Siap" : "Perlu setup"}</span></div>
+      {!loading && !ready && <div className="ai-setup-callout"><KeyRound size={18} /><div><strong>Aktifkan AI terlebih dahulu</strong><small>Tambahkan Base URL, model, API key, lalu setujui disclosure privasi di Pengaturan.</small></div><button className="secondary-button" onClick={onOpenSettings}>Buka Pengaturan</button></div>}
       <div className="chat-body" aria-live="polite">
         {!messages.length && <div className="chat-message assistant"><span><Sparkles size={16} /></span><p>Halo! Saya dapat menjelaskan arus kas, anggaran, target, tagihan, dan investasi dari data yang kamu izinkan. Saya tidak dapat mengubah transaksi atau melakukan investasi.</p></div>}
         {messages.map((message) => <div className={`chat-message ${message.role}`} key={message.id}>{message.role === "assistant" && <span><Sparkles size={16} /></span>}<p>{message.content}</p></div>)}
@@ -1623,6 +2227,8 @@ function AssistantPage({ period, onOpenSettings }: { period: string; onOpenSetti
 
 function AiSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
   const [status, setStatus] = useState<AiSettingsStatus | null>(null);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("default");
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
@@ -1632,6 +2238,8 @@ function AiSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
   useEffect(() => {
     getFinanceAiSettings().then((next) => {
       setStatus(next);
+      setBaseUrl(next.baseUrl);
+      setModel(next.model);
       setEnabled(next.enabled);
       setConsentAccepted(next.consentAccepted);
     }).catch((reason) => setError(reason instanceof Error ? reason.message : "Status AI tidak dapat dimuat."));
@@ -1644,6 +2252,8 @@ function AiSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
       const next = await updateFinanceAiSettings({
         enabled,
         consentAccepted,
+        baseUrl: baseUrl.trim(),
+        model: model.trim() || "default",
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
       });
       setStatus(next);
@@ -1657,14 +2267,14 @@ function AiSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
   };
 
   const removeKey = async () => {
-    if (!window.confirm("Hapus API key Gemini dan nonaktifkan AI?")) return;
+    if (!window.confirm("Hapus API key dan nonaktifkan AI?")) return;
     setSaving(true);
     try {
       const next = await updateFinanceAiSettings({ enabled: false, consentAccepted, removeApiKey: true });
       setStatus(next);
       setEnabled(false);
       setApiKey("");
-      onToast("API key Gemini berhasil dihapus.");
+      onToast("API key AI berhasil dihapus.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "API key tidak dapat dihapus.");
     } finally {
@@ -1673,10 +2283,10 @@ function AiSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
   };
 
   return <section className="panel settings-section settings-wide ai-settings-panel">
-    <div className="settings-title"><span><Bot size={20} /></span><div><h2>AI & OCR Gemini</h2><p>Kelola akses read-only, API key, dan persetujuan pengiriman data.</p></div><span className={`ai-config-badge ${status?.configured ? "ready" : ""}`}>{status?.configured ? "Key tersimpan" : "Belum dikonfigurasi"}</span></div>
+    <div className="settings-title"><span><Bot size={20} /></span><div><h2>AI & OCR Universal</h2><p>Hubungkan penyedia API berformat OpenAI-compatible melalui Base URL dan API key.</p></div><span className={`ai-config-badge ${status?.configured ? "ready" : ""}`}>{status?.configured ? "API terhubung" : "Belum dikonfigurasi"}</span></div>
     <div className="ai-settings-grid">
-      <div className="ai-key-box"><label><span>API key Gemini</span><input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={status?.configured ? "••••••••••••••••••••" : "Masukkan API key dari Google AI Studio"} /></label><small>Key dikirim sekali melalui HTTPS, dienkripsi di server, dan tidak pernah ditampilkan kembali ke browser.</small><div className="settings-actions"><button className="primary-button" onClick={save} disabled={saving || (enabled && !consentAccepted) || (!status?.configured && !apiKey.trim())}><ShieldCheck size={16} /> {saving ? "Menyimpan…" : "Simpan pengaturan"}</button>{status?.configured && <button className="secondary-button danger-text" onClick={removeKey} disabled={saving}><Trash2 size={15} /> Hapus key</button>}</div>{error && <div className="ai-error" role="alert">{error}</div>}</div>
-      <div className="ai-consent-box"><div className="settings-row"><div><strong>Aktifkan AI & OCR</strong><small>AI hanya membaca konteks yang relevan dan tidak dapat menulis transaksi.</small></div><button className={`switch ${enabled ? "on" : ""}`} onClick={() => setEnabled(!enabled)} aria-pressed={enabled}><span /></button></div><label className="ai-consent-check"><input type="checkbox" checked={consentAccepted} onChange={(event) => setConsentAccepted(event.target.checked)} /><span>Saya memahami data terpilih dan foto struk akan dikirim ke Gemini; hasil dapat keliru; AI bukan penasihat keuangan; dan transaksi OCR baru tersimpan setelah saya konfirmasi.</span></label><div className="ai-privacy-facts"><span><ShieldCheck size={15} /> Foto struk tidak disimpan setelah ekstraksi.</span><span><KeyRound size={15} /> API key tidak masuk ke histori atau audit log.</span><span><Bot size={15} /> Model: {status?.model ?? "gemini-3.5-flash"}</span></div></div>
+      <div className="ai-key-box"><label><span>Base URL API</span><input type="url" autoComplete="url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://provider.example/v1" /></label><label><span>Model</span><input type="text" autoComplete="off" value={model} maxLength={120} onChange={(event) => setModel(event.target.value)} placeholder="default atau nama model dari penyedia" /></label><label><span>API key</span><input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={status?.configured ? "••••••••••••••••••••" : "Masukkan API key penyedia"} /></label><small>Masukkan Base URL API, bukan URL halaman kuota. Endpoint <b>/chat/completions</b> ditambahkan otomatis. Key disimpan di sisi server dan tidak pernah ditampilkan kembali.</small><div className="settings-actions"><button className="primary-button" onClick={save} disabled={saving || (enabled && (!consentAccepted || !baseUrl.trim() || !model.trim() || (!status?.configured && !apiKey.trim())))}><ShieldCheck size={16} /> {saving ? "Menyimpan…" : "Simpan pengaturan"}</button>{status?.configured && <button className="secondary-button danger-text" onClick={removeKey} disabled={saving}><Trash2 size={15} /> Hapus key</button>}</div>{error && <div className="ai-error" role="alert">{error}</div>}</div>
+      <div className="ai-consent-box"><div className="settings-row"><div><strong>Aktifkan AI & OCR</strong><small>AI hanya membaca konteks yang relevan dan tidak dapat menulis transaksi.</small></div><button className={`switch ${enabled ? "on" : ""}`} onClick={() => setEnabled(!enabled)} aria-pressed={enabled}><span /></button></div><label className="ai-consent-check"><input type="checkbox" checked={consentAccepted} onChange={(event) => setConsentAccepted(event.target.checked)} /><span>Saya memahami data terpilih dan foto struk akan dikirim ke penyedia AI yang saya masukkan; hasil dapat keliru; AI bukan penasihat keuangan; dan transaksi OCR baru tersimpan setelah saya konfirmasi.</span></label><div className="ai-privacy-facts"><span><ShieldCheck size={15} /> Foto struk tidak disimpan setelah ekstraksi.</span><span><KeyRound size={15} /> API key tidak masuk ke histori atau audit log.</span><span><Bot size={15} /> Model: {model || "default"}</span></div></div>
     </div>
   </section>;
 }
@@ -1845,28 +2455,38 @@ function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLab
   </section>;
 }
 
-function SettingsPage({ profile, saving, darkMode, setDarkMode, privacy, setPrivacy, categories, auditLogs, backendLabel, notificationSettings, onSaveProfile, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onToast, onRefresh }: {
+function SettingsPage({ profile, entitlement, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh }: {
   profile: FinanceProfile;
+  entitlement: PlanEntitlement;
+  onOpenLicense: () => void;
   saving: boolean;
   darkMode: boolean;
   setDarkMode: (value: boolean) => void;
   privacy: boolean;
   setPrivacy: (value: boolean) => void;
+  featurePreferences: FeaturePreferences;
   categories: FinanceCategory[];
+  categoryRules: CategoryRule[];
   auditLogs: AuditLog[];
   backendLabel: string;
   notificationSettings: NotificationSettings;
   onSaveProfile: (name: string) => Promise<boolean>;
+  onSaveFeaturePreferences: (preferences: FeaturePreferences) => Promise<boolean>;
   onSaveNotificationSettings: (settings: NotificationSettings) => Promise<NotificationSettings>;
   onAddCategory: () => void;
   onEditCategory: (category: FinanceCategory) => void;
   onArchiveCategory: (categoryId: string) => void;
+  onAddCategoryRule: () => void;
+  onEditCategoryRule: (rule: CategoryRule) => void;
+  onDeleteCategoryRule: (ruleId: string) => void;
   onToast: (message: string) => void;
   onRefresh: () => Promise<void>;
 }) {
   const editableCategories = categories.filter((category) => category.active && (category.type === "income" || category.type === "expense"));
   return <div className="settings-layout">
     <OwnerProfilePanel key={profile.name} profile={profile} saving={saving} onSave={onSaveProfile} />
+    <section className="panel settings-section settings-wide license-summary-panel"><div className="settings-title"><span><KeyRound size={20} /></span><div><h2>Paket & lisensi</h2><p>Aktivasi offline terikat ke satu instalasi.</p></div><b className={`plan-badge ${entitlement.tier}`}>{entitlement.label}</b></div><div className="connection-card"><span className="google-mark"><ShieldCheck size={18} /></span><div><strong>{entitlement.status === "active" ? `Paket ${entitlement.label} aktif` : entitlement.status === "expired" ? "Lisensi kedaluwarsa" : entitlement.status === "invalid" ? "Lisensi tidak valid" : "Paket Free aktif"}</strong><small>ID instalasi {entitlement.installationId}</small></div><button className="secondary-button" onClick={onOpenLicense}>Kelola</button></div></section>
+    <FeaturePreferencesPanel key={JSON.stringify(featurePreferences)} preferences={featurePreferences} saving={saving} onSave={onSaveFeaturePreferences} />
     <SecurityAccessPanel privacy={privacy} />
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
@@ -1875,8 +2495,77 @@ function SettingsPage({ profile, saving, darkMode, setDarkMode, privacy, setPriv
     <LedgerHealthPanel privacy={privacy} onToast={onToast} onRefresh={onRefresh} />
     <DataPortabilityPanel backendLabel={backendLabel} onToast={onToast} onRefresh={onRefresh} />
     <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
+    <section className="panel settings-section settings-wide category-rules-panel">
+      <div className="settings-title"><span><Sparkles size={20} /></span><div><h2>Aturan kategori otomatis</h2><p>Cocokkan merchant atau keterangan CSV dengan kategori yang tepat saat preview impor.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategoryRule}><Plus size={15} /> Tambah aturan</button></div>
+      <div className="category-rule-manager">
+        {categoryRules.map((rule) => <div className={`category-rule-row ${rule.active ? "" : "inactive"}`} key={rule.id}>
+          <span className="category-rule-keyword">{rule.matchType === "exact" ? "=" : rule.matchType === "starts_with" ? "Awal" : "Berisi"} <strong>{rule.keyword}</strong></span>
+          <ArrowRight size={16} />
+          <span className="category-rule-target"><strong>{rule.category}</strong><small>{rule.transactionType === "income" ? "Pemasukan" : "Pengeluaran"} · prioritas {rule.priority}{rule.active ? "" : " · nonaktif"}</small></span>
+          <span className="category-rule-actions"><button className="icon-button small" onClick={() => onEditCategoryRule(rule)} aria-label={`Edit aturan ${rule.keyword}`}><Pencil size={14} /></button><button className="icon-button small danger" onClick={() => window.confirm(`Hapus aturan “${rule.keyword}”?`) && onDeleteCategoryRule(rule.id)} aria-label={`Hapus aturan ${rule.keyword}`}><Trash2 size={14} /></button></span>
+        </div>)}
+        {!categoryRules.length && <div className="settings-empty">Belum ada aturan. Contoh: “Indomaret” → Makanan atau “PLN” → Tagihan.</div>}
+      </div>
+    </section>
     <section className="panel settings-section"><div className="settings-title"><span><History size={20} /></span><div><h2>Audit trail</h2><p>20 aktivitas terbaru yang tercatat di workspace.</p></div></div><div className="audit-list">{auditLogs.slice(0, 20).map((log) => <div key={log.id}><span><strong>{log.action.replaceAll("_", " ")}</strong><small>{log.module}{log.entityId ? ` · ${log.entityId.slice(0, 18)}` : ""}</small></span><time>{log.createdAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(log.createdAt)) : "—"}</time></div>)}{!auditLogs.length && <div className="settings-empty">Belum ada aktivitas yang tercatat.</div>}</div></section>
   </div>;
+}
+
+function FeaturePreferencesPanel({ preferences, saving, onSave }: {
+  preferences: FeaturePreferences;
+  saving: boolean;
+  onSave: (preferences: FeaturePreferences) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState<FeaturePreferences>({ ...preferences });
+  const changed = JSON.stringify(draft) !== JSON.stringify(preferences);
+  const enabledCount = Object.values(draft).filter(Boolean).length;
+
+  return <section className="panel settings-section settings-wide feature-preferences-panel">
+    <div className="settings-title">
+      <span><SlidersHorizontal size={20} /></span>
+      <div><h2>Fitur aktif</h2><p>Sembunyikan menu yang tidak digunakan tanpa menghapus data atau mengubah perhitungan.</p></div>
+      <span className="feature-count">{enabledCount}/{Object.keys(draft).length} aktif</span>
+    </div>
+    <div className="feature-core-note"><ShieldCheck size={17} /><span><strong>Fitur inti selalu aktif</strong><small>Ringkasan, Transaksi, Akun, dan Pengaturan menjaga ledger tetap dapat dikelola.</small></span></div>
+    <div className="feature-preference-groups">
+      {featurePreferenceGroups.map((group) => <fieldset key={group.label}>
+        <legend>{group.label}</legend>
+        {group.items.map((item) => <div className="feature-preference-row" key={item.key}>
+          <span><strong>{item.label}</strong><small>{item.description}</small></span>
+          <button type="button" className={`switch ${draft[item.key] ? "on" : ""}`} onClick={() => setDraft((current) => ({ ...current, [item.key]: !current[item.key] }))} aria-pressed={draft[item.key]} aria-label={`${draft[item.key] ? "Nonaktifkan" : "Aktifkan"} fitur ${item.label}`} disabled={saving}><span /></button>
+        </div>)}
+      </fieldset>)}
+    </div>
+    <div className="feature-preference-actions">
+      <small>Fitur yang dimatikan hanya disembunyikan. Data lama tetap masuk ke saldo, forecast, backup, dan laporan terkait.</small>
+      <button className="primary-button" type="button" disabled={!changed || saving} onClick={() => void onSave(draft)}><Check size={16} /> {saving ? "Menyimpan…" : "Simpan pilihan fitur"}</button>
+    </div>
+  </section>;
+}
+
+function LicenseModal({ entitlement, onClose, onChanged }: { entitlement: PlanEntitlement; onClose: () => void; onChanged: (value: PlanEntitlement) => Promise<void> }) {
+  const [token, setToken] = useState("");
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const copyInstallation = async () => {
+    try { await navigator.clipboard.writeText(entitlement.installationId); }
+    catch { setError("ID instalasi tidak dapat disalin otomatis."); }
+  };
+  const activate = async () => {
+    if (!token.trim() || working) return;
+    setWorking(true); setError("");
+    try { await onChanged(await activateFinanceLicense(token.trim())); setToken(""); onClose(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Kode lisensi tidak dapat diaktifkan."); }
+    finally { setWorking(false); }
+  };
+  const deactivate = async () => {
+    if (working || !window.confirm("Nonaktifkan lisensi pada instalasi ini? Data tetap aman; fitur berbayar kembali terkunci.")) return;
+    setWorking(true); setError("");
+    try { await onChanged(await deactivateFinanceLicense()); onClose(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Lisensi tidak dapat dinonaktifkan."); }
+    finally { setWorking(false); }
+  };
+  return <div className="modal-backdrop" role="presentation"><section className="modal license-modal" role="dialog" aria-modal="true" aria-labelledby="license-title"><div className="modal-head"><div><span className="eyebrow">Paket produk</span><h2 id="license-title">Aktivasi lisensi</h2><p>Lisensi offline terikat ke satu instalasi. Kirim ID instalasi ke penjual untuk memperoleh kode Pro atau Premium.</p></div><button className="icon-button" onClick={onClose} aria-label="Tutup aktivasi lisensi"><X size={20}/></button></div><div className="license-current"><span><ShieldCheck size={20}/></span><div><small>Paket aktif</small><strong>{entitlement.label}</strong><p>{entitlement.expiresAt ? `Berlaku hingga ${new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(new Date(entitlement.expiresAt))}` : entitlement.status === "active" ? "Lisensi jual-putus tanpa tanggal berakhir." : "Fitur inti tersedia tanpa kode lisensi."}</p></div><b className={`plan-badge ${entitlement.tier}`}>{entitlement.label}</b></div><label className="license-installation"><span>ID instalasi</span><div><input value={entitlement.installationId} readOnly/><button className="secondary-button" type="button" onClick={() => void copyInstallation()}><Copy size={15}/> Salin</button></div><small>Token untuk instalasi lain akan ditolak.</small></label><label><span>Kode lisensi</span><textarea rows={4} value={token} onChange={(event) => setToken(event.target.value)} placeholder="FP1..." autoComplete="off" spellCheck={false}/></label>{error && <div className="portability-error" role="alert">{error}</div>}<div className="modal-actions"><button className="primary-button" onClick={() => void activate()} disabled={working || !token.trim()}>{working ? "Memproses…" : "Aktifkan lisensi"}</button>{entitlement.tier !== "free" && <button className="secondary-button danger" onClick={() => void deactivate()} disabled={working}>Nonaktifkan</button>}<button className="secondary-button" onClick={onClose} disabled={working}>Tutup</button></div><small className="license-limit-note">Lisensi lokal mengatur akses produk, bukan proteksi anti-tamper. Transfer instalasi memerlukan kode baru.</small></section></div>;
 }
 
 function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
@@ -2036,9 +2725,10 @@ async function compressReceiptImage(file: File) {
 
 type TransactionModalMode = "create" | "edit" | "duplicate";
 
-function TransactionModal({ accounts, categories, initial, mode, saving, onClose, onSubmit }: {
+function TransactionModal({ accounts, categories, transactions, initial, mode, saving, onClose, onSubmit }: {
   accounts: Account[];
   categories: FinanceCategory[];
+  transactions: Transaction[];
   initial?: Transaction;
   mode: TransactionModalMode;
   saving: boolean;
@@ -2078,7 +2768,24 @@ function TransactionModal({ accounts, categories, initial, mode, saving, onClose
     ? availableCategories
     : category ? [{ id: `legacy-${category}`, name: category, type: categoryType, color: categoryColors[category] ?? "#89918d", active: true } as FinanceCategory, ...availableCategories] : availableCategories;
   const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0);
-  const numericAmount = Number(amount.replace(/\D/g, "") || 0);
+  const numericAmount = moneyInputNumber(amount);
+  const recentTransactions = useMemo(() => {
+    const seen = new Set<string>();
+    return transactions
+      .filter((transaction) =>
+        !transaction.deletedAt
+        && transaction.id !== initial?.id
+        && transaction.type === type
+        && accounts.some((account) => account.id === transaction.accountId),
+      )
+      .filter((transaction) => {
+        const signature = [transaction.title.trim().toLowerCase(), transaction.accountId, transaction.destinationAccountId || "", transaction.category].join("|");
+        if (seen.has(signature)) return false;
+        seen.add(signature);
+        return true;
+      })
+      .slice(0, 5);
+  }, [accounts, initial?.id, transactions, type]);
   const changeType = (nextType: TransactionType) => {
     setType(nextType);
     setValidationMessage("");
@@ -2095,6 +2802,20 @@ function TransactionModal({ accounts, categories, initial, mode, saving, onClose
       { id: `split-${crypto.randomUUID()}`, category: availableCategories[0]?.name ?? "", amount: 0, note: "" },
       { id: `split-${crypto.randomUUID()}`, category: availableCategories[1]?.name ?? availableCategories[0]?.name ?? "", amount: 0, note: "" },
     ]);
+  };
+  const applyRecentTransaction = (recent: Transaction) => {
+    setAmount(String(recent.amount));
+    setTitle(recent.title);
+    setAccountId(recent.accountId);
+    if (recent.destinationAccountId) setDestinationAccountId(recent.destinationAccountId);
+    setCategory(recent.category);
+    setLocation(recent.location ?? "");
+    setTagsInput(recent.tags?.join(", ") ?? "");
+    setNotes(recent.notes ?? "");
+    const recentSplits = (recent.splits ?? []).map((split) => ({ ...split, id: `split-${crypto.randomUUID()}` }));
+    setSplits(recentSplits);
+    setSplitEnabled(recentSplits.length >= 2);
+    setValidationMessage(`Data dari "${recent.title}" sudah diisi. Tanggal, waktu, dan status tetap memakai pilihan saat ini.`);
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -2152,7 +2873,8 @@ function TransactionModal({ accounts, categories, initial, mode, saving, onClose
       <div className="modal-head"><div><span className="card-kicker">{isEdit ? "Edit ledger" : isDuplicate ? "Duplikasi aman" : "Quick add"}</span><h2 id="transaction-title">{isEdit ? "Edit transaksi" : isDuplicate ? "Duplikasi transaksi" : "Transaksi baru"}</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
       <form onSubmit={submit}>
         <div className="transaction-type-tabs">{[{ key: "expense", label: "Pengeluaran", icon: ArrowUpRight }, { key: "income", label: "Pemasukan", icon: ArrowDownLeft }, { key: "transfer", label: "Transfer", icon: ArrowRight }].map((item) => { const Icon = item.icon; const locked = Boolean(isEdit && initial && (initial.type === "transfer" ? item.key !== "transfer" : item.key === "transfer")); return <button type="button" key={item.key} className={type === item.key ? "active" : ""} disabled={locked} onClick={() => changeType(item.key as TransactionType)}><Icon size={16} />{item.label}</button>; })}</div>
-        <label className="amount-field"><span>Nominal</span><div><small>Rp</small><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" placeholder="0" required autoFocus /></div></label>
+        {!isEdit && !isDuplicate && recentTransactions.length > 0 && <section className="transaction-recent"><div><span><Clock3 size={14} /> Terakhir digunakan</span><small>Ketuk untuk mengisi ulang</small></div><div>{recentTransactions.map((recent) => <button type="button" key={recent.id} onClick={() => applyRecentTransaction(recent)}><span><strong>{recent.title}</strong><small>{accounts.find((account) => account.id === recent.accountId)?.name ?? "Akun"} / {recent.category}</small></span><b>{formatIDR(recent.amount, true)}</b></button>)}</div></section>}
+        <label className="amount-field"><span>Nominal</span><div><small>Rp</small><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" placeholder="0" required autoFocus /></div></label>
         <div className="form-grid">
           <label><span>Deskripsi / merchant</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Contoh: Belanja mingguan" required /></label>
           <label><span>Tanggal & waktu</span><span className="date-time-fields"><input type="date" value={date} onChange={(event) => setDate(event.target.value)} required /><input type="time" value={time} onChange={(event) => setTime(event.target.value)} aria-label="Waktu transaksi" /></span></label>
@@ -2163,9 +2885,9 @@ function TransactionModal({ accounts, categories, initial, mode, saving, onClose
           <label className="full-field"><span>Tag</span><input value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="operasional, stok, reimbursement" /><small>Pisahkan dengan koma, maksimal 10 tag.</small></label>
           <label className="full-field"><span>Catatan</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Catatan tambahan transaksi" rows={3} maxLength={1000} /></label>
         </div>
-        {["income", "expense", "refund"].includes(type) && <section className="transaction-split-box"><div><span><strong>Split kategori</strong><small>Bagi satu transaksi ke beberapa kategori.</small></span><button type="button" className={`split-toggle ${splitEnabled ? "active" : ""}`} onClick={toggleSplit}>{splitEnabled ? "Aktif" : "Gunakan split"}</button></div>{splitEnabled && <><div className="split-list">{splits.map((split, index) => <div className="split-row" key={split.id}><span>{index + 1}</span><select value={split.category} onChange={(event) => updateSplit(split.id, { category: event.target.value })}><option value="" disabled>Kategori</option>{availableCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><input value={split.amount || ""} onChange={(event) => updateSplit(split.id, { amount: Number(event.target.value.replace(/\D/g, "") || 0) })} inputMode="numeric" placeholder="Nominal" /><input value={split.note ?? ""} onChange={(event) => updateSplit(split.id, { note: event.target.value })} placeholder="Catatan opsional" /><button type="button" className="icon-button small" onClick={() => setSplits((current) => current.filter((item) => item.id !== split.id))} disabled={splits.length <= 2}><X size={15} /></button></div>)}</div><div className={`split-total ${splitTotal === numericAmount ? "matched" : ""}`}><span>Total split <strong>{formatIDR(splitTotal)}</strong></span><span>Nominal <strong>{formatIDR(numericAmount)}</strong></span><button type="button" className="text-button" onClick={addSplit}><Plus size={14} /> Tambah rincian</button></div></>}</section>}
+        {["income", "expense", "refund"].includes(type) && <section className="transaction-split-box"><div><span><strong>Split kategori</strong><small>Bagi satu transaksi ke beberapa kategori.</small></span><button type="button" className={`split-toggle ${splitEnabled ? "active" : ""}`} onClick={toggleSplit}>{splitEnabled ? "Aktif" : "Gunakan split"}</button></div>{splitEnabled && <><div className="split-list">{splits.map((split, index) => <div className="split-row" key={split.id}><span>{index + 1}</span><select value={split.category} onChange={(event) => updateSplit(split.id, { category: event.target.value })}><option value="" disabled>Kategori</option>{availableCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><input value={formatMoneyInput(split.amount || "")} onChange={(event) => updateSplit(split.id, { amount: moneyInputNumber(event.target.value) })} inputMode="numeric" placeholder="Nominal" /><input value={split.note ?? ""} onChange={(event) => updateSplit(split.id, { note: event.target.value })} placeholder="Catatan opsional" /><button type="button" className="icon-button small" onClick={() => setSplits((current) => current.filter((item) => item.id !== split.id))} disabled={splits.length <= 2}><X size={15} /></button></div>)}</div><div className={`split-total ${splitTotal === numericAmount ? "matched" : ""}`}><span>Total split <strong>{formatIDR(splitTotal)}</strong></span><span>Nominal <strong>{formatIDR(numericAmount)}</strong></span><button type="button" className="text-button" onClick={addSplit}><Plus size={14} /> Tambah rincian</button></div></>}</section>}
         <section className="transaction-attachment-box"><div><Paperclip size={17} /><span><strong>Lampiran struk</strong><small>JPG, PNG, WebP, atau PDF. Maksimal 5 MB dan disimpan privat.</small></span></div>{isEdit && initial?.receipt && !removeReceipt && !receiptFile && <div className="existing-receipt"><a href={financeTransactionReceiptUrl(initial.id, initial.receipt.id, initial.receipt.url)} target="_blank" rel="noreferrer">{initial.receipt.filename}</a><button type="button" onClick={() => setRemoveReceipt(true)}>Hapus lampiran</button></div>}<label className="secondary-button receipt-picker"><Upload size={15} /> {receiptFile ? receiptFile.name : initial?.receipt && !removeReceipt ? "Ganti lampiran" : "Pilih lampiran"}<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => { const file = event.target.files?.[0]; if (file) { setReceiptFile(file); setRemoveReceipt(false); } }} /></label>{removeReceipt && <small>Lampiran lama akan dihapus saat transaksi disimpan.</small>}</section>
-        {!isEdit && !isDuplicate && <label className={`ocr-button ${ocrLoading ? "loading" : ""}`}><Upload size={17} /><span><strong>{ocrLoading ? "Gemini sedang membaca struk..." : "Isi form dari foto struk"}</strong><small>OCR tidak menyimpan gambar. Gunakan bagian Lampiran jika ingin menyimpannya.</small></span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={ocrLoading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; void selectReceipt(file); }} /></label>}
+        {!isEdit && !isDuplicate && <label className={`ocr-button ${ocrLoading ? "loading" : ""}`}><Upload size={17} /><span><strong>{ocrLoading ? "AI sedang membaca struk..." : "Isi form dari foto struk"}</strong><small>OCR tidak menyimpan gambar. Gunakan bagian Lampiran jika ingin menyimpannya.</small></span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={ocrLoading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; void selectReceipt(file); }} /></label>}
         {!isEdit && !isDuplicate && ocrPreview && <div className="ocr-review">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={ocrPreview} alt="Preview foto struk" />
@@ -2255,7 +2977,7 @@ function TransactionModalLegacy({ accounts, categories, initial, saving, onClose
           <label><span>Akun {type === "transfer" ? "sumber" : ""}</span><select value={accountId} required onChange={(event) => { const nextId = event.target.value; setAccountId(nextId); if (nextId === destinationAccountId) setDestinationAccountId(accounts.find((account) => account.id !== nextId)?.id ?? ""); }}><option value="" disabled>Pilih akun</option>{sourceAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label>
           {(type === "transfer" || type === "investment_buy") ? <label><span>Akun tujuan</span><select value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)}>{accounts.filter((item) => item.id !== accountId).map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label> : <label><span>Kategori</span><select value={category} required onChange={(event) => setCategory(event.target.value)}><option value="" disabled>Pilih kategori</option>{categoryOptions.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label>}
         </div>
-        {!initial && <label className={`ocr-button ${ocrLoading ? "loading" : ""}`}><Upload size={17} /><span><strong>{ocrLoading ? "Gemini sedang membaca struk…" : "Isi dari foto struk"}</strong><small>JPG, PNG, atau WebP · dikompresi di perangkat · gambar tidak disimpan.</small></span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={ocrLoading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; selectReceipt(file); }} /></label>}
+        {!initial && <label className={`ocr-button ${ocrLoading ? "loading" : ""}`}><Upload size={17} /><span><strong>{ocrLoading ? "AI sedang membaca struk…" : "Isi dari foto struk"}</strong><small>JPG, PNG, atau WebP · dikompresi di perangkat · gambar tidak disimpan.</small></span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={ocrLoading} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; selectReceipt(file); }} /></label>}
         {!initial && ocrPreview && <div className="ocr-review">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={ocrPreview} alt="Preview foto struk yang akan diperiksa" />
@@ -2270,9 +2992,10 @@ function TransactionModalLegacy({ accounts, categories, initial, saving, onClose
   </div>;
 }
 
-function TransactionImportModal({ accounts, categories, saving, onClose, onSubmit }: {
+function TransactionImportModal({ accounts, categories, categoryRules, saving, onClose, onSubmit }: {
   accounts: Account[];
   categories: FinanceCategory[];
+  categoryRules: CategoryRule[];
   saving: boolean;
   onClose: () => void;
   onSubmit: (transactions: Transaction[]) => Promise<boolean>;
@@ -2285,7 +3008,7 @@ function TransactionImportModal({ accounts, categories, saving, onClose, onSubmi
     setError(""); setFilename(file.name);
     if (file.size > 1024 * 1024) { setPreview(null); setError("Ukuran CSV maksimal 1 MB."); return; }
     try {
-      const result = previewTransactionCsv(await file.text(), accounts, categories);
+      const result = previewTransactionCsv(await file.text(), accounts, categories, categoryRules);
       if (!result.rows.length) throw new Error("CSV kosong atau hanya berisi header.");
       setPreview(result);
     } catch (reason) { setPreview(null); setError(reason instanceof Error ? reason.message : "CSV tidak dapat dibaca."); }
@@ -2297,12 +3020,12 @@ function TransactionImportModal({ accounts, categories, saving, onClose, onSubmi
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
       <div className="modal-head"><div><span className="card-kicker">Bulk import</span><h2 id="import-title">Impor transaksi CSV</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
-      <div className="import-guide"><FileUp size={22} /><div><strong>Preview dulu, simpan setelah semua baris valid.</strong><p>Kolom wajib: tanggal, jenis, deskripsi, kategori, akun, dan nominal. Nama akun harus sama dengan akun di Financial Planner.</p><button type="button" className="text-button" onClick={downloadTemplate}><Download size={14} /> Unduh template CSV</button></div></div>
+      <div className="import-guide"><FileUp size={22} /><div><strong>Preview dulu, simpan setelah semua baris valid.</strong><p>Kolom wajib: tanggal, jenis, deskripsi, akun, dan nominal. Kategori boleh kosong jika deskripsi cocok dengan aturan otomatis.</p><button type="button" className="text-button" onClick={downloadTemplate}><Download size={14} /> Unduh template CSV</button></div></div>
       <label className="csv-dropzone"><Upload size={20} /><span><strong>{filename || "Pilih file CSV"}</strong><small>Maksimal 100 transaksi atau 1 MB</small></span><input type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
       {error && <div className="ocr-message"><X size={15} />{error}</div>}
       {preview && <>
         <div className="import-summary"><span><small>Baris valid</small><strong>{preview.validCount}</strong></span><span className={preview.errorCount ? "negative-text" : "positive-text"}><small>Perlu diperbaiki</small><strong>{preview.errorCount}</strong></span><span><small>Pemasukan</small><strong>{formatIDR(preview.income)}</strong></span><span><small>Pengeluaran</small><strong>{formatIDR(preview.expense)}</strong></span></div>
-        <div className="import-preview-table"><div className="import-preview-head"><span>Baris</span><span>Transaksi</span><span>Akun / kategori</span><span>Nominal</span><span>Status</span></div>{preview.rows.slice(0, 30).map((row) => <div className={row.errors.length ? "invalid" : ""} key={row.rowNumber}><span>{row.rowNumber}</span><span><strong>{row.transaction?.title || row.raw.title || "-"}</strong><small>{row.transaction?.date || row.raw.date || "-"}</small></span><span>{row.transaction ? `${accounts.find((item) => item.id === row.transaction?.accountId)?.name} · ${row.transaction.category}` : "-"}</span><span>{row.transaction ? formatIDR(row.transaction.amount) : row.raw.amount || "-"}</span><span>{row.errors.length ? row.errors.join(" ") : "Siap"}</span></div>)}</div>
+        <div className="import-preview-table"><div className="import-preview-head"><span>Baris</span><span>Transaksi</span><span>Akun / kategori</span><span>Nominal</span><span>Status</span></div>{preview.rows.slice(0, 30).map((row) => <div className={row.errors.length ? "invalid" : ""} key={row.rowNumber}><span>{row.rowNumber}</span><span><strong>{row.transaction?.title || row.raw.title || "-"}</strong><small>{row.transaction?.date || row.raw.date || "-"}</small></span><span>{row.transaction ? <>{accounts.find((item) => item.id === row.transaction?.accountId)?.name} · {row.transaction.category}{row.matchedRule && <small className="auto-category-badge"><Sparkles size={11} /> Otomatis: {row.matchedRule.keyword}</small>}</> : "-"}</span><span>{row.transaction ? formatIDR(row.transaction.amount) : row.raw.amount || "-"}</span><span>{row.errors.length ? row.errors.join(" ") : "Siap"}</span></div>)}</div>
         {preview.rows.length > 30 && <small className="import-more">Menampilkan 30 dari {preview.rows.length} baris.</small>}
       </>}
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button type="button" className="primary-button" disabled={saving || !preview?.validCount || Boolean(preview.errorCount)} onClick={() => preview && void onSubmit(preview.valid)}><FileUp size={17} /> {saving ? "Mengimpor..." : `Impor ${preview?.validCount || 0} transaksi`}</button></div>
@@ -2391,7 +3114,7 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
           <label><span>Nama akun</span><input value={accountName} onChange={(event) => setAccountName(event.target.value)} placeholder="Contoh: BCA Utama" required /></label>
           <label><span>Jenis akun</span><select value={accountType} onChange={(event) => setAccountType(event.target.value)}>{["Bank", "E-Wallet", "Cash", "Credit Card", "Paylater", "Loan", "Mortgage"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label>
           <label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Contoh: Bank BCA" /></label>
-          <label><span>Saldo awal</span><input value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="0" /></label>
+          <label><span>Saldo awal</span><input value={formatMoneyInput(openingBalance)} onChange={(event) => setOpeningBalance(moneyInputDigits(event.target.value))} inputMode="numeric" placeholder="0" /></label>
         </div>
         <button className="primary-button setup-submit" disabled={saving}>{saving ? "Menyiapkan workspace…" : "Buat Financial Planner"}<ArrowRight size={17} /></button>
         <small className="setup-footnote"><ShieldCheck size={14} /> PIN, OTP, CVV, dan password bank tidak pernah diminta.</small>
@@ -2409,8 +3132,75 @@ function AccountModal({ account, saving, onClose, onSubmit }: { account?: Accoun
   const [openingBalance, setOpeningBalance] = useState("");
   const liability = ["Credit Card", "Paylater", "Loan", "Mortgage"].includes(type);
   return <SimpleModal title={account ? "Edit akun" : "Tambah akun"} kicker="Multi-account" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), type, institution: institution.trim(), mask: mask.trim(), ...(account ? {} : { openingBalance: Number(openingBalance || 0) }), color, liability, currency: "IDR" }); }}>
-    <div className="form-grid"><label><span>Nama akun</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Jenis akun</span><select value={type} onChange={(event) => setType(event.target.value as Account["type"])}>{["Bank", "E-Wallet", "Cash", "Deposit", "Receivable", "Investment", "Credit Card", "Paylater", "Loan", "Mortgage", "Custom"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Opsional" /></label><label><span>Nomor akhir / label</span><input value={mask} onChange={(event) => setMask(event.target.value)} placeholder="Contoh: 1234" maxLength={40} /></label>{!account && <label><span>Saldo awal</span><input value={openingBalance} onChange={(event) => setOpeningBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="0" /></label>}<label className="color-field"><span>Warna akun</span><input type="color" value={color} onChange={(event) => setColor(event.target.value)} /><small>{color.toUpperCase()}</small></label></div>
+    <div className="form-grid"><label><span>Nama akun</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Jenis akun</span><select value={type} onChange={(event) => setType(event.target.value as Account["type"])}>{["Bank", "E-Wallet", "Cash", "Deposit", "Receivable", "Investment", "Credit Card", "Paylater", "Loan", "Mortgage", "Custom"].map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Institusi</span><input value={institution} onChange={(event) => setInstitution(event.target.value)} placeholder="Opsional" /></label><label><span>Nomor akhir / label</span><input value={mask} onChange={(event) => setMask(event.target.value)} placeholder="Contoh: 1234" maxLength={40} /></label>{!account && <label><span>Saldo awal</span><input value={formatMoneyInput(openingBalance)} onChange={(event) => setOpeningBalance(moneyInputDigits(event.target.value))} inputMode="numeric" placeholder="0" /></label>}<label className="color-field"><span>Warna akun</span><input type="color" value={color} onChange={(event) => setColor(event.target.value)} /><small>{color.toUpperCase()}</small></label></div>
     {account && <div className="ocr-message"><Scale size={15} />Saldo tidak diubah dari form ini. Gunakan Cocokkan saldo agar jejak ledger tetap utuh.</div>}
+  </SimpleModal>;
+}
+
+function LoanDrawdownModal({ accounts, saving, onClose, onSubmit }: { accounts: Account[]; saving: boolean; onClose: () => void; onSubmit: (payload: LoanDrawdownInput) => Promise<boolean> }) {
+  const liabilityAccounts = accounts.filter((account) => account.liability);
+  const destinationAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
+  const [liabilityAccountId, setLiabilityAccountId] = useState(liabilityAccounts[0]?.id ?? "");
+  const [destinationAccountId, setDestinationAccountId] = useState(destinationAccounts[0]?.id ?? "");
+  const [cashReceived, setCashReceived] = useState("");
+  const [totalObligation, setTotalObligation] = useState("");
+  const [obligationTouched, setObligationTouched] = useState(false);
+  const [date, setDate] = useState(today());
+  const [title, setTitle] = useState("Pencairan pinjaman");
+  const [notes, setNotes] = useState("");
+  const [requestId] = useState(() => `loan-drawdown-${crypto.randomUUID()}`);
+  const liability = liabilityAccounts.find((account) => account.id === liabilityAccountId);
+  const destination = destinationAccounts.find((account) => account.id === destinationAccountId);
+  const received = Number(cashReceived || 0);
+  const obligation = Number(totalObligation || 0);
+  const financingCost = Math.max(0, obligation - received);
+  const invalidObligation = received > 0 && obligation > 0 && obligation < received;
+  const financingRate = received > 0 ? (financingCost / received) * 100 : 0;
+  return <SimpleModal title="Catat pinjaman baru" kicker="Double-entry utang" saving={saving} onClose={onClose} onSubmit={async (event) => {
+    event.preventDefault();
+    if (!liability || !destination || !received || !obligation || invalidObligation) return;
+    await onSubmit({
+      requestId,
+      liabilityAccountId: liability.id,
+      destinationAccountId: destination.id,
+      cashReceived: received,
+      totalObligation: obligation,
+      date,
+      title: title.trim(),
+      notes: [notes.trim(), `Pencairan dari ${liability.name} ke ${destination.name}.`].filter(Boolean).join(" "),
+    });
+  }}>
+    <div className="loan-drawdown-flow">
+      <span><CreditCard size={18} /><small>Sumber utang</small><strong>{liability?.name ?? "Pilih akun kewajiban"}</strong></span>
+      <ArrowRight size={19} />
+      <span><Landmark size={18} /><small>Dana diterima</small><strong>{destination?.name ?? "Pilih rekening"}</strong></span>
+    </div>
+    <div className="form-grid">
+      <label><span>Akun utang / Paylater</span><select value={liabilityAccountId} onChange={(event) => setLiabilityAccountId(event.target.value)} required><option value="" disabled>Pilih akun kewajiban</option>{liabilityAccounts.map((account) => <option value={account.id} key={account.id}>{account.name} — {account.type}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>Rekening penerima</span><select value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)} required><option value="" disabled>Pilih rekening penerima</option>{destinationAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>Uang bersih yang diterima</span><input value={formatMoneyInput(cashReceived)} onChange={(event) => {
+        const next = moneyInputDigits(event.target.value);
+        setCashReceived(next);
+        if (!obligationTouched) setTotalObligation(next);
+      }} inputMode="numeric" pattern="[0-9.]*" placeholder="Contoh: 5.083.350" required autoFocus /><small>Nominal yang benar-benar masuk ke rekening.</small></label>
+      <label><span>Total kewajiban kontrak</span><input value={formatMoneyInput(totalObligation)} onChange={(event) => {
+        setObligationTouched(true);
+        setTotalObligation(moneyInputDigits(event.target.value));
+      }} inputMode="numeric" pattern="[0-9.]*" placeholder="Contoh: 6.105.120" required /><small>Jumlah seluruh pokok, bunga, dan biaya yang harus dilunasi.</small></label>
+      <label><span>Tanggal pencairan</span><input type="date" value={date} max={today()} onChange={(event) => setDate(event.target.value)} required /></label>
+      <label className="full-field"><span>Nama transaksi</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Contoh: Pencairan Kredivo" required /></label>
+      <label className="full-field"><span>Catatan</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="Nomor kontrak atau keterangan lain (opsional)" /></label>
+    </div>
+    {received > 0 && obligation > 0 && <div className={`loan-drawdown-breakdown ${invalidObligation ? "invalid" : ""}`}>
+      <span><small>Masuk ke rekening</small><strong>{formatIDR(received)}</strong></span>
+      <span><small>Total utang bertambah</small><strong>{formatIDR(obligation)}</strong></span>
+      <span><small>Biaya pembiayaan</small><strong>{invalidObligation ? "Periksa nominal" : formatIDR(financingCost)}</strong>{!invalidObligation && financingCost > 0 && <em>{financingRate.toFixed(1)}% dari dana cair</em>}</span>
+    </div>}
+    {invalidObligation
+      ? <div className="ocr-message"><TriangleAlert size={15} />Total kewajiban harus sama dengan atau lebih besar daripada uang yang diterima.</div>
+      : <div className="loan-drawdown-note"><ShieldCheck size={16} /><span><strong>Bukan pemasukan.</strong> Kas bertambah sebesar dana bersih, utang bertambah sebesar total kontrak, dan selisih dicatat sebagai biaya pembiayaan tanpa menggandakan pengeluaran bulanan.</span></div>}
+    {!liabilityAccounts.length && <div className="ocr-message"><CreditCard size={15} />Tambahkan akun Paylater, Credit Card, Loan, atau Mortgage terlebih dahulu.</div>}
+    {!destinationAccounts.length && <div className="ocr-message"><Landmark size={15} />Tambahkan rekening Bank, E-Wallet, atau Cash untuk menerima dana.</div>}
   </SimpleModal>;
 }
 
@@ -2420,7 +3210,7 @@ function BudgetModal({ budget, month, categories, saving, onClose, onSubmit }: {
   const [limit, setLimit] = useState(budget ? String(budget.limit) : "");
   const color = expenseCategories.find((item) => item.name === category)?.color ?? categoryColors[category] ?? "#126b59";
   return <SimpleModal title={budget ? "Edit anggaran" : "Anggaran kategori"} kicker={monthLabel(month)} saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ month, period: month, category, limitAmount: Number(limit || 0), limit: Number(limit || 0), color }); }}>
-    <div className="form-grid"><label><span>Kategori</span><select value={category} disabled={Boolean(budget)} required onChange={(event) => setCategory(event.target.value)}><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Batas anggaran</span><input value={limit} onChange={(event) => setLimit(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" placeholder="0" required autoFocus /></label></div>
+    <div className="form-grid"><label><span>Kategori</span><select value={category} disabled={Boolean(budget)} required onChange={(event) => setCategory(event.target.value)}><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Batas anggaran</span><input value={formatMoneyInput(limit)} onChange={(event) => setLimit(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" placeholder="0" required autoFocus /></label></div>
     {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
   </SimpleModal>;
 }
@@ -2432,7 +3222,7 @@ function GoalModal({ goal, saving, onClose, onSubmit }: { goal?: Goal; saving: b
   const [currentAmount, setCurrentAmount] = useState(goal ? String(goal.current) : "0");
   const [deadline, setDeadline] = useState(goal?.deadline ?? nextYear.toISOString().slice(0, 10));
   return <SimpleModal title={goal ? "Edit target finansial" : "Target finansial"} kicker="Goal tracking" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), targetAmount: Number(targetAmount || 0), target: Number(targetAmount || 0), currentAmount: Number(currentAmount || 0), current: Number(currentAmount || 0), deadline, color: goal?.color ?? "#126b59", icon: goal?.icon ?? "target" }); }}>
-    <div className="form-grid"><label><span>Nama target</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Dana Darurat" required autoFocus /></label><label><span>Deadline</span><input type="date" min={goal ? undefined : today()} value={deadline} onChange={(event) => setDeadline(event.target.value)} required /></label><label><span>Nominal target</span><input value={targetAmount} onChange={(event) => setTargetAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label>{!goal && <label><span>Dana terkumpul</span><input value={currentAmount} onChange={(event) => setCurrentAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[0-9]+" /></label>}</div>
+    <div className="form-grid"><label><span>Nama target</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Dana Darurat" required autoFocus /></label><label><span>Deadline</span><input type="date" min={goal ? undefined : today()} value={deadline} onChange={(event) => setDeadline(event.target.value)} required /></label><label><span>Nominal target</span><input value={formatMoneyInput(targetAmount)} onChange={(event) => setTargetAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required /></label>{!goal && <label><span>Dana terkumpul</span><input value={formatMoneyInput(currentAmount)} onChange={(event) => setCurrentAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" /></label>}</div>
   </SimpleModal>;
 }
 
@@ -2444,8 +3234,87 @@ function GoalProgressModal({ goal, privacy, saving, onClose, onSubmit }: { goal:
   return <SimpleModal title={`Atur progress ${goal.name}`} kicker="Goal tracking" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (value <= 0 || value > maximum) return; return onSubmit(value, mode); }}>
     <div className="transaction-type-tabs"><button type="button" className={mode === "add" ? "active" : ""} onClick={() => { setMode("add"); setAmount(""); }}><Plus size={15} /> Tambah dana</button><button type="button" className={mode === "withdraw" ? "active" : ""} onClick={() => { setMode("withdraw"); setAmount(""); }}><Undo2 size={15} /> Kurangi dana</button></div>
     <div className="reconcile-summary"><span><small>Terkumpul</small><Amount value={goal.current} privacy={privacy} /></span><span><small>{mode === "add" ? "Sisa target" : "Maksimal dikurangi"}</small><Amount value={maximum} privacy={privacy} /></span></div>
-    <div className="form-grid"><label className="full-field"><span>Nominal perubahan</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" max={maximum} required autoFocus /></label></div>
+    <div className="form-grid"><label className="full-field"><span>Nominal perubahan</span><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required autoFocus /></label></div>
     {value > maximum && <div className="ocr-message"><TriangleAlert size={15} />Nominal melebihi batas yang tersedia.</div>}
+  </SimpleModal>;
+}
+
+const sinkingFundPurposes: SinkingFundPurpose[] = ["Kendaraan", "Pajak", "Liburan", "Pendidikan", "Rumah", "Kesehatan", "Teknologi", "Lainnya"];
+
+function SinkingFundModal({ fund, accounts, funds, saving, onClose, onSubmit }: {
+  fund?: SinkingFund;
+  accounts: Account[];
+  funds: SinkingFund[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+}) {
+  const eligibleAccounts = accounts.filter((account) => !account.liability && ["Bank", "E-Wallet", "Cash", "Deposit"].includes(account.type));
+  const defaultTargetDate = new Date(Date.now() + 365 * 86_400_000).toISOString().slice(0, 10);
+  const [name, setName] = useState(fund?.name ?? "");
+  const [purpose, setPurpose] = useState<SinkingFundPurpose>(fund?.purpose ?? "Kendaraan");
+  const [targetAmount, setTargetAmount] = useState(fund ? String(fund.targetAmount) : "");
+  const [initialAmount, setInitialAmount] = useState(fund ? String(fund.currentAmount) : "");
+  const [monthlyContribution, setMonthlyContribution] = useState(fund?.monthlyContribution ? String(fund.monthlyContribution) : "");
+  const [targetDate, setTargetDate] = useState(fund?.targetDate ?? defaultTargetDate);
+  const [accountId, setAccountId] = useState(fund?.accountId ?? eligibleAccounts[0]?.id ?? "");
+  const [color, setColor] = useState(fund?.color ?? "#16876f");
+  const targetValue = moneyInputNumber(targetAmount);
+  const currentValue = fund?.currentAmount ?? moneyInputNumber(initialAmount);
+  const account = eligibleAccounts.find((item) => item.id === accountId);
+  const allocatedElsewhere = funds.filter((item) => item.active && item.id !== fund?.id && item.accountId === accountId).reduce((sum, item) => sum + item.currentAmount, 0);
+  const freeOnAccount = Math.max(0, (account?.balance ?? 0) - allocatedElsewhere);
+  const invalid = !name.trim() || !accountId || targetValue <= 0 || currentValue > targetValue || currentValue > freeOnAccount;
+  return <SimpleModal title={fund ? "Edit pos dana" : "Pos dana baru"} kicker="Sinking fund" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (invalid) return; return onSubmit({
+    name: name.trim(),
+    purpose,
+    targetAmount: targetValue,
+    currentAmount: currentValue,
+    monthlyContribution: moneyInputNumber(monthlyContribution),
+    targetDate,
+    accountId,
+    color,
+    active: true,
+    requestId: `fund-${fund ? "update" : "create"}:${fund?.id ?? crypto.randomUUID()}`,
+  }); }}>
+    <div className="form-grid sinking-fund-form">
+      <label><span>Nama pos</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Servis besar motor" required autoFocus /></label>
+      <label><span>Jenis kebutuhan</span><select value={purpose} onChange={(event) => setPurpose(event.target.value as SinkingFundPurpose)}>{sinkingFundPurposes.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>Target dana</span><input value={formatMoneyInput(targetAmount)} onChange={(event) => setTargetAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required /></label>
+      <label><span>Target tersedia</span><input type="date" min={today()} value={targetDate} onChange={(event) => setTargetDate(event.target.value)} required /></label>
+      <label><span>Akun tempat dana</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun kas</option>{eligibleAccounts.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={15} /><small>Saldo akun tidak dipindahkan.</small></label>
+      {!fund && <label><span>Alokasi awal</span><input value={formatMoneyInput(initialAmount)} onChange={(event) => setInitialAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" placeholder="Opsional" /><small>Maksimal saldo bebas {formatIDR(freeOnAccount)}.</small></label>}
+      <label><span>Rencana per bulan</span><input value={formatMoneyInput(monthlyContribution)} onChange={(event) => setMonthlyContribution(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" placeholder="Otomatis jika kosong" /></label>
+      <label className="color-field"><span>Warna pos</span><input type="color" value={color} onChange={(event) => setColor(event.target.value)} /><small>{color.toUpperCase()}</small></label>
+    </div>
+    {currentValue > targetValue && <div className="ocr-message"><TriangleAlert size={15} />Target tidak boleh lebih kecil dari dana yang sudah dialokasikan.</div>}
+    {currentValue > freeOnAccount && <div className="ocr-message"><TriangleAlert size={15} />Alokasi melebihi saldo bebas pada akun yang dipilih.</div>}
+    {!eligibleAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun Bank, E-Wallet, Cash, atau Deposit terlebih dahulu.</div>}
+    <div className="ocr-message"><ShieldCheck size={15} />Pos dana adalah pembagian virtual dari saldo akun, bukan rekening atau transaksi baru.</div>
+  </SimpleModal>;
+}
+
+function SinkingFundAdjustmentModal({ fund, type, saving, onClose, onSubmit }: {
+  fund: SinkingFund;
+  type: "allocate" | "release";
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (amount: number, date: string, note: string) => Promise<void>;
+}) {
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(today());
+  const [note, setNote] = useState("");
+  const value = moneyInputNumber(amount);
+  const maximum = type === "allocate" ? sinkingFundRemaining(fund) : fund.currentAmount;
+  return <SimpleModal title={type === "allocate" ? `Alokasikan ke ${fund.name}` : `Lepas dari ${fund.name}`} kicker="Pos dana" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (value <= 0 || value > maximum) return; return onSubmit(value, date, note.trim()); }}>
+    <div className="reconcile-summary"><span><small>Sudah dialokasikan</small><strong>{formatIDR(fund.currentAmount)}</strong></span><span><small>{type === "allocate" ? "Sisa target" : "Maksimal dilepas"}</small><strong>{formatIDR(maximum)}</strong></span></div>
+    <div className="form-grid">
+      <label><span>Nominal</span><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required autoFocus /></label>
+      <label><span>Tanggal</span><input type="date" max={today()} value={date} onChange={(event) => setDate(event.target.value)} required /></label>
+      <label className="full-field"><span>Catatan</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder={type === "allocate" ? "Contoh: Alokasi gaji bulan ini" : "Contoh: Dipakai untuk servis"} maxLength={240} /></label>
+    </div>
+    {value > maximum && <div className="ocr-message"><TriangleAlert size={15} />Nominal melebihi batas pos dana.</div>}
+    <div className="ocr-message"><CircleDollarSign size={15} />{type === "allocate" ? "Alokasi tidak mengurangi saldo akun." : "Pelepasan tidak membuat transaksi pengeluaran. Catat transaksi saat uang benar-benar digunakan."}</div>
   </SimpleModal>;
 }
 
@@ -2463,7 +3332,7 @@ function RecurringModal({ accounts, categories, saving, onClose, onSubmit }: { a
   const changeType = (next: "income" | "expense") => { setType(next); setCategory(categories.find((item) => item.active && item.type === next)?.name ?? ""); if (next === "income") setIsSubscription(false); };
   return <SimpleModal title="Jadwal transaksi rutin" kicker="Recurring planner" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), type, amount: Number(amount || 0), category, accountId, frequency, startDate, nextDueDate: startDate, isSubscription: type === "expense" && isSubscription, active: true }); }}>
     <div className="transaction-type-tabs recurring-type-tabs"><button type="button" className={type === "expense" ? "active" : ""} onClick={() => changeType("expense")}><ArrowUpRight size={14}/> Pengeluaran</button><button type="button" className={type === "income" ? "active" : ""} onClick={() => changeType("income")}><ArrowDownLeft size={14}/> Pemasukan</button></div>
-    <div className="form-grid recurring-form"><label><span>Nama jadwal</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Netflix atau Gaji" required autoFocus/></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required/></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{relevantCategories.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select><ChevronDown size={15}/></label><label><span>Akun</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{cashAccounts.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={15}/></label><label><span>Frekuensi</span><select value={frequency} onChange={(event) => setFrequency(event.target.value as RecurringTemplate["frequency"])}><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="quarterly">3 bulanan</option><option value="yearly">Tahunan</option></select><ChevronDown size={15}/></label><label><span>Tanggal pertama</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required/></label></div>
+    <div className="form-grid recurring-form"><label><span>Nama jadwal</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Netflix atau Gaji" required autoFocus/></label><label><span>Nominal</span><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required/></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{relevantCategories.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select><ChevronDown size={15}/></label><label><span>Akun</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{cashAccounts.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={15}/></label><label><span>Frekuensi</span><select value={frequency} onChange={(event) => setFrequency(event.target.value as RecurringTemplate["frequency"])}><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="quarterly">3 bulanan</option><option value="yearly">Tahunan</option></select><ChevronDown size={15}/></label><label><span>Tanggal pertama</span><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required/></label></div>
     {type === "expense" && <label className="recurring-subscription-check"><input type="checkbox" checked={isSubscription} onChange={(event) => setIsSubscription(event.target.checked)}/><span><strong>Tandai sebagai subscription</strong><small>Masuk perhitungan biaya langganan bulanan dan tahunan.</small></span></label>}
     {!cashAccounts.length && <div className="ocr-message"><WalletCards size={15}/>Tambahkan akun terlebih dahulu.</div>}
   </SimpleModal>;
@@ -2471,18 +3340,40 @@ function RecurringModal({ accounts, categories, saving, onClose, onSubmit }: { a
 
 function BillModal({ bill, accounts, categories, saving, onClose, onSubmit }: { bill?: Bill; accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const paymentAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
+  const liabilityAccounts = accounts.filter((account) => account.liability);
   const expenseCategories = categories.filter((item) => item.active && item.type === "expense");
   const [name, setName] = useState(bill?.name ?? "");
   const [amount, setAmount] = useState(bill ? String(bill.amount) : "");
   const [category, setCategory] = useState(bill?.category ?? expenseCategories.find((item) => item.name === "Tagihan")?.name ?? expenseCategories[0]?.name ?? "");
   const [dueDate, setDueDate] = useState(bill?.dueDate ?? today());
   const [accountId, setAccountId] = useState(bill?.accountId ?? paymentAccounts[0]?.id ?? "");
+  const [liabilityAccountId, setLiabilityAccountId] = useState(bill?.liabilityAccountId ?? "");
+  const [durationMonths, setDurationMonths] = useState(bill?.durationMonths ? String(bill.durationMonths) : "");
+  const [paidCount, setPaidCount] = useState(String(bill?.paidCount ?? 0));
   const [reminderDays, setReminderDays] = useState(bill?.reminderDays ?? [7, 3, 1, 0]);
+  const durationValue = Number(durationMonths || 0);
+  const paidCountValue = Number(paidCount || 0);
+  const remainingMonths = durationValue ? Math.max(0, durationValue - paidCountValue) : null;
+  const progressPct = durationValue ? Math.min(100, paidCountValue / durationValue * 100) : 0;
   const toggleReminder = (day: number) => setReminderDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((a, b) => b - a));
-  return <SimpleModal title={bill ? "Edit tagihan rutin" : "Tagihan rutin"} kicker="Reminder" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), amount: Number(amount || 0), category, dueDate, accountId, frequency: "monthly", reminderDays, ...(bill ? { paid: bill.paid } : {}) }); }}>
-    <div className="form-grid"><label><span>Nama tagihan</span><input value={name} onChange={(event) => setName(event.target.value)} required autoFocus /></label><label><span>Nominal</span><input value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[1-9][0-9]*" required /></label><label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Jatuh tempo pertama</span><input type="date" min={bill ? undefined : today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label><label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Frekuensi</span><input value="Bulanan" readOnly aria-label="Frekuensi tagihan bulanan" /></label><fieldset className="bill-reminder-field"><legend>Jadwal reminder</legend><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={reminderDays.includes(day)} onChange={() => toggleReminder(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></fieldset></div>
+  return <SimpleModal title={bill ? "Edit tagihan rutin" : "Tagihan rutin"} kicker="Reminder & cicilan" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (durationValue && paidCountValue > durationValue) return; return onSubmit({ name: name.trim(), amount: Number(amount || 0), category, dueDate, accountId, liabilityAccountId: liabilityAccountId || null, durationMonths: durationValue || null, paidCount: durationValue ? paidCountValue : 0, frequency: "monthly", reminderDays, ...(bill ? { paid: bill.paid } : {}) }); }}>
+    <div className="form-grid">
+      <label><span>Nama tagihan / cicilan</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Cicilan HP" required autoFocus /></label>
+      <label><span>Nominal per bulan</span><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required /></label>
+      <label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>{paidCountValue > 0 ? "Jatuh tempo berikutnya" : "Jatuh tempo pertama"}</span><input type="date" min={bill ? undefined : today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label>
+      <label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun kas</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>Akun Paylater / utang</span><select value={liabilityAccountId} onChange={(event) => setLiabilityAccountId(event.target.value)}><option value="">Tagihan biasa (bukan cicilan utang)</option>{liabilityAccounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {account.type}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>Total tenor (bulan)</span><input type="number" min={1} max={120} value={durationMonths} onChange={(event) => { const next = event.target.value.replace(/\D/g, "").slice(0, 3); setDurationMonths(next); if (!next) setPaidCount("0"); else if (Number(paidCount) > Number(next)) setPaidCount(next); }} inputMode="numeric" placeholder="Contoh: 9" /><small>Kosongkan jika tagihan berulang tanpa batas.</small></label>
+      <label><span>Sudah dibayar</span><input type="number" min={0} max={durationValue || 0} value={paidCount} onChange={(event) => setPaidCount(event.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" disabled={!durationValue} required={Boolean(durationValue)} /><small>Isi 2 jika sebelumnya sudah membayar dua kali.</small></label>
+      <label><span>Frekuensi</span><input value="Bulanan" readOnly aria-label="Frekuensi tagihan bulanan" /></label>
+      {durationValue > 0 && <div className="bill-progress-preview full-field"><small>Progress cicilan</small><strong>{paidCountValue} dari {durationValue} cicilan sudah dibayar</strong><span>{remainingMonths} bulan tersisa</span><ProgressBar value={progressPct} color="var(--primary)" label={`Progress cicilan ${paidCountValue} dari ${durationValue}`} /></div>}
+      <fieldset className="bill-reminder-field"><legend>Jadwal reminder</legend><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={reminderDays.includes(day)} onChange={() => toggleReminder(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></fieldset>
+    </div>
     {!reminderDays.length && <div className="ocr-message"><Bell size={15} />Pilih minimal satu jadwal reminder.</div>}
     {!paymentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bank, e-wallet, atau cash untuk membayar tagihan.</div>}
+    {liabilityAccountId && <div className="ocr-message"><CreditCard size={15} />Pembayaran menjadi transfer ke akun utang, sehingga tidak dihitung sebagai pengeluaran dua kali.</div>}
+    {paidCountValue > 0 && <div className="ocr-message bill-history-note"><History size={15} /><span><strong>Progress awal saja.</strong> {paidCountValue} pembayaran lama tidak dibuat ulang sebagai transaksi. Pastikan saldo akun utang saat ini sudah sesuai.</span></div>}
     {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
   </SimpleModal>;
 }
@@ -2506,7 +3397,7 @@ function InvestmentAssetModal({ asset, accounts, saving, onClose, onSubmit }: {
   const [active, setActive] = useState(asset?.active ?? true);
   const [requestId] = useState(() => `investment-asset-${asset ? "update" : "create"}:${asset?.id ?? "new"}:${crypto.randomUUID()}`);
   return <SimpleModal title={asset ? "Edit aset investasi" : "Aset investasi baru"} kicker="Asset master" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (!investmentAccounts.length) return; return onSubmit({ accountId, ticker: ticker.trim().toUpperCase(), name: name.trim(), assetClass, exchange: exchange.trim(), currency: "IDR", manualPrice: manualPrice ? Number(manualPrice) : null, active }, requestId); }}>
-    <div className="form-grid"><label><span>Kode / ticker</span><input value={ticker} onChange={(event) => setTicker(event.target.value.replace(/[^a-zA-Z0-9._-]/g, "").toUpperCase())} placeholder="BBCA" maxLength={24} required autoFocus /></label><label><span>Nama aset</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Bank Central Asia" required /></label><label><span>Kelas aset</span><select value={assetClass} onChange={(event) => setAssetClass(event.target.value as InvestmentAsset["assetClass"])}>{investmentAssetClasses.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Bursa / sumber</span><input value={exchange} onChange={(event) => setExchange(event.target.value)} placeholder="IDX, Binance, Bibit…" /></label><label><span>Akun investasi</span><select value={accountId} disabled={Boolean(asset && asset.units > 0)} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun Investment</option>{investmentAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Harga manual (IDR)</span><input value={manualPrice} onChange={(event) => setManualPrice(event.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="Opsional" /></label>{asset && <label><span>Status aset</span><select value={active ? "active" : "archived"} onChange={(event) => setActive(event.target.value === "active")}><option value="active">Aktif</option><option value="archived" disabled={asset.units > 0}>Arsipkan</option></select><ChevronDown size={15} /></label>}</div>
+    <div className="form-grid"><label><span>Kode / ticker</span><input value={ticker} onChange={(event) => setTicker(event.target.value.replace(/[^a-zA-Z0-9._-]/g, "").toUpperCase())} placeholder="BBCA" maxLength={24} required autoFocus /></label><label><span>Nama aset</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Bank Central Asia" required /></label><label><span>Kelas aset</span><select value={assetClass} onChange={(event) => setAssetClass(event.target.value as InvestmentAsset["assetClass"])}>{investmentAssetClasses.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><label><span>Bursa / sumber</span><input value={exchange} onChange={(event) => setExchange(event.target.value)} placeholder="IDX, Binance, Bibit…" /></label><label><span>Akun investasi</span><select value={accountId} disabled={Boolean(asset && asset.units > 0)} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun Investment</option>{investmentAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label><label><span>Harga manual (IDR)</span><input value={formatMoneyInput(manualPrice)} onChange={(event) => setManualPrice(moneyInputDigits(event.target.value))} inputMode="numeric" placeholder="Opsional" /></label>{asset && <label><span>Status aset</span><select value={active ? "active" : "archived"} onChange={(event) => setActive(event.target.value === "active")}><option value="active">Aktif</option><option value="archived" disabled={asset.units > 0}>Arsipkan</option></select><ChevronDown size={15} /></label>}</div>
     {!investmentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bertipe Investment pada halaman Akun sebelum membuat aset.</div>}
     <div className="ocr-message"><CircleDollarSign size={15} />Harga manual tidak mengubah cashflow atau histori transaksi. Jika kosong, harga transaksi terakhir dipakai sebagai fallback delayed.</div>
   </SimpleModal>;
@@ -2557,7 +3448,7 @@ function InvestmentTradeModal({ type, initialAsset, assets, accounts, privacy, s
   const invalidUnits = !selected || safeUnits <= 0 || (type === "sell" && safeUnits > selected.units + 0.000000001);
   return <SimpleModal title={`${type === "buy" ? "Beli" : "Jual"} investasi`} kicker="Transaksi investasi" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (invalidUnits || net <= 0 || price <= 0 || !accountId) return; return onSubmit({ type, assetId, accountId, date, units: safeUnits, pricePerUnit: price, fee, tax, note: note.trim() }, requestId); }}>
     <div className="transaction-type-tabs investment-mode-tabs"><button type="button" className={mode === "units" ? "active" : ""} onClick={() => setMode("units")}>Berdasarkan unit</button><button type="button" className={mode === "nominal" ? "active" : ""} onClick={() => setMode("nominal")}>{type === "buy" ? "Budget nominal" : "Target pencairan"}</button>{type === "sell" && <button type="button" className={mode === "all" ? "active" : ""} onClick={() => setMode("all")}>Jual semua</button>}</div>
-    <div className="form-grid investment-form-grid"><label><span>Aset</span><select value={assetId} onChange={(event) => { const next = assets.find((asset) => asset.id === event.target.value); setAssetId(event.target.value); setPriceInput(String(next?.marketPrice || next?.averageCost || "")); }} required><option value="" disabled>Pilih aset</option>{tradableAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.ticker} · {asset.name}</option>)}</select><ChevronDown size={15} /></label><label><span>{type === "buy" ? "Akun pembayaran" : "Akun penerima"}</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun kas</option>{cashAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {privacy ? "saldo disembunyikan" : formatIDR(account.balance)}</option>)}</select><ChevronDown size={15} /></label><label><span>Harga per unit</span><input value={priceInput} onChange={(event) => setPriceInput(event.target.value.replace(/\D/g, ""))} inputMode="numeric" required /></label><label><span>Tanggal</span><input type="date" value={date} max={today()} onChange={(event) => setDate(event.target.value)} required /></label>{mode === "units" && <label><span>Jumlah unit</span><input value={unitsInput} onChange={(event) => setUnitsInput(event.target.value.replace(/[^\d.,]/g, ""))} inputMode="decimal" placeholder="0,00000000" required /></label>}{mode === "nominal" && <label><span>{type === "buy" ? "Total budget" : "Target bersih"}</span><input value={nominalInput} onChange={(event) => setNominalInput(event.target.value.replace(/\D/g, ""))} inputMode="numeric" required /></label>}{mode === "all" && <label><span>Unit dijual</span><input value={selected ? formatUnits(selected.units) : "0"} readOnly /></label>}<label><span>Fee</span><input value={feeInput} onChange={(event) => setFeeInput(event.target.value.replace(/\D/g, ""))} inputMode="numeric" /></label><label><span>Pajak</span><input value={taxInput} onChange={(event) => setTaxInput(event.target.value.replace(/\D/g, ""))} inputMode="numeric" /></label><label className="full-field"><span>Catatan</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional" /></label></div>
+    <div className="form-grid investment-form-grid"><label><span>Aset</span><select value={assetId} onChange={(event) => { const next = assets.find((asset) => asset.id === event.target.value); setAssetId(event.target.value); setPriceInput(String(next?.marketPrice || next?.averageCost || "")); }} required><option value="" disabled>Pilih aset</option>{tradableAssets.map((asset) => <option key={asset.id} value={asset.id}>{asset.ticker} · {asset.name}</option>)}</select><ChevronDown size={15} /></label><label><span>{type === "buy" ? "Akun pembayaran" : "Akun penerima"}</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun kas</option>{cashAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {privacy ? "saldo disembunyikan" : formatIDR(account.balance)}</option>)}</select><ChevronDown size={15} /></label><label><span>Harga per unit</span><input value={formatMoneyInput(priceInput)} onChange={(event) => setPriceInput(moneyInputDigits(event.target.value))} inputMode="numeric" required /></label><label><span>Tanggal</span><input type="date" value={date} max={today()} onChange={(event) => setDate(event.target.value)} required /></label>{mode === "units" && <label><span>Jumlah unit</span><input value={unitsInput} onChange={(event) => setUnitsInput(event.target.value.replace(/[^\d.,]/g, ""))} inputMode="decimal" placeholder="0,00000000" required /></label>}{mode === "nominal" && <label><span>{type === "buy" ? "Total budget" : "Target bersih"}</span><input value={formatMoneyInput(nominalInput)} onChange={(event) => setNominalInput(moneyInputDigits(event.target.value))} inputMode="numeric" required /></label>}{mode === "all" && <label><span>Unit dijual</span><input value={selected ? formatUnits(selected.units) : "0"} readOnly /></label>}<label><span>Fee</span><input value={formatMoneyInput(feeInput)} onChange={(event) => setFeeInput(moneyInputDigits(event.target.value))} inputMode="numeric" /></label><label><span>Pajak</span><input value={formatMoneyInput(taxInput)} onChange={(event) => setTaxInput(moneyInputDigits(event.target.value))} inputMode="numeric" /></label><label className="full-field"><span>Catatan</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional" /></label></div>
     <div className={`investment-preview ${type === "sell" && realized < 0 ? "loss" : ""}`}><span><small>Unit</small><strong>{formatUnits(safeUnits || 0)}</strong></span><span><small>{type === "buy" ? "Total pembelian" : "Hasil bersih"}</small><Amount value={Math.max(0, net)} privacy={privacy} /></span>{type === "sell" && <span><small>Estimasi realized P/L</small><Amount value={realized} privacy={privacy} /></span>}</div>
     {invalidUnits && safeUnits > 0 && <div className="ocr-message"><Scale size={15} />Unit penjualan melebihi unit tersedia.</div>}
     {!cashAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun Bank, E-Wallet, atau Cash terlebih dahulu.</div>}
@@ -2578,7 +3469,7 @@ function ReconcileModal({ account, privacy, saving, onClose, onSubmit }: { accou
       : difference > 0 ? "Saldo aktual lebih tinggi dari ledger." : "Saldo aktual lebih rendah dari ledger.";
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="reconcile-title"><div className="modal-head"><div><span className="card-kicker">Rekonsiliasi</span><h2 id="reconcile-title">Cocokkan saldo {account.name}</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div><form onSubmit={(event) => { event.preventDefault(); return onSubmit(actual, date, note.trim(), requestId); }}>
     <div className="reconcile-summary"><span><small>Saldo ledger</small><Amount value={account.balance} privacy={privacy} /></span><span><small>Selisih</small><Amount value={Math.abs(difference)} privacy={privacy} className={difference === 0 ? "" : "reconcile-difference"} /></span></div>
-    <div className="form-grid"><label><span>Saldo aktual</span><input value={actualBalance} onChange={(event) => setActualBalance(event.target.value.replace(/\D/g, ""))} inputMode="numeric" pattern="[0-9]+" required autoFocus /></label><label><span>Tanggal saldo</span><input type="date" value={date} max={today()} onChange={(event) => setDate(event.target.value)} required /></label><label className="full-field"><span>Alasan / catatan</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Contoh: Cocokkan dengan mutasi rekening" required /></label></div>
+    <div className="form-grid"><label><span>Saldo aktual</span><input value={formatMoneyInput(actualBalance)} onChange={(event) => setActualBalance(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required autoFocus /></label><label><span>Tanggal saldo</span><input type="date" value={date} max={today()} onChange={(event) => setDate(event.target.value)} required /></label><label className="full-field"><span>Alasan / catatan</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Contoh: Cocokkan dengan mutasi rekening" required /></label></div>
     <div className={`reconcile-preview ${difference === 0 ? "matched" : ""}`}><Scale size={17} /><span><strong>{direction}</strong><small>Sistem membuat transaksi penyesuaian; saldo akun tidak diedit langsung.</small></span></div>
     <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" disabled={saving || !note.trim()}><Scale size={17} /> {saving ? "Mencocokkan…" : difference === 0 ? "Konfirmasi saldo cocok" : `Buat penyesuaian ${privacy ? "" : formatIDR(Math.abs(difference))}`}</button></div>
   </form></section></div>;
@@ -2592,6 +3483,38 @@ function CategoryModal({ category, saving, onClose, onSubmit }: { category?: Fin
   return <SimpleModal title={category ? "Edit kategori" : "Kategori baru"} kicker="Kategori transaksi" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ name: name.trim(), type, color }, requestId); }}>
     <div className="form-grid"><label><span>Nama kategori</span><input value={name} maxLength={60} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Operasional" required autoFocus /></label><label><span>Jenis</span><select value={type} disabled={category?.isDefault} onChange={(event) => setType(event.target.value as "income" | "expense")}><option value="expense">Pengeluaran</option><option value="income">Pemasukan</option></select><ChevronDown size={15} /></label><label className="color-field"><span>Warna</span><input type="color" value={color} onChange={(event) => setColor(event.target.value)} /><small>{color.toUpperCase()}</small></label></div>
     {category?.isDefault && <div className="ocr-message"><ShieldCheck size={15} />Jenis kategori bawaan dikunci agar histori tetap konsisten.</div>}
+  </SimpleModal>;
+}
+
+function CategoryRuleModal({ rule, categories, saving, onClose, onSubmit }: {
+  rule?: CategoryRule;
+  categories: FinanceCategory[];
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (payload: Omit<CategoryRule, "id" | "createdAt" | "updatedAt">) => Promise<void>;
+}) {
+  const [keyword, setKeyword] = useState(rule?.keyword ?? "");
+  const [transactionType, setTransactionType] = useState<"expense" | "income">(rule?.transactionType ?? "expense");
+  const availableCategories = categories.filter((category) => category.active && category.type === transactionType);
+  const [category, setCategory] = useState(rule?.category ?? "");
+  const [matchType, setMatchType] = useState<CategoryRule["matchType"]>(rule?.matchType ?? "contains");
+  const [priority, setPriority] = useState(String(rule?.priority ?? 100));
+  const [active, setActive] = useState(rule?.active ?? true);
+  const selectedCategory = availableCategories.some((item) => item.name === category) ? category : availableCategories[0]?.name ?? "";
+  return <SimpleModal title={rule ? "Edit aturan kategori" : "Aturan kategori baru"} kicker="Otomatisasi impor CSV" saving={saving} onClose={onClose} onSubmit={(event) => {
+    event.preventDefault();
+    return onSubmit({ keyword: keyword.trim(), category: selectedCategory, transactionType, matchType, priority: Number(priority || 100), active });
+  }}>
+    <div className="category-rule-example"><Sparkles size={17} /><span>Jika deskripsi transaksi cocok dengan <strong>{keyword.trim() || "kata kunci"}</strong>, gunakan kategori <strong>{selectedCategory || "yang dipilih"}</strong>.</span></div>
+    <div className="form-grid">
+      <label><span>Kata kunci merchant / keterangan</span><input value={keyword} minLength={2} maxLength={80} onChange={(event) => setKeyword(event.target.value)} placeholder="Contoh: Indomaret" required autoFocus /></label>
+      <label><span>Jenis transaksi</span><select value={transactionType} onChange={(event) => { setTransactionType(event.target.value as "expense" | "income"); setCategory(""); }}><option value="expense">Pengeluaran</option><option value="income">Pemasukan</option></select><ChevronDown size={15} /></label>
+      <label><span>Kategori tujuan</span><select value={selectedCategory} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{availableCategories.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select><ChevronDown size={15} /></label>
+      <label><span>Cara mencocokkan</span><select value={matchType} onChange={(event) => setMatchType(event.target.value as CategoryRule["matchType"])}><option value="contains">Mengandung kata kunci</option><option value="starts_with">Diawali kata kunci</option><option value="exact">Sama persis</option></select><ChevronDown size={15} /></label>
+      <label><span>Prioritas</span><input value={priority} onChange={(event) => setPriority(event.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" min="0" max="1000" required /><small>Angka lebih besar dijalankan lebih dulu.</small></label>
+      <label className="category-rule-active"><span>Status aturan</span><button type="button" className={`switch ${active ? "on" : ""}`} onClick={() => setActive(!active)} aria-pressed={active}><span /></button><small>{active ? "Aktif saat impor" : "Disimpan tetapi tidak dijalankan"}</small></label>
+    </div>
+    {!availableCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori {transactionType === "income" ? "pemasukan" : "pengeluaran"} terlebih dahulu.</div>}
   </SimpleModal>;
 }
 

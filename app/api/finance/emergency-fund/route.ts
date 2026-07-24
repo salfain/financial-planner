@@ -2,6 +2,7 @@ import { getD1 } from "@/db";
 import { DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "@/lib/emergency-fund";
 import { auditStatement } from "../../_lib/audit";
 import { ApiError, nowIso, readJsonObject, requiredString, resolveWorkspaceId, routeError } from "../../_lib/api";
+import { requireCapability } from "../../_lib/license";
 import { requireWorkspace } from "../../_lib/repository";
 
 type Row = Omit<EmergencyFundSettings, "accountIds"> & { accountIdsJson: string };
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const payload = await readJsonObject(request); const workspaceId = resolveWorkspaceId(request, payload); await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "planning");
     const requestId = requiredString(payload, "requestId", 120); const next = parseSettings(payload); const d1 = getD1();
     const replay = await d1.prepare("SELECT action FROM audit_logs WHERE workspace_id = ? AND request_id = ? ORDER BY created_at, id LIMIT 1").bind(workspaceId, requestId).first<{ action: string }>();
     if (replay) { if (replay.action !== "emergency_fund.settings.update") throw new ApiError(409, "REQUEST_ID_REUSED", "requestId sudah digunakan oleh operasi lain."); return Response.json(parseRow(await d1.prepare(selectSql).bind(workspaceId).first<Row>())); }

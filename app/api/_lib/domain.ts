@@ -112,6 +112,30 @@ export type GoalInput = {
   icon: string;
 };
 
+export const SINKING_FUND_PURPOSES = [
+  "Kendaraan",
+  "Pajak",
+  "Liburan",
+  "Pendidikan",
+  "Rumah",
+  "Kesehatan",
+  "Teknologi",
+  "Lainnya",
+] as const;
+
+export type SinkingFundInput = {
+  id: string;
+  name: string;
+  purpose: (typeof SINKING_FUND_PURPOSES)[number];
+  targetAmount: number;
+  currentAmount: number;
+  monthlyContribution: number;
+  targetDate: string;
+  accountId: string;
+  color: string;
+  active: boolean;
+};
+
 export type BillInput = {
   id: string;
   name: string;
@@ -122,6 +146,9 @@ export type BillInput = {
   paid: boolean;
   frequency: "monthly";
   reminderDays: number[];
+  liabilityAccountId: string | null;
+  durationMonths: number | null;
+  paidCount: number;
 };
 
 export type CategoryInput = {
@@ -261,6 +288,26 @@ export function parseGoal(input: Record<string, unknown>, fallbackId?: string): 
   };
 }
 
+export function parseSinkingFund(input: Record<string, unknown>, fallbackId?: string): SinkingFundInput {
+  const targetAmount = positiveInteger(input, "targetAmount");
+  const currentAmount = input.currentAmount === undefined ? 0 : nonnegativeInteger(input, "currentAmount");
+  if (currentAmount > targetAmount) {
+    throw new ApiError(400, "SINKING_FUND_OVERFUNDED", "Alokasi awal tidak boleh melebihi target pos dana.");
+  }
+  return {
+    id: fallbackId ?? (input.id === undefined ? makeId("fund") : validateId(input.id)),
+    name: requiredString(input, "name", 120),
+    purpose: input.purpose === undefined ? "Lainnya" : enumValue(input, "purpose", SINKING_FUND_PURPOSES),
+    targetAmount,
+    currentAmount,
+    monthlyContribution: input.monthlyContribution === undefined ? 0 : nonnegativeInteger(input, "monthlyContribution"),
+    targetDate: isoDate(input, "targetDate"),
+    accountId: validateId(input.accountId, "accountId"),
+    color: input.color === undefined ? "#16876f" : colorValue(input),
+    active: input.active === undefined ? true : booleanValue(input, "active"),
+  };
+}
+
 export function parseBill(input: Record<string, unknown>, fallbackId?: string): BillInput {
   const reminderDays = input.reminderDays === undefined
     ? [7, 3, 1, 0]
@@ -268,6 +315,26 @@ export function parseBill(input: Record<string, unknown>, fallbackId?: string): 
       ? [...new Set(input.reminderDays.map(Number))].filter((value) => Number.isSafeInteger(value) && value >= 0 && value <= 30).sort((a, b) => b - a)
       : [];
   if (!reminderDays.length) throw new ApiError(400, "INVALID_REMINDER_DAYS", "Pilih minimal satu jadwal reminder tagihan.");
+  const rawLiabilityAccountId = input.liabilityAccountId ?? input.liability_account_id;
+  const liabilityAccountId = rawLiabilityAccountId === undefined || rawLiabilityAccountId === null || rawLiabilityAccountId === ""
+    ? null
+    : validateId(rawLiabilityAccountId, "liabilityAccountId");
+  const rawDuration = input.durationMonths ?? input.duration_months;
+  const durationMonths = rawDuration === undefined || rawDuration === null || rawDuration === "" ? null : Number(rawDuration);
+  if (durationMonths !== null && (!Number.isSafeInteger(durationMonths) || durationMonths < 1 || durationMonths > 120)) {
+    throw new ApiError(400, "INVALID_BILL_DURATION", "Durasi cicilan harus antara 1 sampai 120 bulan.");
+  }
+  const rawPaidCount = input.paidCount ?? input.paid_count ?? 0;
+  const paidCount = Number(rawPaidCount);
+  if (!Number.isSafeInteger(paidCount) || paidCount < 0 || paidCount > 120) {
+    throw new ApiError(400, "INVALID_BILL_PAID_COUNT", "Jumlah cicilan yang sudah dibayar harus antara 0 sampai 120.");
+  }
+  if (durationMonths === null && paidCount > 0) {
+    throw new ApiError(400, "BILL_DURATION_REQUIRED", "Isi total tenor sebelum memasukkan cicilan yang sudah dibayar.");
+  }
+  if (durationMonths !== null && paidCount > durationMonths) {
+    throw new ApiError(400, "INVALID_BILL_PAID_COUNT", "Jumlah cicilan yang sudah dibayar tidak boleh melebihi total tenor.");
+  }
   return {
     id: fallbackId ?? (input.id === undefined ? makeId("bill") : validateId(input.id)),
     name: requiredString(input, "name", 120),
@@ -278,6 +345,9 @@ export function parseBill(input: Record<string, unknown>, fallbackId?: string): 
     paid: input.paid === undefined ? false : booleanValue(input, "paid"),
     frequency: input.frequency === undefined ? "monthly" : enumValue(input, "frequency", ["monthly"] as const),
     reminderDays,
+    liabilityAccountId,
+    durationMonths,
+    paidCount,
   };
 }
 

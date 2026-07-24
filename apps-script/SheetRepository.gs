@@ -31,9 +31,24 @@ function rowsAsObjects_(sheetName) {
   const headers = values.shift();
   return values.map(function(row, rowIndex) {
     const result = { _row: rowIndex + 2 };
-    headers.forEach(function(header, index) { result[String(header)] = row[index]; });
+    headers.forEach(function(header, index) {
+      result[String(header)] = sheetCellValue_(header, row[index]);
+    });
     return result;
   });
+}
+
+function sheetCellValue_(header, value) {
+  if (!(value instanceof Date) || isNaN(value.getTime())) return value;
+  const key = String(header || '').trim().toLowerCase();
+  if (key === 'time') return Utilities.formatDate(value, VINN_CONFIG.TIMEZONE, 'HH:mm');
+  if (key === 'month' || key === 'period' || key === 'last_paid_period') {
+    return Utilities.formatDate(value, VINN_CONFIG.TIMEZONE, 'yyyy-MM');
+  }
+  if (key === 'date' || key === 'deadline' || key.endsWith('_date')) {
+    return Utilities.formatDate(value, VINN_CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  }
+  return Utilities.formatDate(value, VINN_CONFIG.TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
 }
 
 function appendObjects_(sheetName, objects) {

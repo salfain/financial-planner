@@ -23,6 +23,20 @@ Paket ini adalah edisi **single-owner**. Setiap pembeli harus memakai Google Spr
 
 Setelah langkah ini, database pembeli adalah Spreadsheet tersebut. Lampiran, laporan, dan backup dibuat di Google Drive pembeli.
 
+## Aktivasi paket
+
+Instalasi baru otomatis memakai paket **Free**. Untuk mengaktifkan Pro atau Premium:
+
+1. Buka **Pengaturan → Paket & lisensi → Kelola**.
+2. Salin **ID instalasi** dan kirimkan kepada penjual.
+3. Tempel kode lisensi yang diberikan penjual, lalu pilih **Aktifkan lisensi**.
+
+Kode lisensi hanya berlaku untuk ID instalasi tersebut. Jangan mengirim private key penjual kepada pembeli. Jika Spreadsheet atau project Apps Script dipindahkan ke instalasi baru, buat kode lisensi baru untuk ID yang baru.
+
+- **Free:** pencatatan keuangan inti.
+- **Pro:** transaksi lanjutan, impor, lampiran, perencanaan, transaksi rutin, laporan PDF, dan backup terjadwal.
+- **Premium:** seluruh fitur Pro ditambah investasi, AI, dan OCR.
+
 ## Checklist sebelum diserahkan
 
 - URL dibuka menggunakan akun pembeli.
@@ -31,7 +45,8 @@ Setelah langkah ini, database pembeli adalah Spreadsheet tersebut. Lampiran, lap
 - Menu **Pengaturan → Penyimpanan utama** menampilkan Google Sheets terhubung.
 - Backup manual berhasil dibuat di Google Drive pembeli.
 - Deployment tidak diatur menjadi publik atau “Anyone”.
-- Penjual tidak menyimpan salinan API key Gemini milik pembeli.
+- Penjual tidak menyimpan salinan API key penyedia AI milik pembeli.
+- Paket yang dibeli tampil benar pada **Pengaturan → Paket & lisensi**.
 
 ## Pembaruan aplikasi
 

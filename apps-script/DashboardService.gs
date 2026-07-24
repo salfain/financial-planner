@@ -19,22 +19,28 @@ function apiGetBootstrap(month) {
     const clientTransactions = allTransactions.filter(function(row) {
       return ['transfer', 'investment_buy'].indexOf(String(row.type)) === -1 || String(row.direction) !== 'in';
     });
+    const investmentTransactions = rowsAsObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX);
     const data = {
       configured: accounts.length > 0,
+      entitlement: licenseStatus_(),
       profile: {
         name: settingValue_('profile_name', 'Pemilik'),
         storeName: String(settingValue_('app_name', VINN_CONFIG.APP_NAME)).toUpperCase() === 'VINN STORE' ? VINN_CONFIG.APP_NAME : settingValue_('app_name', VINN_CONFIG.APP_NAME),
         currency: settingValue_('currency', VINN_CONFIG.CURRENCY),
         timezone: settingValue_('timezone', VINN_CONFIG.TIMEZONE)
       },
+      featurePreferences: featurePreferences_(),
       summary: { income: income, expense: expense, cashflow: income - expense, savingsRate: income ? (income - expense) / income * 100 : 0 },
       accounts: calculatedAccounts,
       budgets: rowsAsObjects_(VINN_CONFIG.SHEETS.BUDGETS).filter(function(row) { return String(row.month) === month; }),
       goals: rowsAsObjects_(VINN_CONFIG.SHEETS.GOALS), bills: rowsAsObjects_(VINN_CONFIG.SHEETS.BILLS),
+      sinkingFunds: rowsAsObjects_(VINN_CONFIG.SHEETS.SINKING_FUNDS).filter(function(row) { return truthy_(row.is_active); }).map(sinkingFundClientRow_),
+      sinkingFundEntries: rowsAsObjects_(VINN_CONFIG.SHEETS.SINKING_FUND_ENTRIES).map(sinkingFundEntryClientRow_).sort(function(a, b) { return String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)); }).slice(0, 200),
       categories: categoryRows_().filter(function(category) { return !category.archived; }),
+      categoryRules: categoryRulesGs_(),
       auditLogs: recentAuditLogs_(20),
-      investmentAssets: investmentAssetClientRows_(),
-      investmentTransactions: rowsAsObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX).map(investmentTransactionClientRow_),
+      investmentAssets: investmentAssetClientRows_(investmentTransactions),
+      investmentTransactions: investmentTransactions.map(investmentTransactionClientRow_),
       transactions: clientTransactions.sort(function(a, b) {
         return String(b.date).localeCompare(String(a.date)) || String(b.created_at).localeCompare(String(a.created_at));
       })

@@ -25,3 +25,18 @@ test("pembuat paket hanya menyalin source dan panduan instalasi", async () => {
   assert.match(builder, /allowedExtensions/);
   assert.doesNotMatch(builder, /\.openai|\.wrangler|\.clasp\.json["']/);
 });
+
+test("paket demo publik memakai runtime minimal read-only", async () => {
+  const [manifestText, main, builder] = await Promise.all([
+    readFile(new URL("apps-script-demo/appsscript.json", root), "utf8"),
+    readFile(new URL("apps-script-demo/Main.gs", root), "utf8"),
+    readFile(new URL("scripts/build-demo-package.mjs", root), "utf8"),
+  ]);
+  const manifest = JSON.parse(manifestText);
+  assert.equal(manifest.webapp.access, "ANYONE_ANONYMOUS");
+  assert.deepEqual(manifest.oauthScopes, ["https://www.googleapis.com/auth/script.storage"]);
+  assert.match(main, /DEMO_READ_ONLY/);
+  assert.match(main, /wa\\\.me\|api\\\.whatsapp\\\.com/);
+  assert.doesNotMatch(builder, /Router\.gs|SetupService\.gs|\.clasp\.json/);
+  assert.match(builder, /containsCustomerData: false/);
+});

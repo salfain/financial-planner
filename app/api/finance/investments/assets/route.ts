@@ -10,6 +10,7 @@ import {
   routeError,
 } from "../../../_lib/api";
 import { parseInvestmentAsset } from "../../../_lib/investment-domain";
+import { requireCapability } from "../../../_lib/license";
 import {
   getAccountRow,
   getInvestmentAssetByRequest,
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
     const payload = await readJsonObject(request);
     workspaceId = resolveWorkspaceId(request, payload);
     await requireWorkspace(workspaceId);
+    await requireCapability(workspaceId, "investments");
     requestId = requiredString(payload, "requestId", 120);
     const replay = await getInvestmentAssetByRequest(workspaceId, requestId);
     if (replay) return Response.json({ asset: serializeInvestmentAsset(replay), replayed: true });

@@ -15,6 +15,8 @@ import {
   validateDeltas,
 } from "../_lib/accounting";
 import { parseTransaction, TRANSACTION_TYPES } from "../_lib/domain";
+import { requireCapability } from "../_lib/license";
+import { assertMonthlyPeriodOpen } from "../_lib/monthly-closing";
 import {
   getTransactionRow,
   requireWorkspace,
@@ -99,6 +101,10 @@ export async function POST(request: Request) {
     await requireWorkspace(workspaceId);
     const hadClientId = payload.id !== undefined;
     const transaction = parseTransaction(payload);
+    await assertMonthlyPeriodOpen(workspaceId, transaction.date);
+    if (transaction.tags.length || transaction.location || transaction.splits.length) {
+      await requireCapability(workspaceId, "advanced_transactions");
+    }
     const explicitKey =
       request.headers.get("Idempotency-Key") ?? optionalString(payload, "idempotencyKey", 200);
     if (
