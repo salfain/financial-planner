@@ -1066,7 +1066,13 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   const wealthMin = Math.min(...wealthValues);
   const wealthMax = Math.max(...wealthValues);
   const wealthSpan = Math.max(1, wealthMax - wealthMin);
-  const wealthPolyline = wealthHistory.map((point, index) => `${20 + index * 76.6},${118 - (point.netWorth - wealthMin) / wealthSpan * 88}`).join(" ");
+  const wealthChartPoints = wealthHistory.map((point, index) => ({
+    ...point,
+    x: 2 + index * (96 / Math.max(1, wealthHistory.length - 1)),
+    y: wealthMax === wealthMin ? 52 : 86 - (point.netWorth - wealthMin) / wealthSpan * 68,
+  }));
+  const wealthPolyline = wealthChartPoints.map((point) => `${point.x},${point.y}`).join(" ");
+  const wealthArea = `2,88 ${wealthPolyline} 98,88`;
   const wealthChange = wealthHistory.at(-1)!.netWorth - wealthHistory[0].netWorth;
 
   return (
@@ -1115,10 +1121,19 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
       </section>
 
       <section className="panel wealth-trend-panel">
-        <div className="card-title-row"><div><span className="card-kicker">Riwayat kekayaan</span><h2>Perkembangan 7 bulan</h2></div><span className={wealthChange >= 0 ? "positive-text" : "negative-text"}>{wealthChange >= 0 ? "+" : ""}{privacy ? "••••" : formatIDR(wealthChange)}</span></div>
+        <div className="card-title-row"><div><span className="card-kicker">Riwayat kekayaan</span><h2>Perkembangan 7 bulan</h2></div><span className={`wealth-trend-change ${wealthChange >= 0 ? "positive-text" : "negative-text"}`}>{wealthChange >= 0 ? "+" : ""}{privacy ? "••••" : formatIDR(wealthChange)}</span></div>
         <div className="wealth-trend-chart">
-          <svg viewBox="0 0 500 145" role="img" aria-label="Grafik perkembangan kekayaan bersih tujuh bulan"><line x1="20" y1="118" x2="480" y2="118"/><polyline points={wealthPolyline} fill="none" stroke="var(--primary)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>{wealthHistory.map((point, index) => <circle key={point.period} cx={20 + index * 76.6} cy={118 - (point.netWorth - wealthMin) / wealthSpan * 88} r="4.5" fill="var(--surface)" stroke="var(--primary)" strokeWidth="3"/>)}</svg>
-          <div>{wealthHistory.map((point) => <span key={point.period}><small>{shortMonth(`${point.period}-01`)}</small><strong>{privacy ? "••••" : formatIDR(point.netWorth, true)}</strong></span>)}</div>
+          <div className="wealth-trend-plot">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Grafik perkembangan kekayaan bersih tujuh bulan">
+              <line x1="2" y1="18" x2="98" y2="18" />
+              <line x1="2" y1="52" x2="98" y2="52" />
+              <line x1="2" y1="86" x2="98" y2="86" />
+              <polygon points={wealthArea} fill="var(--primary-soft)" />
+              <polyline points={wealthPolyline} fill="none" stroke="var(--primary)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            </svg>
+            {wealthChartPoints.map((point) => <i key={point.period} className="wealth-trend-point" style={{ left: `${point.x}%`, top: `${point.y}%` }} aria-hidden="true" />)}
+          </div>
+          <div className="wealth-trend-labels">{wealthHistory.map((point, index) => <span className={index === 0 ? "wealth-label-key wealth-label-start" : index === 3 ? "wealth-label-key wealth-label-middle" : index === wealthHistory.length - 1 ? "wealth-label-key wealth-label-end" : ""} key={point.period}><small>{shortMonth(`${point.period}-01`)}</small><strong>{privacy ? "••••" : formatIDR(point.netWorth, true)}</strong></span>)}</div>
         </div>
       </section>
 

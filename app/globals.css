@@ -789,13 +789,19 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .payment-summary-card strong { font-size: 14px; }
 .bill-payment-tabs { margin-bottom: 14px; }
 .import-preview-table > .duplicate { opacity: .62; background: var(--surface-soft); }
-.wealth-trend-panel { grid-column: 1 / -1; }
-.wealth-trend-chart { min-width: 0; }
-.wealth-trend-chart svg { display: block; width: 100%; height: 165px; overflow: visible; }
-.wealth-trend-chart svg line { stroke: var(--border); stroke-width: 1; }
-.wealth-trend-chart > div { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 8px; }
-.wealth-trend-chart > div span { display: grid; gap: 2px; min-width: 0; text-align: center; }
-.wealth-trend-chart > div strong { overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.wealth-trend-panel { grid-column: 1 / -1; min-width: 0; overflow: hidden; padding: 22px 24px 18px; }
+.wealth-trend-panel .card-title-row { align-items: center; }
+.wealth-trend-change { flex: 0 1 auto; max-width: 48%; overflow: hidden; padding: 5px 9px; border-radius: 999px; background: var(--surface-soft); font-size: 11px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.wealth-trend-chart { min-width: 0; margin-top: 10px; }
+.wealth-trend-plot { position: relative; width: 100%; height: clamp(140px,16vw,195px); }
+.wealth-trend-plot svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: visible; }
+.wealth-trend-plot svg line { stroke: var(--border-soft); stroke-width: .7; vector-effect: non-scaling-stroke; }
+.wealth-trend-plot svg polygon { opacity: .55; }
+.wealth-trend-point { position: absolute; width: 10px; height: 10px; border: 3px solid var(--primary); border-radius: 50%; background: var(--surface); box-shadow: 0 2px 7px color-mix(in srgb,var(--primary) 20%,transparent); transform: translate(-50%,-50%); }
+.wealth-trend-labels { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 8px; margin-top: 5px; }
+.wealth-trend-labels > span { display: grid; gap: 2px; min-width: 0; text-align: center; }
+.wealth-trend-labels small { color: var(--text-faint); font-size: 8px; }
+.wealth-trend-labels strong { overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .notification-delivery-options { display: grid; gap: 8px; }
 .notification-delivery-options .settings-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
 .receivable-list { display: grid; gap: 10px; }
@@ -847,7 +853,18 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .bill-history-note strong { color: var(--text); }
 @media (max-width: 720px) { .budget-row-actions { display: grid; justify-items: end; }.bill-card-actions { grid-column: 2 / 4; width: 100%; }.bill-card-actions .primary-button,.bill-card-actions .secondary-button { flex: 1; }.budget-row-actions .icon-button { display: none; }.installment-groups { padding: 18px 16px; }.installment-group-grid { grid-template-columns: 1fr; }.installment-group-head { grid-template-columns: 40px minmax(0,1fr); }.installment-group-head > span:last-child { grid-column: 2; text-align: left; }.installment-group-items > div { grid-template-columns: minmax(0,1fr) auto; }.installment-item-actions { grid-column: 1 / -1; justify-content: stretch; }.installment-item-actions .primary-button,.installment-item-actions .secondary-button { flex: 1; }.installment-group-footer { align-items: stretch; flex-direction: column; }.installment-footer-actions { grid-auto-flow: row; }.installment-group-footer button { width: 100%; }.bill-card-main > span { flex-wrap: wrap; } }
 @media (max-width: 560px) { .payment-summary-card { grid-template-columns: 1fr; }.bill-payment-tabs { grid-template-columns: 1fr; } }
-@media (max-width: 560px) { .wealth-trend-chart svg { height: 125px; }.wealth-trend-chart > div strong { display: none; }.wealth-trend-chart > div { gap: 2px; } }
+@media (max-width: 560px) {
+  .wealth-trend-panel { padding: 18px 15px 15px; }
+  .wealth-trend-change { max-width: 46%; font-size: 10px; }
+  .wealth-trend-chart { margin-top: 7px; }
+  .wealth-trend-plot { height: 145px; }
+  .wealth-trend-labels { gap: 0; margin-top: 3px; }
+  .wealth-trend-labels > span:not(.wealth-label-key) { display: none; }
+  .wealth-trend-labels .wealth-label-start { grid-column: 1 / span 2; text-align: left; }
+  .wealth-trend-labels .wealth-label-middle { grid-column: 3 / span 3; text-align: center; }
+  .wealth-trend-labels .wealth-label-end { grid-column: 6 / span 2; text-align: right; }
+  .wealth-trend-labels strong { font-size: 9px; }
+}
 @media (max-width: 720px) { .receivable-list article { grid-template-columns: auto minmax(0,1fr); }.receivable-list article > span:nth-child(3),.receivable-actions { grid-column: 2; }.receivable-actions { grid-auto-flow: row; }.receivable-actions button { width: 100%; } }
 @media (max-width: 720px) { .update-version-grid { grid-template-columns: 1fr 1fr; }.update-version-grid button { grid-column: 1 / -1; } }
 
