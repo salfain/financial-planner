@@ -71,7 +71,7 @@ import { addMonthsToPeriod, compareDebtStrategies, DEFAULT_DEBT_SETTINGS, simula
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "../lib/cashflow-forecast";
 import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "../lib/emergency-fund";
 import { buildRecurringOverview, type RecurringTemplate } from "../lib/recurring";
-import { addCalendarDays, buildFinancialCalendarEvents, calendarMonthRange, financialCalendarWindow, type FinancialCalendarEvent } from "../lib/financial-calendar";
+import { addCalendarDays, buildFinancialCalendarEvents, calendarBillsForActiveAccounts, calendarMonthRange, financialCalendarWindow, type FinancialCalendarEvent } from "../lib/financial-calendar";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
@@ -1886,13 +1886,14 @@ function FinancialCalendarPage({ accounts, bills, goals, privacy, initialMonth }
   const ninetyDayEnd = addCalendarDays(today(), 90);
   const eventStart = monthRange.startDate < today() ? monthRange.startDate : today();
   const eventEnd = monthRange.endDate > ninetyDayEnd ? monthRange.endDate : ninetyDayEnd;
+  const calendarBills = useMemo(() => calendarBillsForActiveAccounts(bills, accounts.map((account) => account.id)), [bills, accounts]);
   const events = useMemo(() => buildFinancialCalendarEvents({
-    bills,
+    bills: calendarBills,
     goals,
     recurringTemplates: templates,
     fromDate: eventStart,
     throughDate: eventEnd,
-  }), [bills, goals, templates, eventStart, eventEnd]);
+  }), [calendarBills, goals, templates, eventStart, eventEnd]);
   const eventsByDate = useMemo(() => {
     const index = new Map<string, FinancialCalendarEvent[]>();
     events.forEach((event) => index.set(event.date, [...(index.get(event.date) ?? []), event]));

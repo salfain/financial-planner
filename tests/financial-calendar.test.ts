@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildFinancialCalendarEvents,
+  calendarBillsForActiveAccounts,
   calendarMonthRange,
   financialCalendarWindow,
 } from "../lib/financial-calendar";
@@ -122,4 +123,52 @@ test("kalender hanya membuat tujuh jadwal tersisa untuk cicilan 2 dari 9", () =>
   });
   assert.equal(events.filter((event) => event.kind === "installment").length, 7);
   assert.equal(events.at(-1)?.date, "2027-01-23");
+});
+
+test("kalender menyembunyikan cicilan lama yang akun utangnya sudah tidak aktif", () => {
+  const bills = [
+    {
+      id: "legacy-motor",
+      name: "Cicilan Motor",
+      amount: 1_780_000,
+      dueDate: "2026-08-01",
+      category: "Kewajiban",
+      accountId: "bank",
+      liabilityAccountId: "loan-lama",
+      paid: false,
+      durationMonths: 24,
+      paidCount: 2,
+      remainingMonths: 22,
+    },
+    {
+      id: "motor-nmax",
+      name: "MOTOR NMAX",
+      amount: 1_752_000,
+      dueDate: "2026-08-01",
+      category: "Kewajiban",
+      accountId: "bank",
+      liabilityAccountId: "baf-motor",
+      paid: false,
+      durationMonths: 24,
+      paidCount: 2,
+      remainingMonths: 22,
+    },
+    {
+      id: "internet",
+      name: "Internet",
+      amount: 350_000,
+      dueDate: "2026-08-05",
+      category: "Tagihan",
+      accountId: "bank",
+      liabilityAccountId: null,
+      paid: false,
+      durationMonths: null,
+      paidCount: 0,
+      remainingMonths: null,
+    },
+  ];
+
+  const visible = calendarBillsForActiveAccounts(bills, ["bank", "baf-motor"]);
+
+  assert.deepEqual(visible.map((bill) => bill.id), ["motor-nmax", "internet"]);
 });

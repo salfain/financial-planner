@@ -48,6 +48,11 @@ export function addCalendarMonths(date: string, months: number) {
   return dateKey(value);
 }
 
+export function calendarBillsForActiveAccounts(bills: Bill[], activeAccountIds: string[]) {
+  const activeAccounts = new Set(activeAccountIds.map(String));
+  return bills.filter((bill) => !bill.liabilityAccountId || activeAccounts.has(String(bill.liabilityAccountId)));
+}
+
 export function buildFinancialCalendarEvents(input: {
   bills: Bill[];
   goals: Goal[];
