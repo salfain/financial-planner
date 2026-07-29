@@ -182,13 +182,17 @@ function apiListTransactions(params) {
     params = params || {};
     const page = Math.max(1, Number(params.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(params.pageSize) || 25));
+    const query = String(params.query || '').trim().toLowerCase();
+    const accountsById = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).reduce(function(result, account) {
+      result[String(account.id)] = account;
+      return result;
+    }, {});
     const rows = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS)
       .filter(function(row) { return !row.deleted_at; })
       .filter(function(row) { return !params.month || String(row.date).slice(0, 7) === params.month; })
       .filter(function(row) {
-        const query = String(params.query || '').trim().toLowerCase();
         const client = transactionClientRow_(row);
-        const account = findById_(VINN_CONFIG.SHEETS.ACCOUNTS, row.account_id);
+        const account = accountsById[String(row.account_id)];
         const search = [client.title, client.category, client.notes, client.location, client.tags.join(' '), account && account.name].join(' ').toLowerCase();
         const typeMatch = !params.type || params.type === 'all' || String(params.type) === String(row.type) || (params.type === 'adjustment' && ['adjustment_in', 'adjustment_out'].indexOf(String(row.type)) !== -1);
         const categoryMatch = !params.category || String(row.category) === String(params.category) || client.splits.some(function(split) { return String(split.category) === String(params.category); });

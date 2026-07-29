@@ -172,7 +172,6 @@ import {
   loadFinanceReports,
   loadFinanceSecurity,
   loadFinanceSnapshot,
-  loadFinanceTransactions,
   loadFinanceAiMessages,
   loadFinanceMonthlyClosing,
   markFinanceBillPaid,
@@ -221,6 +220,7 @@ import {
 import { freeEntitlement, type PlanCapability, type PlanEntitlement } from "../lib/plans";
 import { FINANCE_SCHEMA_VERSION } from "../lib/schema-version";
 import { customerReadiness } from "../lib/customer-readiness";
+import { searchTransactions } from "../lib/transaction-search";
 
 type PageKey =
   | "dashboard"
@@ -1297,18 +1297,28 @@ function TransactionsPage({ transactions, accounts, categories, privacy, month, 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
-  const [listing, setListing] = useState({ transactions: transactions.slice(0, 20), page: 1, pageSize: 20, total: transactions.length, totalPages: Math.max(1, Math.ceil(transactions.length / 20)) });
-  const [listingLoading, setListingLoading] = useState(false);
-  const [listingError, setListingError] = useState("");
+  const pageSize = 20;
+  const filteredTransactions = useMemo(() => searchTransactions(transactions, accounts, {
+    query,
+    type: filter,
+    category: categoryFilter,
+    accountId: accountFilter,
+    status: statusFilter,
+    dateFrom,
+    dateTo,
+  }), [transactions, accounts, query, filter, categoryFilter, accountFilter, statusFilter, dateFrom, dateTo]);
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
+  const activeListingPage = Math.min(page, totalPages);
+  const listing = {
+    transactions: filteredTransactions.slice((activeListingPage - 1) * pageSize, activeListingPage * pageSize),
+    page: activeListingPage,
+    pageSize,
+    total: filteredTransactions.length,
+    totalPages,
+  };
   useEffect(() => {
-    let active = true;
-    queueMicrotask(() => { if (active) setListingLoading(true); });
-    loadFinanceTransactions({ page, pageSize: 20, query, type: filter === "all" ? "" : filter, category: categoryFilter, accountId: accountFilter, status: statusFilter, dateFrom, dateTo })
-      .then((result) => { if (active) { if (page > result.totalPages) setPage(result.totalPages); else setListing(result); setListingError(""); } })
-      .catch((reason) => { if (active) setListingError(reason instanceof Error ? reason.message : "Daftar transaksi tidak dapat dimuat."); })
-      .finally(() => { if (active) setListingLoading(false); });
-    return () => { active = false; };
-  }, [page, query, filter, categoryFilter, accountFilter, statusFilter, dateFrom, dateTo, transactions]);
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   const monthTransactions = transactions.filter((item) => item.date.startsWith(month));
   const monthlyTotals = monthlySummary(monthTransactions, month);
   const updateFilter = (setter: (value: string) => void, value: string) => { setter(value); setPage(1); };
@@ -1332,9 +1342,8 @@ function TransactionsPage({ transactions, accounts, categories, privacy, month, 
         <label><span>Dari</span><input type="date" value={dateFrom} onChange={(event) => updateFilter(setDateFrom, event.target.value)} /></label>
         <label><span>Sampai</span><input type="date" min={dateFrom || undefined} value={dateTo} onChange={(event) => updateFilter(setDateTo, event.target.value)} /></label>
       </div>
-      {listingError && <div className="ocr-message"><Database size={15} />{listingError}</div>}
-      {listing.transactions.length > 0 ? <TransactionTable transactions={listing.transactions} accounts={accounts} privacy={privacy} onEdit={onEdit} onDuplicate={onDuplicate} onDelete={onDelete} /> : !listingLoading && <div className="empty-state"><Search size={28} /><h3>Transaksi tidak ditemukan</h3><p>Coba gunakan kata kunci atau filter yang berbeda.</p></div>}
-      <div className="transaction-pagination"><span>{listingLoading ? "Memuat..." : `${listing.total} transaksi · halaman ${listing.page} dari ${listing.totalPages}`}</span><div><button className="secondary-button" disabled={listingLoading || listing.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Sebelumnya</button><button className="secondary-button" disabled={listingLoading || listing.page >= listing.totalPages} onClick={() => setPage((value) => value + 1)}>Berikutnya</button></div></div>
+      {listing.transactions.length > 0 ? <TransactionTable transactions={listing.transactions} accounts={accounts} privacy={privacy} onEdit={onEdit} onDuplicate={onDuplicate} onDelete={onDelete} /> : <div className="empty-state"><Search size={28} /><h3>Transaksi tidak ditemukan</h3><p>Coba gunakan kata kunci atau filter yang berbeda.</p></div>}
+      <div className="transaction-pagination"><span>{`${listing.total} transaksi · halaman ${listing.page} dari ${listing.totalPages}`}</span><div><button className="secondary-button" disabled={listing.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Sebelumnya</button><button className="secondary-button" disabled={listing.page >= listing.totalPages} onClick={() => setPage((value) => value + 1)}>Berikutnya</button></div></div>
     </section>
   </div>;
 }
