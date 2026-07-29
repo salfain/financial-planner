@@ -123,6 +123,7 @@ import {
   recomputeAccountBalances,
 } from "../lib/finance";
 import {
+  FinanceDiagnostics,
   FinanceProfile,
   FinanceSecurityStatus,
   LoanDrawdownInput,
@@ -135,6 +136,7 @@ import {
   contributeFinanceGoal,
   adjustFinanceSinkingFund,
   archiveFinanceSinkingFund,
+  cacheFinanceSnapshot,
   createFinanceAccount,
   createFinanceBackup,
   createFinanceBill,
@@ -163,6 +165,7 @@ import {
   loadFinanceNotifications,
   loadFinanceRoadmapSettings,
   loadFinanceDebtPlanner,
+  loadFinanceDiagnostics,
   loadFinanceCashflowForecastSettings,
   loadFinanceEmergencyFundSettings,
   loadFinanceRecurringTemplates,
@@ -177,6 +180,7 @@ import {
   importFinanceAccounts,
   isFinanceMutationCommittedError,
   reconcileFinanceAccount,
+  readCachedFinanceSnapshot,
   repairFinanceLedger,
   setupFinanceWorkspace,
   scanFinanceReceipt,
@@ -216,6 +220,7 @@ import {
 } from "../lib/finance-client";
 import { freeEntitlement, type PlanCapability, type PlanEntitlement } from "../lib/plans";
 import { FINANCE_SCHEMA_VERSION } from "../lib/schema-version";
+import { customerReadiness } from "../lib/customer-readiness";
 
 type PageKey =
   | "dashboard"
@@ -443,6 +448,9 @@ export function FinanceApp() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncDurationMs, setSyncDurationMs] = useState<number | null>(null);
+  const [usingCachedData, setUsingCachedData] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -500,8 +508,13 @@ export function FinanceApp() {
   };
 
   const refreshData = async () => {
+    const startedAt = performance.now();
     const snapshot = await loadFinanceSnapshot(month);
     applySnapshot(snapshot);
+    cacheFinanceSnapshot(month, snapshot, window.sessionStorage);
+    setLastSyncedAt(new Date().toISOString());
+    setSyncDurationMs(Math.round(performance.now() - startedAt));
+    setUsingCachedData(false);
     loadFinanceNotifications(month).then(setNotificationOverview).catch(() => undefined);
   };
 
@@ -512,19 +525,33 @@ export function FinanceApp() {
   };
 
   useEffect(() => {
+    let active = true;
     const themeTimer = window.setTimeout(() => {
       setDarkMode(window.localStorage.getItem("vinn-store-theme") === "dark");
       setHydrated(true);
     }, 0);
+    const cached = readCachedFinanceSnapshot(month, window.sessionStorage);
+    if (cached) {
+      applySnapshot(cached.snapshot);
+      setLastSyncedAt(cached.cachedAt);
+      setUsingCachedData(true);
+      setLoading(false);
+    }
+    const startedAt = performance.now();
     loadFinanceSnapshot(month)
       .then((snapshot) => {
+        if (!active) return;
         applySnapshot(snapshot);
+        cacheFinanceSnapshot(month, snapshot, window.sessionStorage);
+        setLastSyncedAt(new Date().toISOString());
+        setSyncDurationMs(Math.round(performance.now() - startedAt));
+        setUsingCachedData(false);
         setDataError(null);
       })
-      .catch((error) => setDataError(error instanceof Error ? error.message : "Data keuangan tidak dapat dimuat."))
-      .finally(() => setLoading(false));
+      .catch((error) => active && setDataError(error instanceof Error ? error.message : "Data keuangan tidak dapat dimuat."))
+      .finally(() => active && setLoading(false));
     loadFinanceNotifications(month).then(setNotificationOverview).catch(() => undefined);
-    return () => window.clearTimeout(themeTimer);
+    return () => { active = false; window.clearTimeout(themeTimer); };
   }, [month]);
 
   useEffect(() => {
@@ -870,6 +897,9 @@ export function FinanceApp() {
     try {
       const snapshot = await setupFinanceWorkspace(input, month);
       applySnapshot(snapshot);
+      cacheFinanceSnapshot(month, snapshot, window.sessionStorage);
+      setLastSyncedAt(new Date().toISOString());
+      setUsingCachedData(false);
       setDataError(null);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Setup tidak dapat diselesaikan.");
@@ -987,7 +1017,7 @@ export function FinanceApp() {
           {activePage === "review" && <MonthlyReviewPage period={month} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
-          {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} schemaVersion={schemaVersion} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} />}
+          {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} schemaVersion={schemaVersion} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} onNavigate={selectPage} />}
         </div>
       </main>
 
@@ -1104,6 +1134,11 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
 
   return (
     <div className="dashboard-grid">
+      {transactions.length === 0 && <section className="onboarding-banner">
+        <span><Sparkles size={20} /></span>
+        <div><small>Langkah berikutnya</small><strong>Catat transaksi pertama</strong><p>Saldo awal sudah siap. Tambahkan pemasukan atau pengeluaran agar ringkasan, anggaran, dan analisis mulai bekerja.</p></div>
+        <button className="primary-button" onClick={onAdd}><Plus size={17} /> Tambah transaksi</button>
+      </section>}
       <section className="hero-card">
         <div className="hero-copy">
           <span className="card-kicker"><span className="live-dot" /> Kekayaan bersih</span>
@@ -2591,9 +2626,93 @@ function UpdateCenterPanel({ schemaVersion, backendLabel, onRefresh, onToast }: 
   return <section className="panel settings-section settings-wide update-center-panel"><div className="settings-title"><span><Download size={20}/></span><div><h2>Pusat instalasi & pembaruan</h2><p>Memeriksa kelengkapan struktur data tanpa menghapus saldo atau riwayat.</p></div><span className={`connection-status ${current ? "" : "warning"}`}><i/>{current ? "Versi terbaru" : "Perlu diperiksa"}</span></div><div className="update-version-grid"><span><small>Versi aplikasi</small><strong>{FINANCE_SCHEMA_VERSION}</strong></span><span><small>Versi penyimpanan</small><strong>{schemaVersion}</strong></span><span><small>Backend</small><strong>{backendLabel}</strong></span><button className="primary-button" onClick={update} disabled={working}><ShieldCheck size={15}/>{working ? "Memeriksa…" : "Periksa & perbarui"}</button></div><small>Pembaruan aman dijalankan ulang. Pada Google Sheets, kolom atau sheet yang belum ada akan ditambahkan otomatis.</small></section>;
 }
 
-function SettingsPage({ profile, entitlement, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, schemaVersion, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh }: {
+function LicenseCenterPanel({ entitlement, onOpenLicense, onToast }: { entitlement: PlanEntitlement; onOpenLicense: () => void; onToast: (message: string) => void }) {
+  const capabilityLabels: Array<[PlanCapability, string]> = [
+    ["advanced_transactions", "Transaksi lanjutan"],
+    ["planning", "Perencanaan"],
+    ["pdf_reports", "Laporan PDF"],
+    ["ai", "AI & OCR"],
+  ];
+  const copyInstallation = async () => {
+    await navigator.clipboard.writeText(entitlement.installationId);
+    onToast("ID instalasi berhasil disalin.");
+  };
+  const statusLabel = entitlement.status === "active" ? "Aktif" : entitlement.status === "expired" ? "Kedaluwarsa" : entitlement.status === "invalid" ? "Perlu kode baru" : "Free aktif";
+  return <section className="panel settings-section settings-wide license-summary-panel license-center-panel">
+    <div className="settings-title"><span><KeyRound size={20} /></span><div><small className="card-kicker">Paket & lisensi</small><h2>Pusat lisensi</h2><p>Status paket, identitas instalasi, dan akses fitur pelanggan dalam satu tempat.</p></div><b className={`plan-badge ${entitlement.tier}`}>{entitlement.label}</b></div>
+    <div className="license-center-overview">
+      <div className="license-center-current"><span><ShieldCheck size={22}/></span><div><small>Status lisensi</small><strong>{statusLabel}</strong><p>{entitlement.expiresAt ? `Berlaku sampai ${new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(new Date(entitlement.expiresAt))}` : entitlement.status === "active" ? "Lisensi jual-putus tanpa tanggal berakhir." : "Fitur inti tetap tersedia pada paket Free."}</p></div></div>
+      <div className="license-center-installation"><small>ID instalasi pelanggan</small><code>{entitlement.installationId}</code><button className="secondary-button" onClick={() => void copyInstallation()}><Copy size={15}/> Salin ID</button></div>
+    </div>
+    <div className="license-capability-grid">{capabilityLabels.map(([capability, label]) => <span className={entitlement.capabilities[capability] ? "enabled" : "locked"} key={capability}>{entitlement.capabilities[capability] ? <CheckCircle2 size={15}/> : <LockKeyhole size={15}/>}<span><strong>{label}</strong><small>{entitlement.capabilities[capability] ? "Termasuk paket" : capability === "ai" ? "Premium" : "Pro"}</small></span></span>)}</div>
+    <div className="license-center-actions"><button className="primary-button" onClick={onOpenLicense}><KeyRound size={16}/> Kelola lisensi</button><small>Premium otomatis mencakup seluruh fitur Pro. Kode hanya berlaku untuk ID instalasi di atas.</small></div>
+  </section>;
+}
+
+function CustomerReadinessPanel({ configured, accounts, transactions, bills, goals, entitlement, schemaVersion, backendLabel, month, lastSyncedAt, syncDurationMs, usingCachedData, onNavigate, onToast }: {
+  configured: boolean; accounts: Account[]; transactions: Transaction[]; bills: Bill[]; goals: Goal[]; entitlement: PlanEntitlement; schemaVersion: string; backendLabel: string; month: string;
+  lastSyncedAt: string | null; syncDurationMs: number | null; usingCachedData: boolean; onNavigate: (page: PageKey) => void; onToast: (message: string) => void;
+}) {
+  const [diagnostics, setDiagnostics] = useState<FinanceDiagnostics | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
+  const readiness = customerReadiness({ configured, schemaCurrent: schemaVersion === FINANCE_SCHEMA_VERSION, accountCount: accounts.length, transactionCount: transactions.length, entitlement });
+  const runDiagnostics = async () => {
+    setChecking(true); setError("");
+    try {
+      const report = await loadFinanceDiagnostics(month);
+      setDiagnostics(report);
+      onToast(report.overall === "healthy" ? "Semua pemeriksaan sistem lulus." : "Pemeriksaan selesai; ada bagian yang perlu perhatian.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Diagnostik tidak dapat diselesaikan."); }
+    finally { setChecking(false); }
+  };
+  const copyReport = async () => {
+    if (!diagnostics) return;
+    await navigator.clipboard.writeText(JSON.stringify({
+      application: "Financial Planner",
+      checkedAt: diagnostics.checkedAt,
+      backend: diagnostics.backend,
+      status: diagnostics.overall,
+      schema: `${diagnostics.schemaVersion}/${diagnostics.expectedSchemaVersion}`,
+      structureIssues: diagnostics.structureIssues,
+      ledgerStatus: diagnostics.ledgerStatus,
+      accessState: diagnostics.accessState,
+      license: `${diagnostics.licenseTier}:${diagnostics.licenseStatus}`,
+      counts: diagnostics.counts,
+    }, null, 2));
+    onToast("Laporan diagnostik berhasil disalin tanpa nominal keuangan.");
+  };
+  return <section className="panel settings-section settings-wide customer-readiness-panel">
+    <div className="settings-title"><span><Activity size={20}/></span><div><h2>Onboarding & diagnostik</h2><p>Pelanggan dapat memeriksa kesiapan instalasi dan menyalin laporan bantuan tanpa membuka data sensitif.</p></div><span className={`readiness-score ${readiness.ready ? "ready" : ""}`}>{readiness.completed}/{readiness.total} siap</span></div>
+    <div className="readiness-progress"><i style={{ width: `${readiness.percent}%` }}/></div>
+    <div className="customer-data-counts"><span><small>Akun</small><strong>{accounts.length}</strong></span><span><small>Transaksi</small><strong>{transactions.length}</strong></span><span><small>Tagihan</small><strong>{bills.length}</strong></span><span><small>Target</small><strong>{goals.length}</strong></span></div>
+    <div className="customer-care-layout">
+      <div className="readiness-checklist">{readiness.steps.map((step) => <div className={step.done ? "done" : "pending"} key={step.key}>{step.done ? <CheckCircle2 size={17}/> : <Clock3 size={17}/>}<span><strong>{step.label}</strong><small>{step.detail}</small></span></div>)}</div>
+      <div className="diagnostic-console">
+        <div className="diagnostic-summary"><span><Database size={18}/></span><span><small>Status sinkronisasi</small><strong>{usingCachedData ? "Menampilkan cache, menyinkronkan…" : "Data terbaru siap"}</strong><p>{backendLabel} · {lastSyncedAt ? `terakhir ${new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(lastSyncedAt))}` : "belum ada waktu sinkronisasi"}{syncDurationMs !== null ? ` · ${syncDurationMs} ms` : ""}</p></span></div>
+        {diagnostics && <div className={`diagnostic-result ${diagnostics.overall}`}><strong>{diagnostics.overall === "healthy" ? "Sistem sehat" : "Perlu perhatian"}</strong><span>Storage {diagnostics.schemaVersion === diagnostics.expectedSchemaVersion ? "sesuai" : "perlu diperbarui"}</span><span>Ledger {diagnostics.ledgerStatus === "healthy" ? "konsisten" : diagnostics.ledgerStatus}</span><span>{diagnostics.structureIssues.length ? `${diagnostics.structureIssues.length} struktur bermasalah` : "Struktur lengkap"}</span><small>Pemeriksaan selesai dalam {diagnostics.durationMs} ms</small></div>}
+        {error && <div className="portability-error" role="alert">{error}</div>}
+        <div className="diagnostic-actions"><button className="primary-button" onClick={() => void runDiagnostics()} disabled={checking}><Activity size={16}/>{checking ? "Memeriksa…" : "Jalankan diagnostik"}</button>{diagnostics && <button className="secondary-button" onClick={() => void copyReport()}><Copy size={15}/> Salin laporan</button>}</div>
+        {!transactions.length && <button className="text-button" onClick={() => onNavigate("transactions")}>Lanjutkan onboarding: catat transaksi <ArrowRight size={14}/></button>}
+        {!accounts.length && <button className="text-button" onClick={() => onNavigate("accounts")}>Tambahkan akun pertama <ArrowRight size={14}/></button>}
+        <small className="diagnostic-privacy">Laporan bantuan hanya memuat status, versi, dan jumlah data—tanpa saldo, nama transaksi, atau API key.</small>
+      </div>
+    </div>
+  </section>;
+}
+
+function SettingsPage({ profile, entitlement, configured, accounts, transactions, bills, goals, month, lastSyncedAt, syncDurationMs, usingCachedData, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, schemaVersion, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh, onNavigate }: {
   profile: FinanceProfile;
   entitlement: PlanEntitlement;
+  configured: boolean;
+  accounts: Account[];
+  transactions: Transaction[];
+  bills: Bill[];
+  goals: Goal[];
+  month: string;
+  lastSyncedAt: string | null;
+  syncDurationMs: number | null;
+  usingCachedData: boolean;
   onOpenLicense: () => void;
   saving: boolean;
   darkMode: boolean;
@@ -2618,11 +2737,13 @@ function SettingsPage({ profile, entitlement, onOpenLicense, saving, darkMode, s
   onDeleteCategoryRule: (ruleId: string) => void;
   onToast: (message: string) => void;
   onRefresh: () => Promise<void>;
+  onNavigate: (page: PageKey) => void;
 }) {
   const editableCategories = categories.filter((category) => category.active && (category.type === "income" || category.type === "expense"));
   return <div className="settings-layout">
     <OwnerProfilePanel key={profile.name} profile={profile} saving={saving} onSave={onSaveProfile} />
-    <section className="panel settings-section settings-wide license-summary-panel"><div className="settings-title"><span><KeyRound size={20} /></span><div><h2>Paket & lisensi</h2><p>Aktivasi offline terikat ke satu instalasi.</p></div><b className={`plan-badge ${entitlement.tier}`}>{entitlement.label}</b></div><div className="connection-card"><span className="google-mark"><ShieldCheck size={18} /></span><div><strong>{entitlement.status === "active" ? `Paket ${entitlement.label} aktif` : entitlement.status === "expired" ? "Lisensi kedaluwarsa" : entitlement.status === "invalid" ? "Lisensi tidak valid" : "Paket Free aktif"}</strong><small>ID instalasi {entitlement.installationId}</small></div><button className="secondary-button" onClick={onOpenLicense}>Kelola</button></div></section>
+    <LicenseCenterPanel entitlement={entitlement} onOpenLicense={onOpenLicense} onToast={onToast} />
+    <CustomerReadinessPanel configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} entitlement={entitlement} schemaVersion={schemaVersion} backendLabel={backendLabel} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onNavigate={onNavigate} onToast={onToast} />
     <FeaturePreferencesPanel key={JSON.stringify(featurePreferences)} preferences={featurePreferences} saving={saving} onSave={onSaveFeaturePreferences} />
     <SecurityAccessPanel privacy={privacy} />
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
@@ -3241,7 +3362,7 @@ function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | nul
       <div className="setup-benefits"><span><Check size={16} /> Rupiah dan zona waktu Jakarta</span><span><Check size={16} /> Transfer tidak dihitung sebagai pemasukan</span><span><Check size={16} /> Data tersimpan permanen di {financeBackendLabel()}</span></div>
     </section>
     <section className="setup-card">
-      <span className="card-kicker">Langkah 1 dari 1</span><h2>Siapkan workspace</h2><p>Periksa nama workspace dan saldo awal sebelum menyimpan setup.</p>
+      <span className="card-kicker">Langkah 1 dari 2</span><h2>Siapkan workspace</h2><p>Periksa nama workspace dan saldo awal. Setelah tersimpan, lanjutkan dengan transaksi pertama.</p>
       {error && <div className="setup-error"><Database size={17} /><span><strong>Koneksi belum siap</strong><small>{error}</small></span><button type="button" onClick={onRetry}>Coba lagi</button></div>}
       <form onSubmit={submit}>
         <div className="form-grid setup-form">

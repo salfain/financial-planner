@@ -17,6 +17,7 @@ import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 import { freeEntitlement, type PlanCapability, type PlanEntitlement, type PlanTier } from "./plans";
 import { demoRequest, demoSecurityStatus, isFinanceDemoMode } from "./demo-finance";
 import { installmentAmountAt, normalizeInstallmentPhases } from "./installment-phases";
+import { FINANCE_SCHEMA_VERSION } from "./schema-version";
 
 export type FinanceProfile = {
   name: string;
@@ -54,6 +55,21 @@ export type FinanceSnapshot = {
   investmentAssets: InvestmentAsset[];
   investmentTransactions: InvestmentTransaction[];
   featurePreferences: FeaturePreferences;
+};
+
+export type FinanceDiagnostics = {
+  checkedAt: string;
+  durationMs: number;
+  backend: string;
+  overall: "healthy" | "attention";
+  schemaVersion: string;
+  expectedSchemaVersion: string;
+  structureIssues: string[];
+  ledgerStatus: LedgerHealthReport["status"];
+  accessState: FinanceSecurityStatus["sessionState"];
+  licenseTier: PlanTier;
+  licenseStatus: PlanEntitlement["status"];
+  counts: { accounts: number; transactions: number; bills: number; goals: number };
 };
 
 export type SetupWorkspaceInput = {
@@ -487,13 +503,58 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
   };
 }
 
-export async function loadFinanceSnapshot(month: string) {
-  const raw = isFinanceDemoMode()
-    ? demoRequest<unknown>("bootstrap", { month })
-    : hasAppsScriptBridge()
-    ? await callAppsScript<unknown>("bootstrap", { month })
-    : await webRequest<unknown>(`/api/finance/bootstrap?month=${encodeURIComponent(month)}`);
-  return normalizeSnapshot(raw, month);
+const snapshotRequests = new Map<string, Promise<FinanceSnapshot>>();
+const SNAPSHOT_CACHE_TTL_MS = 15 * 60_000;
+
+type SnapshotCacheStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+const snapshotScope = () => isFinanceDemoMode() ? "demo" : hasAppsScriptBridge() ? "gas" : "sites";
+const snapshotCacheKey = (month: string) => `financial-planner:snapshot:${FINANCE_SCHEMA_VERSION}:${snapshotScope()}:${month}`;
+
+export function readCachedFinanceSnapshot(month: string, storage?: SnapshotCacheStorage | null) {
+  if (!storage) return null;
+  const key = snapshotCacheKey(month);
+  try {
+    const parsed = JSON.parse(storage.getItem(key) || "null") as { cachedAt?: string; snapshot?: unknown } | null;
+    const cachedAt = parsed?.cachedAt ? Date.parse(parsed.cachedAt) : NaN;
+    if (!parsed?.snapshot || !Number.isFinite(cachedAt) || Date.now() - cachedAt > SNAPSHOT_CACHE_TTL_MS) {
+      storage.removeItem(key);
+      return null;
+    }
+    return { cachedAt: new Date(cachedAt).toISOString(), snapshot: normalizeSnapshot(parsed.snapshot, month) };
+  } catch {
+    try { storage.removeItem(key); } catch { /* Penyimpanan browser dapat dinonaktifkan. */ }
+    return null;
+  }
+}
+
+export function cacheFinanceSnapshot(month: string, snapshot: FinanceSnapshot, storage?: SnapshotCacheStorage | null) {
+  if (!storage) return;
+  try {
+    storage.setItem(snapshotCacheKey(month), JSON.stringify({ cachedAt: new Date().toISOString(), snapshot }));
+  } catch {
+    // Cache hanya akselerator sementara; kegagalannya tidak boleh mengganggu data utama.
+  }
+}
+
+export function loadFinanceSnapshot(month: string) {
+  const requestKey = `${snapshotScope()}:${month}`;
+  const existing = snapshotRequests.get(requestKey);
+  if (existing) return existing;
+  const request = (async () => {
+    const raw = isFinanceDemoMode()
+      ? demoRequest<unknown>("bootstrap", { month })
+      : hasAppsScriptBridge()
+      ? await callAppsScript<unknown>("bootstrap", { month })
+      : await webRequest<unknown>(`/api/finance/bootstrap?month=${encodeURIComponent(month)}`);
+    return normalizeSnapshot(raw, month);
+  })();
+  snapshotRequests.set(requestKey, request);
+  void request.then(
+    () => snapshotRequests.delete(requestKey),
+    () => snapshotRequests.delete(requestKey),
+  );
+  return request;
 }
 
 function normalizeMonthlyClosing(value: unknown, period: string): MonthlyClosing {
@@ -1110,3 +1171,42 @@ export const loadFinanceSecurity = (): Promise<FinanceSecurityStatus> => isFinan
       signOutUrl: null,
     })
   : webRequest<FinanceSecurityStatus>("/api/finance/access-status");
+
+export async function loadFinanceDiagnostics(month: string): Promise<FinanceDiagnostics> {
+  const startedAt = Date.now();
+  const healthRequest = hasAppsScriptBridge() && !isFinanceDemoMode()
+    ? callAppsScript<{ sheets?: Array<{ sheet?: string; status?: string }> }>("health", {})
+    : Promise.resolve({ sheets: [] });
+  const [snapshot, security, ledger, health] = await Promise.all([
+    loadFinanceSnapshot(month),
+    loadFinanceSecurity(),
+    loadFinanceLedgerHealth(),
+    healthRequest,
+  ]);
+  const structureIssues = (health.sheets ?? [])
+    .filter((item) => item.status !== "healthy")
+    .map((item) => `${item.sheet || "Struktur data"}: ${item.status || "bermasalah"}`);
+  const schemaHealthy = snapshot.schemaVersion === FINANCE_SCHEMA_VERSION;
+  const overall = schemaHealthy && !structureIssues.length && ledger.status === "healthy"
+    ? "healthy"
+    : "attention";
+  return {
+    checkedAt: new Date().toISOString(),
+    durationMs: Date.now() - startedAt,
+    backend: financeBackendLabel(),
+    overall,
+    schemaVersion: snapshot.schemaVersion,
+    expectedSchemaVersion: FINANCE_SCHEMA_VERSION,
+    structureIssues,
+    ledgerStatus: ledger.status,
+    accessState: security.sessionState,
+    licenseTier: snapshot.entitlement.tier,
+    licenseStatus: snapshot.entitlement.status,
+    counts: {
+      accounts: snapshot.accounts.length,
+      transactions: snapshot.transactions.length,
+      bills: snapshot.bills.length,
+      goals: snapshot.goals.length,
+    },
+  };
+}

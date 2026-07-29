@@ -1034,12 +1034,88 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   line-height: 1.45;
 }
 
+.onboarding-banner { grid-column: 1 / -1; display: grid; grid-template-columns: 44px minmax(0,1fr) auto; align-items: center; gap: 14px; padding: 17px 19px; color: var(--text); border: 1px solid color-mix(in srgb,var(--primary) 24%,var(--border)); border-radius: 16px; background: linear-gradient(120deg,var(--primary-soft),var(--surface)); box-shadow: var(--shadow-sm); }
+.onboarding-banner > span { width: 42px; height: 42px; display: grid; place-items: center; color: var(--primary); border-radius: 12px; background: var(--surface); }
+.onboarding-banner > div { min-width: 0; display: grid; gap: 2px; }
+.onboarding-banner small { color: var(--primary); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.onboarding-banner strong { font-size: 15px; }
+.onboarding-banner p { margin: 0; color: var(--text-soft); font-size: 11px; }
+.license-center-panel,.customer-readiness-panel { grid-column: 1 / -1; }
+.license-center-overview { display: grid; grid-template-columns: minmax(0,1fr) minmax(300px,.7fr); gap: 12px; padding-top: 17px; }
+.license-center-current,.license-center-installation { min-width: 0; display: grid; align-items: center; padding: 15px; border: 1px solid var(--border-soft); border-radius: 13px; background: var(--surface-soft); }
+.license-center-current { grid-template-columns: 42px minmax(0,1fr); gap: 11px; }
+.license-center-current > span { width: 42px; height: 42px; display: grid; place-items: center; color: var(--primary); border-radius: 11px; background: var(--surface); }
+.license-center-current > div,.license-center-installation { gap: 3px; }
+.license-center-current small,.license-center-installation small { color: var(--text-faint); font-size: 10px; }
+.license-center-current strong { font-size: 14px; }
+.license-center-current p,.license-center-installation code { margin: 0; color: var(--text-soft); font-size: 11px; overflow-wrap: anywhere; }
+.license-center-installation { grid-template-columns: minmax(0,1fr) auto; gap: 7px 12px; }
+.license-center-installation small { grid-column: 1 / -1; }
+.license-center-installation code { font-family: ui-monospace,SFMono-Regular,Consolas,monospace; }
+.license-capability-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; padding-top: 12px; }
+.license-capability-grid > span { min-width: 0; display: grid; grid-template-columns: 30px minmax(0,1fr); align-items: center; gap: 8px; padding: 11px; border: 1px solid var(--border-soft); border-radius: 11px; background: var(--surface); }
+.license-capability-grid > span > svg { width: 29px; height: 29px; padding: 7px; border-radius: 9px; }
+.license-capability-grid > span.enabled > svg { color: var(--positive); background: color-mix(in srgb,var(--positive) 10%,var(--surface)); }
+.license-capability-grid > span.locked { color: var(--text-faint); background: var(--surface-soft); }
+.license-capability-grid > span.locked > svg { background: var(--surface-strong); }
+.license-capability-grid > span > span { min-width: 0; display: grid; }
+.license-capability-grid strong { font-size: 10px; overflow-wrap: anywhere; }
+.license-capability-grid small { color: var(--text-faint); font-size: 9px; }
+.license-center-actions { display: flex; align-items: center; gap: 12px; padding-top: 14px; }
+.license-center-actions small { color: var(--text-faint); font-size: 10px; line-height: 1.5; }
+.readiness-score { margin-left: auto; padding: 6px 9px; color: var(--warning); border-radius: 999px; background: color-mix(in srgb,var(--warning) 10%,var(--surface)); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.readiness-score.ready { color: var(--positive); background: color-mix(in srgb,var(--positive) 10%,var(--surface)); }
+.readiness-progress { height: 7px; margin-top: 16px; overflow: hidden; border-radius: 999px; background: var(--surface-strong); }
+.readiness-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--primary),var(--positive)); transition: width .25s ease; }
+.customer-data-counts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-top: 12px; }
+.customer-data-counts > span { display: grid; gap: 2px; padding: 9px 11px; border-radius: 10px; background: var(--surface-soft); }
+.customer-data-counts small { color: var(--text-faint); font-size: 9px; }
+.customer-data-counts strong { font-size: 14px; }
+.customer-care-layout { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: 16px; padding-top: 14px; }
+.readiness-checklist,.diagnostic-console { min-width: 0; display: grid; align-content: start; gap: 8px; }
+.readiness-checklist > div { display: grid; grid-template-columns: 31px minmax(0,1fr); align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--border-soft); border-radius: 11px; }
+.readiness-checklist > div > svg { width: 30px; height: 30px; padding: 7px; border-radius: 9px; }
+.readiness-checklist > div.done > svg { color: var(--positive); background: color-mix(in srgb,var(--positive) 10%,var(--surface)); }
+.readiness-checklist > div.pending > svg { color: var(--warning); background: color-mix(in srgb,var(--warning) 10%,var(--surface)); }
+.readiness-checklist span { min-width: 0; display: grid; gap: 1px; }
+.readiness-checklist strong { font-size: 10px; }
+.readiness-checklist small { color: var(--text-faint); font-size: 9px; line-height: 1.45; }
+.diagnostic-console { padding: 14px; border: 1px solid var(--border-soft); border-radius: 13px; background: var(--surface-soft); }
+.diagnostic-summary { display: grid; grid-template-columns: 37px minmax(0,1fr); align-items: center; gap: 10px; }
+.diagnostic-summary > span:first-child { width: 37px; height: 37px; display: grid; place-items: center; color: var(--primary); border-radius: 10px; background: var(--surface); }
+.diagnostic-summary > span:last-child { min-width: 0; display: grid; }
+.diagnostic-summary small { color: var(--text-faint); font-size: 9px; }
+.diagnostic-summary strong { font-size: 11px; }
+.diagnostic-summary p { margin: 1px 0 0; color: var(--text-soft); font-size: 9px; overflow-wrap: anywhere; }
+.diagnostic-result { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; padding: 11px; border: 1px solid color-mix(in srgb,var(--warning) 30%,var(--border)); border-radius: 10px; background: var(--surface); }
+.diagnostic-result.healthy { border-color: color-mix(in srgb,var(--positive) 30%,var(--border)); }
+.diagnostic-result strong,.diagnostic-result small { grid-column: 1 / -1; }
+.diagnostic-result strong { color: var(--warning); font-size: 11px; }
+.diagnostic-result.healthy strong { color: var(--positive); }
+.diagnostic-result span { color: var(--text-soft); font-size: 9px; }
+.diagnostic-result small,.diagnostic-privacy { color: var(--text-faint); font-size: 8px; line-height: 1.5; }
+.diagnostic-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 3px; }
+.diagnostic-console > .text-button { justify-self: start; }
+
+@media (max-width: 900px) {
+  .license-center-overview,.customer-care-layout { grid-template-columns: 1fr; }
+  .license-capability-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+
 @media (max-width: 720px) {
   .app-shell { font-size: 16px; }
   .app-shell small { font-size: 11px; }
   .app-shell p { font-size: 13px; }
   .app-shell .page-heading h1 { font-size: 26px; }
   .app-shell .page-heading p { font-size: 14px; }
+  .onboarding-banner { grid-template-columns: 40px minmax(0,1fr); }
+  .onboarding-banner > button { grid-column: 1 / -1; width: 100%; justify-content: center; }
+  .license-center-installation { grid-template-columns: 1fr; }
+  .license-center-installation small,.license-center-installation code,.license-center-installation button { grid-column: 1; }
+  .license-center-installation button { width: 100%; justify-content: center; }
+  .license-capability-grid,.customer-data-counts,.diagnostic-result { grid-template-columns: 1fr 1fr; }
+  .license-center-actions { align-items: stretch; flex-direction: column; }
+  .license-center-actions button { width: 100%; justify-content: center; }
   .app-shell .card-title-row h2,
   .app-shell .settings-title h2 { font-size: 18px; }
   .app-shell .primary-button,
