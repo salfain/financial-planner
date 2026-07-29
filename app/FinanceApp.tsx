@@ -62,7 +62,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import type { ReportSection } from "../lib/report";
 import type { LedgerHealthReport } from "../lib/ledger";
@@ -1026,6 +1026,28 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   monthly: ReturnType<typeof monthlySummary>; accountTotals: ReturnType<typeof accountSummary>; healthScore: number;
   onNavigate: (page: PageKey) => void; onAdd: () => void;
 }) {
+  const wealthPlotRef = useRef<HTMLDivElement>(null);
+  const [wealthPlotWidth, setWealthPlotWidth] = useState(700);
+
+  useEffect(() => {
+    const plot = wealthPlotRef.current;
+    if (!plot) return;
+
+    const updateWidth = () => {
+      const nextWidth = Math.max(1, Math.round(plot.getBoundingClientRect().width));
+      setWealthPlotWidth((currentWidth) => currentWidth === nextWidth ? currentWidth : nextWidth);
+    };
+
+    updateWidth();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateWidth);
+    resizeObserver?.observe(plot);
+    window.addEventListener("resize", updateWidth);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateWidth);
+    };
+  }, []);
+
   const visibleBudgets = budgets.length ? budgets : [...new Set(transactions.filter((item) => item.type === "expense").map((item) => item.category))].map((category, index) => ({ id: `category-${index}`, category, limit: 0, color: Object.values(categoryColors)[index % Object.values(categoryColors).length] }));
   const expenseByCategory = visibleBudgets.map((budget) => ({ ...budget, value: budgetSpent(transactions, budget.category, month) }));
   const categoryTotal = expenseByCategory.reduce((sum, item) => sum + item.value, 0);
@@ -1066,13 +1088,16 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   const wealthMin = Math.min(...wealthValues);
   const wealthMax = Math.max(...wealthValues);
   const wealthSpan = Math.max(1, wealthMax - wealthMin);
+  const wealthColumnWidth = wealthPlotWidth / Math.max(1, wealthHistory.length);
   const wealthChartPoints = wealthHistory.map((point, index) => ({
     ...point,
-    x: 2 + index * (96 / Math.max(1, wealthHistory.length - 1)),
+    x: wealthColumnWidth * (index + .5),
     y: wealthMax === wealthMin ? 52 : 86 - (point.netWorth - wealthMin) / wealthSpan * 68,
   }));
   const wealthPolyline = wealthChartPoints.map((point) => `${point.x},${point.y}`).join(" ");
-  const wealthArea = `2,88 ${wealthPolyline} 98,88`;
+  const wealthChartStart = wealthChartPoints[0]?.x ?? 0;
+  const wealthChartEnd = wealthChartPoints.at(-1)?.x ?? wealthPlotWidth;
+  const wealthArea = `${wealthChartStart},88 ${wealthPolyline} ${wealthChartEnd},88`;
   const wealthChange = wealthHistory.at(-1)!.netWorth - wealthHistory[0].netWorth;
 
   return (
@@ -1123,15 +1148,15 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
       <section className="panel wealth-trend-panel">
         <div className="card-title-row"><div><span className="card-kicker">Riwayat kekayaan</span><h2>Perkembangan 7 bulan</h2></div><span className={`wealth-trend-change ${wealthChange >= 0 ? "positive-text" : "negative-text"}`}>{wealthChange >= 0 ? "+" : ""}{privacy ? "••••" : formatIDR(wealthChange)}</span></div>
         <div className="wealth-trend-chart">
-          <div className="wealth-trend-plot">
-            <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Grafik perkembangan kekayaan bersih tujuh bulan">
-              <line x1="2" y1="18" x2="98" y2="18" />
-              <line x1="2" y1="52" x2="98" y2="52" />
-              <line x1="2" y1="86" x2="98" y2="86" />
+          <div className="wealth-trend-plot" ref={wealthPlotRef}>
+            <svg viewBox={`0 0 ${wealthPlotWidth} 100`} preserveAspectRatio="none" role="img" aria-label="Grafik perkembangan kekayaan bersih tujuh bulan">
+              <line x1={wealthChartStart} y1="18" x2={wealthChartEnd} y2="18" />
+              <line x1={wealthChartStart} y1="52" x2={wealthChartEnd} y2="52" />
+              <line x1={wealthChartStart} y1="86" x2={wealthChartEnd} y2="86" />
               <polygon points={wealthArea} fill="var(--primary-soft)" />
               <polyline points={wealthPolyline} fill="none" stroke="var(--primary)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
             </svg>
-            {wealthChartPoints.map((point) => <i key={point.period} className="wealth-trend-point" style={{ left: `${point.x}%`, top: `${point.y}%` }} aria-hidden="true" />)}
+            {wealthChartPoints.map((point) => <i key={point.period} className="wealth-trend-point" style={{ left: `${point.x}px`, top: `${point.y}%` }} aria-hidden="true" />)}
           </div>
           <div className="wealth-trend-labels">{wealthHistory.map((point, index) => <span className={index === 0 ? "wealth-label-key wealth-label-start" : index === 3 ? "wealth-label-key wealth-label-middle" : index === wealthHistory.length - 1 ? "wealth-label-key wealth-label-end" : ""} key={point.period}><small>{shortMonth(`${point.period}-01`)}</small><strong>{privacy ? "••••" : formatIDR(point.netWorth, true)}</strong></span>)}</div>
         </div>
