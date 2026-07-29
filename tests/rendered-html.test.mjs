@@ -449,9 +449,13 @@ test("tampilan mobile target memakai aksi jelas dan area navigasi aman", async (
 });
 
 test("layout mobile GAS menyusut tanpa menutupi navigasi", async () => {
-  const [styles, gasStyles] = await Promise.all([
+  const [styles, gasStyles, app, main, index, layout] = await Promise.all([
     source("../app/globals.css"),
     source("../gas-frontend/styles.css"),
+    source("../app/FinanceApp.tsx"),
+    source("../apps-script/Main.gs"),
+    source("../apps-script/Index.html"),
+    source("../app/layout.tsx"),
   ]);
   assert.match(styles, /\.global-search \{ min-width: 0; grid-template-columns: auto minmax\(0,1fr\); overflow: hidden/);
   assert.match(styles, /\.hero-card \{ min-height: 0; padding: 18px; \}/);
@@ -459,10 +463,17 @@ test("layout mobile GAS menyusut tanpa menutupi navigasi", async () => {
   assert.match(styles, /@media \(max-width: 640px\)[\s\S]*\.metric-card,\.metric-card\.cashflow \{ grid-column: span 12; \}/);
   assert.match(gasStyles, /bottom: calc\(66px \+ env\(safe-area-inset-bottom\) \+ 16px\)/);
   assert.match(styles, /body \{ padding-bottom: 0; \}/);
-  assert.match(styles, /#root, \.app-shell, \.main-area \{ min-height: 100dvh; \}/);
-  assert.match(styles, /padding-bottom: calc\(88px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.match(styles, /--mobile-safe-bottom: min\(env\(safe-area-inset-bottom, 0px\), 34px\)/);
+  assert.match(styles, /min-height: var\(--app-viewport-height, 100dvh\)/);
+  assert.match(styles, /inset: auto 0 var\(--app-fixed-bottom, 0px\)/);
+  assert.match(styles, /padding-bottom: calc\(88px \+ var\(--mobile-safe-bottom\)\)/);
   assert.match(styles, /\.mobile-nav \.nav-item \{ min-width: 0; flex: 1 1 0; \}/);
-  assert.doesNotMatch(styles, /(?:html|body)[^{]*\{[^}]*overflow-x:\s*hidden/);
+  assert.match(styles, /font-size: 16px/);
+  assert.match(app, /window\.visualViewport/);
+  assert.match(app, /--app-fixed-bottom/);
+  assert.match(main, /viewport-fit=cover, interactive-widget=resizes-content/);
+  assert.match(index, /viewport-fit=cover, interactive-widget=resizes-content/);
+  assert.match(layout, /viewportFit: "cover"/);
 });
 
 test("mode demo publik read-only terpisah dari build pelanggan", async () => {

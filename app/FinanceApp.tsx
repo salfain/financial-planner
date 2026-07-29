@@ -528,6 +528,30 @@ export function FinanceApp() {
   };
 
   useEffect(() => {
+    const root = document.documentElement;
+    const syncViewport = () => {
+      const viewport = window.visualViewport;
+      const height = Math.round(viewport?.height ?? window.innerHeight);
+      const visualBottom = Math.round((viewport?.offsetTop ?? 0) + height);
+      root.style.setProperty("--app-viewport-height", `${height}px`);
+      root.style.setProperty("--app-fixed-bottom", `${Math.round(window.innerHeight - visualBottom)}px`);
+    };
+    syncViewport();
+    window.addEventListener("resize", syncViewport, { passive: true });
+    window.addEventListener("orientationchange", syncViewport, { passive: true });
+    window.visualViewport?.addEventListener("resize", syncViewport, { passive: true });
+    window.visualViewport?.addEventListener("scroll", syncViewport, { passive: true });
+    return () => {
+      window.removeEventListener("resize", syncViewport);
+      window.removeEventListener("orientationchange", syncViewport);
+      window.visualViewport?.removeEventListener("resize", syncViewport);
+      window.visualViewport?.removeEventListener("scroll", syncViewport);
+      root.style.removeProperty("--app-viewport-height");
+      root.style.removeProperty("--app-fixed-bottom");
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
     const themeTimer = window.setTimeout(() => {
       setDarkMode(window.localStorage.getItem("vinn-store-theme") === "dark");

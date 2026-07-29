@@ -20,6 +20,9 @@
   --info: #4e79c7;
   --shadow-sm: 0 1px 2px rgba(19, 42, 33, 0.04), 0 8px 24px rgba(19, 42, 33, 0.04);
   --shadow-lg: 0 24px 64px rgba(15, 47, 37, 0.16);
+  --app-viewport-height: 100dvh;
+  --app-fixed-bottom: 0px;
+  --mobile-safe-bottom: min(env(safe-area-inset-bottom, 0px), 34px);
 }
 
 /* AI Assistant + OCR */
@@ -100,7 +103,7 @@
 }
 
 * { box-sizing: border-box; }
-html { background: var(--bg); color-scheme: light; scroll-behavior: smooth; }
+html { background: var(--bg); color-scheme: light; scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html[data-theme="dark"] { color-scheme: dark; }
 body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
 button, input, select { font: inherit; }
@@ -1268,5 +1271,51 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 
   .feature-preference-actions .primary-button {
     width: 100%;
+  }
+}
+
+/* Keep the mobile shell attached to Chrome's visual viewport. Apps Script is
+   rendered inside an iframe, so the browser toolbar can otherwise leave a
+   large empty strip below a fixed navigation bar after the first paint. */
+@media (max-width: 720px) {
+  html, body, #root, .app-shell, .main-area {
+    min-height: var(--app-viewport-height, 100dvh);
+  }
+
+  html, body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    padding-bottom: 0;
+  }
+
+  .page-wrap {
+    padding-bottom: calc(88px + var(--mobile-safe-bottom));
+  }
+
+  .mobile-nav {
+    inset: auto 0 var(--app-fixed-bottom, 0px);
+    min-height: calc(72px + var(--mobile-safe-bottom));
+    padding-bottom: max(7px, var(--mobile-safe-bottom));
+  }
+
+  .toast,
+  .mutation-progress {
+    bottom: calc(83px + var(--mobile-safe-bottom) + var(--app-fixed-bottom, 0px));
+  }
+
+  .license-modal .modal-actions {
+    margin-bottom: calc(18px + var(--mobile-safe-bottom));
+  }
+
+  .app-shell input,
+  .app-shell select,
+  .app-shell textarea,
+  .app-shell .global-search input,
+  .app-shell .table-search input {
+    font-size: 16px;
   }
 }
