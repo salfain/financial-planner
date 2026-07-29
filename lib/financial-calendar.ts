@@ -145,6 +145,10 @@ export function financialCalendarWindow(events: FinancialCalendarEvent[], fromDa
   };
 }
 
+export function outstandingFinancialCalendarEvents(events: FinancialCalendarEvent[]) {
+  return events.filter((event) => !event.paid);
+}
+
 export function calendarMonthRange(month: string) {
   if (!/^\d{4}-\d{2}$/.test(month)) throw new RangeError("Periode kalender tidak valid.");
   const first = `${month}-01`;

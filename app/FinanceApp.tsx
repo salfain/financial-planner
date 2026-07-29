@@ -71,7 +71,7 @@ import { addMonthsToPeriod, compareDebtStrategies, DEFAULT_DEBT_SETTINGS, simula
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "../lib/cashflow-forecast";
 import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "../lib/emergency-fund";
 import { buildRecurringOverview, type RecurringTemplate } from "../lib/recurring";
-import { addCalendarDays, buildFinancialCalendarEvents, calendarBillsForActiveAccounts, calendarMonthRange, financialCalendarWindow, type FinancialCalendarEvent } from "../lib/financial-calendar";
+import { addCalendarDays, buildFinancialCalendarEvents, calendarBillsForActiveAccounts, calendarMonthRange, financialCalendarWindow, outstandingFinancialCalendarEvents, type FinancialCalendarEvent } from "../lib/financial-calendar";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
@@ -1896,18 +1896,19 @@ function FinancialCalendarPage({ accounts, bills, goals, privacy, initialMonth }
     fromDate: eventStart,
     throughDate: eventEnd,
   }), [calendarBills, goals, templates, eventStart, eventEnd]);
+  const visibleEvents = useMemo(() => outstandingFinancialCalendarEvents(events), [events]);
   const eventsByDate = useMemo(() => {
     const index = new Map<string, FinancialCalendarEvent[]>();
-    events.forEach((event) => index.set(event.date, [...(index.get(event.date) ?? []), event]));
+    visibleEvents.forEach((event) => index.set(event.date, [...(index.get(event.date) ?? []), event]));
     return index;
-  }, [events]);
+  }, [visibleEvents]);
   const calendarDays = Array.from({ length: 42 }, (_, index) => addCalendarDays(monthRange.startDate, index));
   const selectedEvents = eventsByDate.get(selectedDate) ?? [];
   const agendaEnd = addCalendarDays(today(), 30);
-  const upcoming = events.filter((event) => !event.paid && event.date >= today() && event.date <= agendaEnd);
-  const needs7 = financialCalendarWindow(events, today(), 7);
-  const needs14 = financialCalendarWindow(events, today(), 14);
-  const needs30 = financialCalendarWindow(events, today(), 30);
+  const upcoming = visibleEvents.filter((event) => event.date >= today() && event.date <= agendaEnd);
+  const needs7 = financialCalendarWindow(visibleEvents, today(), 7);
+  const needs14 = financialCalendarWindow(visibleEvents, today(), 14);
+  const needs30 = financialCalendarWindow(visibleEvents, today(), 30);
   const accountName = (event: FinancialCalendarEvent) => accounts.find((account) => account.id === (event.liabilityAccountId || event.accountId))?.name ?? "";
   const changeMonth = (offset: number) => {
     const next = addMonthsToPeriod(viewMonth, offset);

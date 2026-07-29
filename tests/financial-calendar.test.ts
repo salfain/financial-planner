@@ -6,6 +6,7 @@ import {
   calendarBillsForActiveAccounts,
   calendarMonthRange,
   financialCalendarWindow,
+  outstandingFinancialCalendarEvents,
 } from "../lib/financial-calendar";
 
 test("kalender memproyeksikan cicilan, tagihan, transaksi rutin, dan deadline target", () => {
@@ -199,6 +200,7 @@ test("agenda menandai periode cicilan yang sudah dibayar", () => {
   assert.equal(events[0]?.paid, true);
   assert.equal(events[0]?.countsTowardNeed, false);
   assert.equal(events[1]?.paid, false);
+  assert.deepEqual(outstandingFinancialCalendarEvents(events).map((event) => event.date), ["2026-09-01"]);
 });
 
 test("tanggal cicilan maju satu bulan tanpa melewati akhir bulan", () => {
