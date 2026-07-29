@@ -820,7 +820,12 @@ function apiMarkBillPaid(payload) {
         bill.paid_count = nextPaidCount;
         bill.current_period_paid = durationMonths && nextPaidCount >= durationMonths ? 0 : paymentCredit;
         bill.total_paid = Number(bill.total_paid || 0) + amount;
-        if (nextPaidCount > previousPaidCount) bill.last_paid_period = period;
+        if (nextPaidCount > previousPaidCount) {
+          bill.last_paid_period = period;
+          if (!durationMonths || nextPaidCount < durationMonths) {
+            bill.due_date = billAddMonths_(String(bill.due_date), nextPaidCount - previousPaidCount);
+          }
+        }
       }
       const durationMonths = Number(bill.duration_months || 0);
       if (durationMonths && bill.paid_count >= durationMonths) bill.status = 'completed';
@@ -853,6 +858,14 @@ function billPaidCount_(value, fallback) {
     throw createError_('INVALID_BILL_PAID_COUNT', 'Jumlah cicilan yang sudah dibayar harus antara 0 sampai 120.');
   }
   return paidCount;
+}
+
+function billAddMonths_(date, months) {
+  const parts = dateIso_(date).split('-').map(Number);
+  const first = new Date(parts[0], parts[1] - 1 + Number(months || 0), 1, 12);
+  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0, 12).getDate();
+  first.setDate(Math.min(parts[2], last));
+  return Utilities.formatDate(first, VINN_CONFIG.TIMEZONE, 'yyyy-MM-dd');
 }
 
 function billInstallmentPhases_(value) {

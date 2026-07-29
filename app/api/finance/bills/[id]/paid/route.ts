@@ -19,6 +19,7 @@ import {
 } from "../../../../_lib/accounting";
 import { parseTransaction } from "../../../../_lib/domain";
 import { installmentAmountAt, remainingInstallmentTotal } from "@/lib/installment-phases";
+import { addCalendarMonths } from "@/lib/financial-calendar";
 import { assertMonthlyPeriodOpen } from "../../../../_lib/monthly-closing";
 import {
   getBillRow,
@@ -137,7 +138,8 @@ export async function POST(request: Request, context: Context) {
       throw new ApiError(400, "PAYMENT_EXCEEDS_REMAINING", "Nominal pembayaran melebihi sisa seluruh cicilan.");
     }
 
-    let nextPaidCount = Number(bill.paidCount || 0);
+    const previousPaidCount = Number(bill.paidCount || 0);
+    let nextPaidCount = previousPaidCount;
     let paymentCredit = currentPeriodPaid + principal;
     while (bill.durationMonths === null || nextPaidCount < bill.durationMonths) {
       const due = installmentAmountAt({
@@ -153,7 +155,11 @@ export async function POST(request: Request, context: Context) {
     }
     const completed = bill.durationMonths !== null && nextPaidCount >= bill.durationMonths;
     if (completed) paymentCredit = 0;
-    const installmentCompleted = nextPaidCount > Number(bill.paidCount || 0);
+    const installmentsAdvanced = Math.max(0, nextPaidCount - previousPaidCount);
+    const installmentCompleted = installmentsAdvanced > 0;
+    const nextDueDate = !completed && installmentsAdvanced > 0
+      ? addCalendarMonths(bill.dueDate, installmentsAdvanced)
+      : bill.dueDate;
 
     const transaction = parseTransaction(
       {
@@ -250,7 +256,7 @@ export async function POST(request: Request, context: Context) {
       d1
         .prepare(
           `UPDATE bills
-           SET paid = ?, paid_at = ?, last_paid_period = ?,
+           SET paid = ?, paid_at = ?, last_paid_period = ?, due_date = ?,
                paid_count = ?, current_period_paid = ?, total_paid = total_paid + ?,
                completed = ?,
                updated_at = ?
@@ -258,9 +264,10 @@ export async function POST(request: Request, context: Context) {
              AND EXISTS (SELECT 1 FROM transactions WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL)`,
         )
         .bind(
-          installmentCompleted || completed ? 1 : 0,
+          completed ? 1 : 0,
           now,
           installmentCompleted || completed ? period : bill.lastPaidPeriod,
+          nextDueDate,
           nextPaidCount,
           paymentCredit,
           principal,
@@ -302,6 +309,7 @@ export async function POST(request: Request, context: Context) {
             currentPeriodPaid: paymentCredit,
             totalPaid: Number(bill.totalPaid || 0) + principal,
             completed,
+            dueDate: nextDueDate,
           },
           details: { transactionId: transaction.id, period, principal, fee, settlement, installmentCompleted },
           createdAt: now,

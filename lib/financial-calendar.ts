@@ -75,7 +75,9 @@ export function buildFinancialCalendarEvents(input: {
     let occurrenceIndex = 0;
     while (occurrence <= input.throughDate && occurrenceIndex < occurrenceLimit) {
       if (occurrence >= input.fromDate) {
-        const paid = Boolean(bill.paid && occurrenceIndex === 0);
+        const paid = Boolean(occurrenceIndex === 0 && (
+          bill.paid || bill.lastPaidPeriod === occurrence.slice(0, 7)
+        ));
         events.push({
           id: `bill:${bill.id}:${occurrence}`,
           date: occurrence,

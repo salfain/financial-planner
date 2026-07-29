@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  addCalendarMonths,
   buildFinancialCalendarEvents,
   calendarBillsForActiveAccounts,
   calendarMonthRange,
@@ -171,4 +172,35 @@ test("kalender menyembunyikan cicilan lama yang akun utangnya sudah tidak aktif"
   const visible = calendarBillsForActiveAccounts(bills, ["bank", "baf-motor"]);
 
   assert.deepEqual(visible.map((bill) => bill.id), ["motor-nmax", "internet"]);
+});
+
+test("agenda menandai periode cicilan yang sudah dibayar", () => {
+  const events = buildFinancialCalendarEvents({
+    fromDate: "2026-08-01",
+    throughDate: "2026-09-30",
+    bills: [{
+      id: "motor-nmax",
+      name: "MOTOR NMAX",
+      amount: 1_752_000,
+      dueDate: "2026-08-01",
+      category: "Kewajiban",
+      accountId: "bank",
+      liabilityAccountId: "baf-motor",
+      paid: false,
+      lastPaidPeriod: "2026-08",
+      durationMonths: 24,
+      paidCount: 3,
+      remainingMonths: 21,
+    }],
+    goals: [],
+    recurringTemplates: [],
+  });
+
+  assert.equal(events[0]?.paid, true);
+  assert.equal(events[0]?.countsTowardNeed, false);
+  assert.equal(events[1]?.paid, false);
+});
+
+test("tanggal cicilan maju satu bulan tanpa melewati akhir bulan", () => {
+  assert.equal(addCalendarMonths("2026-08-31", 1), "2026-09-30");
 });

@@ -666,7 +666,7 @@ export function FinanceApp() {
   };
 
   const submitBillPayment = async (bill: Bill, amount: number, fee: number, settlement: boolean) => runMutation(
-    () => markFinanceBillPaid(bill, month, today(), { amount, fee, settlement }),
+    () => markFinanceBillPaid(bill, bill.dueDate.slice(0, 7), today(), { amount, fee, settlement }),
     settlement
       ? `${bill.name} dilunasi dan saldo kewajiban diperbarui.`
       : `${bill.name} dibayar; progres cicilan dan saldo sudah diperbarui.`,
@@ -692,7 +692,7 @@ export function FinanceApp() {
       async () => {
         for (const bill of unpaidBills) {
           try {
-            await markFinanceBillPaid(bill, month, today());
+            await markFinanceBillPaid(bill, bill.dueDate.slice(0, 7), today());
           } catch (error) {
             if (!isFinanceMutationCommittedError(error)) throw error;
           }
@@ -1071,13 +1071,15 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
     gradientCursor += item.value / categoryTotal * 100;
     return `${item.color} ${start.toFixed(2)}% ${gradientCursor.toFixed(2)}%`;
   }).join(", ")})` : "conic-gradient(var(--surface-strong) 0 100%)";
-  const upcomingBills = [...bills].filter((bill) => !bill.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 3);
+  const dashboardBills = calendarBillsForActiveAccounts(bills, accounts.map((account) => account.id));
+  const unpaidDashboardBills = dashboardBills.filter((bill) => !bill.paid && !bill.completed);
+  const upcomingBills = [...unpaidDashboardBills].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 3);
   const recent = [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
   const healthLabel = healthScore >= 80 ? "Sehat" : healthScore >= 60 ? "Baik" : healthScore >= 40 ? "Cukup" : "Perlu perhatian";
   const consumerLiabilities = accounts.filter((account) => account.liability && ["Paylater", "Credit Card"].includes(account.type));
   const longTermLiabilities = accounts.filter((account) => account.liability && ["Loan", "Mortgage"].includes(account.type));
-  const activeInstallments = bills.filter((bill) => bill.liabilityAccountId && !bill.completed);
-  const nearestInstallment = [...activeInstallments].filter((bill) => !bill.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  const activeInstallments = unpaidDashboardBills.filter((bill) => bill.liabilityAccountId);
+  const nearestInstallment = [...activeInstallments].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
   const wealthHistory = Array.from({ length: 7 }, (_, index) => {
     const period = addMonthsToPeriod(month, index - 6);
     const endDate = `${period}-${String(new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate()).padStart(2, "0")}`;
@@ -1126,7 +1128,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
           <button type="button" onClick={() => onNavigate("bills")}>
             <span>Cicilan bulan ini</span>
             <Amount value={activeInstallments.reduce((sum, bill) => sum + bill.amount, 0)} privacy={privacy} />
-            <small>{activeInstallments.length} jadwal aktif</small>
+            <small>{activeInstallments.length} jadwal belum dibayar</small>
           </button>
           <button type="button" onClick={() => onNavigate("bills")}>
             <span>Jatuh tempo terdekat</span>
@@ -1902,7 +1904,7 @@ function FinancialCalendarPage({ accounts, bills, goals, privacy, initialMonth }
   const calendarDays = Array.from({ length: 42 }, (_, index) => addCalendarDays(monthRange.startDate, index));
   const selectedEvents = eventsByDate.get(selectedDate) ?? [];
   const agendaEnd = addCalendarDays(today(), 30);
-  const upcoming = events.filter((event) => event.date >= today() && event.date <= agendaEnd);
+  const upcoming = events.filter((event) => !event.paid && event.date >= today() && event.date <= agendaEnd);
   const needs7 = financialCalendarWindow(events, today(), 7);
   const needs14 = financialCalendarWindow(events, today(), 14);
   const needs30 = financialCalendarWindow(events, today(), 30);
