@@ -297,6 +297,8 @@ export const bills = sqliteTable(
     liabilityAccountId: text("liability_account_id"),
     durationMonths: integer("duration_months"),
     paidCount: integer("paid_count").notNull().default(0),
+    currentPeriodPaid: integer("current_period_paid").notNull().default(0),
+    totalPaid: integer("total_paid").notNull().default(0),
     installmentPhasesJson: text("installment_phases_json").notNull().default("[]"),
     completed: integer("completed", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -310,6 +312,8 @@ export const bills = sqliteTable(
     check("bills_frequency_check", sql`${table.frequency} IN ('monthly')`),
     check("bills_duration_check", sql`${table.durationMonths} IS NULL OR (${table.durationMonths} >= 1 AND ${table.durationMonths} <= 120)`),
     check("bills_paid_count_nonnegative", sql`${table.paidCount} >= 0`),
+    check("bills_current_period_paid_nonnegative", sql`${table.currentPeriodPaid} >= 0`),
+    check("bills_total_paid_nonnegative", sql`${table.totalPaid} >= 0`),
   ],
 );
 
@@ -554,6 +558,9 @@ export const notificationSettings = sqliteTable("notification_settings", {
   budgetWarningPercent: integer("budget_warning_percent").notNull().default(75),
   backupWarningDays: integer("backup_warning_days").notNull().default(7),
   goalWarningDays: integer("goal_warning_days").notNull().default(30),
+  emailEnabled: integer("email_enabled", { mode: "boolean" }).notNull().default(false),
+  emailAddress: text("email_address").notNull().default(""),
+  weeklyDigest: integer("weekly_digest", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

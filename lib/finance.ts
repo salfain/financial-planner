@@ -112,6 +112,10 @@ export interface Bill {
   /** Jumlah cicilan yang disepakati. Kosong berarti tagihan berlangsung tanpa batas. */
   durationMonths?: number | null;
   paidCount?: number;
+  /** Nominal yang sudah dibayar tetapi belum menutup satu cicilan penuh. */
+  currentPeriodPaid?: number;
+  /** Akumulasi pokok cicilan yang sudah dibayar. */
+  totalPaid?: number;
   remainingMonths?: number | null;
   completed?: boolean;
   startDueDate?: string;

@@ -4,6 +4,7 @@ import {
   ApiError,
   isoDate,
   monthPeriod,
+  nonnegativeInteger,
   nowIso,
   readJsonObject,
   requiredString,
@@ -12,11 +13,12 @@ import {
   validateId,
 } from "../../../../_lib/api";
 import {
+  aggregateTransactionDeltas,
   loadBalanceAccounts,
-  netDeltas,
   validateDeltas,
 } from "../../../../_lib/accounting";
 import { parseTransaction } from "../../../../_lib/domain";
+import { installmentAmountAt, remainingInstallmentTotal } from "@/lib/installment-phases";
 import { assertMonthlyPeriodOpen } from "../../../../_lib/monthly-closing";
 import {
   getBillRow,
@@ -90,7 +92,8 @@ export async function POST(request: Request, context: Context) {
       );
     }
 
-    transactionId = await deterministicPaymentTransactionId(workspaceId, billId, period);
+    const flexiblePayment = payload.amount !== undefined || payload.fee !== undefined || payload.settlement === true;
+    transactionId = await deterministicPaymentTransactionId(workspaceId, billId, requestId);
     const requestReplay = await transactionByIdempotency(workspaceId, idempotencyKey);
     if (requestReplay) {
       if (requestReplay.id !== transactionId) {
@@ -110,7 +113,7 @@ export async function POST(request: Request, context: Context) {
     }
 
     const existingPayment = await getTransactionRow(workspaceId, transactionId);
-    if (existingPayment || bill.lastPaidPeriod === period) {
+    if (existingPayment || (!flexiblePayment && bill.lastPaidPeriod === period)) {
       return Response.json({
         bill: serializeBill(bill, period),
         transaction: existingPayment ? serializeTransaction(existingPayment) : null,
@@ -119,6 +122,38 @@ export async function POST(request: Request, context: Context) {
         alreadyPaid: true,
       });
     }
+
+    const serialized = serializeBill(bill, period);
+    const scheduledRemaining = remainingInstallmentTotal(serialized);
+    const currentPeriodPaid = Number(bill.currentPeriodPaid || 0);
+    const settlement = payload.settlement === true;
+    const defaultAmount = Math.max(1, serialized.amount - currentPeriodPaid);
+    const principal = settlement
+      ? Number(scheduledRemaining ?? defaultAmount)
+      : payload.amount === undefined ? defaultAmount : nonnegativeInteger(payload, "amount");
+    const fee = payload.fee === undefined ? 0 : nonnegativeInteger(payload, "fee");
+    if (principal < 1) throw new ApiError(400, "INVALID_PAYMENT_AMOUNT", "Nominal pembayaran harus lebih dari nol.");
+    if (scheduledRemaining !== null && principal > scheduledRemaining) {
+      throw new ApiError(400, "PAYMENT_EXCEEDS_REMAINING", "Nominal pembayaran melebihi sisa seluruh cicilan.");
+    }
+
+    let nextPaidCount = Number(bill.paidCount || 0);
+    let paymentCredit = currentPeriodPaid + principal;
+    while (bill.durationMonths === null || nextPaidCount < bill.durationMonths) {
+      const due = installmentAmountAt({
+        amount: Number(bill.amount),
+        paidCount: nextPaidCount,
+        durationMonths: bill.durationMonths,
+        installmentPhases: serialized.installmentPhases,
+      });
+      if (paymentCredit < due) break;
+      paymentCredit -= due;
+      nextPaidCount += 1;
+      if (bill.durationMonths === null) break;
+    }
+    const completed = bill.durationMonths !== null && nextPaidCount >= bill.durationMonths;
+    if (completed) paymentCredit = 0;
+    const installmentCompleted = nextPaidCount > Number(bill.paidCount || 0);
 
     const transaction = parseTransaction(
       {
@@ -129,13 +164,24 @@ export async function POST(request: Request, context: Context) {
         category: bill.liabilityAccountId ? "Transfer" : bill.category,
         accountId: bill.accountId,
         destinationAccountId: bill.liabilityAccountId,
-        amount: serializeBill(bill, period).amount,
+        amount: principal,
         status: "completed",
       },
       transactionId,
     );
-    const accounts = await loadBalanceAccounts(workspaceId, [transaction]);
-    const deltas = netDeltas(accounts, null, transaction);
+    const feeTransaction = fee > 0 ? parseTransaction({
+      type: "expense",
+      date,
+      title: `Biaya pembayaran ${bill.name}`,
+      merchant: bill.name,
+      category: "Biaya Keuangan",
+      accountId: bill.accountId,
+      amount: fee,
+      status: "completed",
+    }, `${transactionId}-fee`) : null;
+    const paymentTransactions = feeTransaction ? [transaction, feeTransaction] : [transaction];
+    const accounts = await loadBalanceAccounts(workspaceId, paymentTransactions);
+    const deltas = aggregateTransactionDeltas(accounts, paymentTransactions);
     validateDeltas(accounts, deltas);
 
     const d1 = getD1();
@@ -149,10 +195,10 @@ export async function POST(request: Request, context: Context) {
              AND EXISTS (
                SELECT 1 FROM bills
                WHERE workspace_id = ? AND id = ?
-                 AND COALESCE(last_paid_period, '') <> ?
-             )`,
+                  AND EXISTS (SELECT 1 FROM transactions WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL)
+              )`,
         )
-        .bind(delta, now, workspaceId, accountId, workspaceId, billId, period),
+        .bind(delta, now, workspaceId, accountId, workspaceId, billId, workspaceId, transaction.id),
     );
 
     const batchResults = await d1.batch([
@@ -164,7 +210,7 @@ export async function POST(request: Request, context: Context) {
            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
            FROM bills
            WHERE workspace_id = ? AND id = ?
-             AND COALESCE(last_paid_period, '') <> ?`,
+             AND NOT EXISTS (SELECT 1 FROM transactions WHERE workspace_id = ? AND idempotency_key = ?)`,
         )
         .bind(
           transaction.id,
@@ -183,23 +229,48 @@ export async function POST(request: Request, context: Context) {
           now,
           workspaceId,
           billId,
-          period,
+          workspaceId,
+          idempotencyKey,
         ),
+      ...(feeTransaction ? [d1.prepare(
+        `INSERT INTO transactions
+           (id, workspace_id, type, date, title, merchant, category, account_id,
+            destination_account_id, amount, status, idempotency_key, created_at, updated_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM transactions WHERE workspace_id = ? AND id = ?)
+           AND NOT EXISTS (SELECT 1 FROM transactions WHERE workspace_id = ? AND idempotency_key = ?)`,
+      ).bind(
+        feeTransaction.id, workspaceId, feeTransaction.type, feeTransaction.date, feeTransaction.title,
+        feeTransaction.merchant, feeTransaction.category, feeTransaction.accountId,
+        feeTransaction.destinationAccountId, feeTransaction.amount, feeTransaction.status,
+        `bill-payment-fee:${requestId}`, now, now, workspaceId, transaction.id,
+        workspaceId, `bill-payment-fee:${requestId}`,
+      )] : []),
       ...balanceStatements,
       d1
         .prepare(
           `UPDATE bills
-           SET paid = 1, paid_at = ?, last_paid_period = ?,
-               paid_count = paid_count + 1,
-               completed = CASE
-                 WHEN duration_months IS NOT NULL AND paid_count + 1 >= duration_months THEN 1
-                 ELSE completed
-               END,
+           SET paid = ?, paid_at = ?, last_paid_period = ?,
+               paid_count = ?, current_period_paid = ?, total_paid = total_paid + ?,
+               completed = ?,
                updated_at = ?
            WHERE workspace_id = ? AND id = ?
-             AND COALESCE(last_paid_period, '') <> ?`,
+             AND EXISTS (SELECT 1 FROM transactions WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL)`,
         )
-        .bind(now, period, now, workspaceId, billId, period),
+        .bind(
+          installmentCompleted || completed ? 1 : 0,
+          now,
+          installmentCompleted || completed ? period : bill.lastPaidPeriod,
+          nextPaidCount,
+          paymentCredit,
+          principal,
+          completed ? 1 : 0,
+          now,
+          workspaceId,
+          billId,
+          workspaceId,
+          transaction.id,
+        ),
       auditStatementWhenTransactionExists(
         d1,
         {
@@ -225,12 +296,14 @@ export async function POST(request: Request, context: Context) {
           before: serializeBill(bill, period),
           after: {
             ...serializeBill(bill, period),
-            paid: true,
-            lastPaidPeriod: period,
-            paidCount: bill.paidCount + 1,
-            completed: bill.durationMonths !== null && bill.paidCount + 1 >= bill.durationMonths,
+            paid: installmentCompleted || completed,
+            lastPaidPeriod: installmentCompleted || completed ? period : bill.lastPaidPeriod,
+            paidCount: nextPaidCount,
+            currentPeriodPaid: paymentCredit,
+            totalPaid: Number(bill.totalPaid || 0) + principal,
+            completed,
           },
-          details: { transactionId: transaction.id, period },
+          details: { transactionId: transaction.id, period, principal, fee, settlement, installmentCompleted },
           createdAt: now,
         },
         transaction.id,

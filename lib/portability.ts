@@ -1,5 +1,5 @@
 export const BACKUP_FORMAT = "vinn-store-backup";
-export const BACKUP_SCHEMA_VERSION = "1.12.0";
+export const BACKUP_SCHEMA_VERSION = "1.17.0";
 export const BACKUP_MAX_RECORDS = 5_000;
 
 export const PORTABLE_COLLECTIONS = [
@@ -37,6 +37,9 @@ export type PortableBackup = {
     notificationBudgetWarningPercent?: number;
     notificationBackupWarningDays?: number;
     notificationGoalWarningDays?: number;
+    notificationEmailEnabled?: boolean;
+    notificationEmailAddress?: string;
+    notificationWeeklyDigest?: boolean;
     roadmapHorizonMonths?: number;
     roadmapIncomeAdjustmentPct?: number;
     roadmapExpenseAdjustmentPct?: number;
@@ -202,6 +205,9 @@ export function parsePortableBackup(value: unknown): { backup: PortableBackup; w
       ...([75, 90].includes(Number(settings.notificationBudgetWarningPercent)) ? { notificationBudgetWarningPercent: Number(settings.notificationBudgetWarningPercent) } : {}),
       ...([7, 14, 30].includes(Number(settings.notificationBackupWarningDays)) ? { notificationBackupWarningDays: Number(settings.notificationBackupWarningDays) } : {}),
       ...([7, 30, 60].includes(Number(settings.notificationGoalWarningDays)) ? { notificationGoalWarningDays: Number(settings.notificationGoalWarningDays) } : {}),
+      ...(settings.notificationEmailEnabled !== undefined ? { notificationEmailEnabled: Boolean(settings.notificationEmailEnabled) } : {}),
+      ...(text(settings.notificationEmailAddress) ? { notificationEmailAddress: text(settings.notificationEmailAddress).slice(0, 160) } : {}),
+      ...(settings.notificationWeeklyDigest !== undefined ? { notificationWeeklyDigest: Boolean(settings.notificationWeeklyDigest) } : {}),
       ...([12, 24, 36, 60].includes(Number(settings.roadmapHorizonMonths)) ? { roadmapHorizonMonths: Number(settings.roadmapHorizonMonths) } : {}),
       ...(Number.isFinite(Number(settings.roadmapIncomeAdjustmentPct)) ? { roadmapIncomeAdjustmentPct: Number(settings.roadmapIncomeAdjustmentPct) } : {}),
       ...(Number.isFinite(Number(settings.roadmapExpenseAdjustmentPct)) ? { roadmapExpenseAdjustmentPct: Number(settings.roadmapExpenseAdjustmentPct) } : {}),

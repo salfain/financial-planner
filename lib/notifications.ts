@@ -22,6 +22,9 @@ export type NotificationSettings = {
   budgetWarningPercent: number;
   backupWarningDays: number;
   goalWarningDays: number;
+  emailEnabled: boolean;
+  emailAddress: string;
+  weeklyDigest: boolean;
 };
 
 export type NotificationOverview = {
@@ -37,6 +40,9 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   budgetWarningPercent: 75,
   backupWarningDays: 7,
   goalWarningDays: 30,
+  emailEnabled: false,
+  emailAddress: "",
+  weeklyDigest: true,
 };
 
 export type NotificationEngineInput = {

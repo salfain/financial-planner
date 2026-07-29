@@ -361,6 +361,35 @@ function apiUpdateAccount(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function apiCreateReceivable(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const replay = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) { return String(row.request_id) === requestId && !row.deleted_at; });
+      if (replay) return ok_({ accountId: String(replay.destination_account_id || ''), transactionId: String(replay.transfer_group_id || replay.id), replayed: true }, requestId);
+      const borrower = String(payload.borrower || '').trim().slice(0, 100);
+      const name = String(payload.name || '').trim().slice(0, 100);
+      const sourceAccountId = String(payload.sourceAccountId || '');
+      const source = findById_(VINN_CONFIG.SHEETS.ACCOUNTS, sourceAccountId);
+      const amount = assertPositiveMoney_(payload.amount);
+      const date = dateIso_(payload.date);
+      const dueDate = dateIso_(payload.dueDate);
+      if (!borrower || !name || !source || truthy_(source.is_liability) || String(source.type) === 'Investment' || String(source.type) === 'Receivable') throw createError_('INVALID_RECEIVABLE', 'Nama, peminjam, dan akun sumber wajib valid.');
+      if (accountCurrentBalance_(source, rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS)) < amount) throw createError_('INSUFFICIENT_BALANCE', 'Saldo sumber tidak cukup untuk mencatat piutang.');
+      const now = nowIso_();
+      const account = { id: id_('acc'), name: name, type: 'Receivable', institution: borrower, mask: 'JT ' + dueDate, currency: VINN_CONFIG.CURRENCY, opening_balance: 0, color: '#4e79c7', is_liability: false, is_active: true, created_at: now, updated_at: now };
+      const groupId = id_('trf');
+      const base = { id: id_('tx'), transfer_group_id: groupId, request_id: requestId, date: date, time: '', type: 'transfer', account_id: sourceAccountId, destination_account_id: account.id, amount: amount, category: 'Transfer', merchant: borrower, notes: 'Piutang ' + name + '; jatuh tempo ' + dueDate, status: 'completed', direction: 'out', created_at: now, updated_at: now, deleted_at: '', tags_json: '[]', location: '', splits_json: '[]', receipt_file_id: '', receipt_filename: '', receipt_content_type: '', receipt_size_bytes: '' };
+      const rows = [base, Object.assign({}, base, { id: id_('tx'), account_id: account.id, destination_account_id: sourceAccountId, direction: 'in' })];
+      appendObjects_(VINN_CONFIG.SHEETS.ACCOUNTS, [account]);
+      appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, rows);
+      audit_('CREATE', 'receivables', account.id, requestId, { borrower: borrower, amount: amount, dueDate: dueDate, sourceAccountId: sourceAccountId, transactionId: groupId });
+      invalidateDashboard_();
+      return ok_({ accountId: account.id, transactionId: groupId, replayed: false }, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiImportAccounts(payload) {
   const requestId = String(payload && payload.requestId || id_('req'));
   try {
@@ -617,7 +646,7 @@ function apiCreateBill(payload) {
         ? billInstallmentAmount_({ amount: installmentPhases[0].amount, paid_count: paidCount, installment_phases_json: JSON.stringify(installmentPhases) })
         : assertPositiveMoney_(payload.amount);
       const now = nowIso_();
-      const bill = { id: id_('bill'), name: String(payload.name || '').trim().slice(0, 100), amount: amount, category: String(payload.category || 'Tagihan'), account_id: String(payload.accountId || ''), frequency: frequency, due_date: dateIso_(payload.dueDate), reminder_days: reminderDays.join(','), status: durationMonths && paidCount >= Number(durationMonths) ? 'completed' : 'active', last_paid_period: '', created_at: now, updated_at: now, liability_account_id: liabilityAccountId, duration_months: durationMonths, paid_count: paidCount, installment_phases_json: JSON.stringify(installmentPhases) };
+      const bill = { id: id_('bill'), name: String(payload.name || '').trim().slice(0, 100), amount: amount, category: String(payload.category || 'Tagihan'), account_id: String(payload.accountId || ''), frequency: frequency, due_date: dateIso_(payload.dueDate), reminder_days: reminderDays.join(','), status: durationMonths && paidCount >= Number(durationMonths) ? 'completed' : 'active', last_paid_period: '', created_at: now, updated_at: now, liability_account_id: liabilityAccountId, duration_months: durationMonths, paid_count: paidCount, current_period_paid: 0, total_paid: 0, installment_phases_json: JSON.stringify(installmentPhases) };
       if (!bill.name || !bill.account_id || !findById_(VINN_CONFIG.SHEETS.ACCOUNTS, bill.account_id)) throw createError_('INVALID_BILL', 'Nama dan akun pembayaran tagihan wajib diisi.');
       appendObjects_(VINN_CONFIG.SHEETS.BILLS, [bill]);
       audit_('CREATE', 'bills', bill.id, requestId, { name: bill.name, amount: amount });
@@ -717,7 +746,8 @@ function apiMarkBillPaid(payload) {
       const existingPayment = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) {
         return String(row.request_id) === requestId && !row.deleted_at;
       });
-      if (String(bill.last_paid_period) === period) {
+      const flexiblePayment = payload.amount !== undefined || payload.fee !== undefined || payload.settlement === true;
+      if (!flexiblePayment && String(bill.last_paid_period) === period) {
         return ok_({ bill: bill, transactionId: existingPayment ? existingPayment.id : '', duplicate: true }, requestId);
       }
       const accountId = String(bill.account_id || '');
@@ -727,7 +757,14 @@ function apiMarkBillPaid(payload) {
       const timestamp = nowIso_();
       let transactionId = existingPayment ? existingPayment.id : '';
       if (!existingPayment) {
-        const amount = assertPositiveMoney_(billInstallmentAmount_(bill));
+        const currentPeriodPaid = Math.max(0, Number(bill.current_period_paid || 0));
+        const remainingTotal = billRemainingInstallmentTotal_(bill);
+        const amount = payload.settlement === true
+          ? assertPositiveMoney_(remainingTotal)
+          : assertPositiveMoney_(payload.amount === undefined ? Math.max(1, billInstallmentAmount_(bill) - currentPeriodPaid) : payload.amount);
+        if (remainingTotal && amount > remainingTotal) throw createError_('PAYMENT_EXCEEDS_REMAINING', 'Nominal pembayaran melebihi sisa seluruh cicilan.');
+        const fee = Math.max(0, Number(payload.fee || 0));
+        if (!Number.isSafeInteger(fee)) throw createError_('INVALID_PAYMENT_FEE', 'Biaya pembayaran tidak valid.');
         const paymentDate = dateIso_(payload.date || new Date());
         const base = {
           id: id_('tx'), transfer_group_id: '', request_id: requestId,
@@ -759,16 +796,40 @@ function apiMarkBillPaid(payload) {
           validateLedgerMutation_([], [base]);
           appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, [base]);
         }
+        if (fee > 0) {
+          const feeRow = Object.assign({}, base, {
+            id: id_('tx'), transfer_group_id: '', request_id: requestId + ':fee', type: 'expense',
+            destination_account_id: '', amount: fee, category: 'Biaya Keuangan',
+            merchant: 'Biaya pembayaran ' + String(bill.name || 'Tagihan'),
+            notes: 'Biaya pembayaran tagihan ' + String(bill.id), direction: ''
+          });
+          validateLedgerMutation_([], [feeRow]);
+          appendObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS, [feeRow]);
+        }
+        const previousPaidCount = Number(bill.paid_count || 0);
+        let nextPaidCount = previousPaidCount;
+        let paymentCredit = currentPeriodPaid + amount;
+        const durationMonths = Number(bill.duration_months || 0);
+        while (!durationMonths || nextPaidCount < durationMonths) {
+          const dueAmount = billInstallmentAmount_(Object.assign({}, bill, { paid_count: nextPaidCount }));
+          if (paymentCredit < dueAmount) break;
+          paymentCredit -= dueAmount;
+          nextPaidCount += 1;
+          if (!durationMonths) break;
+        }
+        bill.paid_count = nextPaidCount;
+        bill.current_period_paid = durationMonths && nextPaidCount >= durationMonths ? 0 : paymentCredit;
+        bill.total_paid = Number(bill.total_paid || 0) + amount;
+        if (nextPaidCount > previousPaidCount) bill.last_paid_period = period;
       }
-      bill.last_paid_period = period;
-      bill.paid_count = Number(bill.paid_count || 0) + (existingPayment ? 0 : 1);
       const durationMonths = Number(bill.duration_months || 0);
       if (durationMonths && bill.paid_count >= durationMonths) bill.status = 'completed';
+      if (!existingPayment && Number(bill.current_period_paid || 0) === 0) bill.last_paid_period = period;
       bill.updated_at = timestamp;
       const rowNumber = bill._row;
       delete bill._row;
       updateObjectRow_(VINN_CONFIG.SHEETS.BILLS, rowNumber, bill);
-      audit_('MARK_PAID', 'bills', bill.id, requestId, { period: period, transactionId: transactionId, liabilityAccountId: liabilityAccountId, paidCount: bill.paid_count, status: bill.status });
+      audit_('MARK_PAID', 'bills', bill.id, requestId, { period: period, transactionId: transactionId, liabilityAccountId: liabilityAccountId, paidCount: bill.paid_count, currentPeriodPaid: bill.current_period_paid || 0, totalPaid: bill.total_paid || 0, status: bill.status });
       invalidateDashboard_(period);
       return ok_({ bill: bill, transactionId: transactionId, duplicate: Boolean(existingPayment) }, requestId);
     });
@@ -825,6 +886,16 @@ function billInstallmentAmount_(bill, occurrenceOffset) {
     cursor -= phases[index].durationMonths;
   }
   return phases[phases.length - 1].amount;
+}
+
+function billRemainingInstallmentTotal_(bill) {
+  const durationMonths = Number(bill.duration_months || 0);
+  if (!durationMonths) return 0;
+  let total = 0;
+  for (let index = Number(bill.paid_count || 0); index < durationMonths; index += 1) {
+    total += billInstallmentAmount_(Object.assign({}, bill, { paid_count: index }));
+  }
+  return Math.max(0, total - Math.max(0, Number(bill.current_period_paid || 0)));
 }
 
 function upsertSetting_(key, value) {

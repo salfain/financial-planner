@@ -53,6 +53,24 @@ test("aturan kategori mengisi dan menimpa kategori CSV pada tahap preview", () =
   assert.equal(preview.rows[0].matchedRule?.id, "rule-indomaret");
 });
 
+test("rekonsiliasi impor melewati transaksi rekening yang sudah ada", () => {
+  const existing: Transaction[] = [{
+    id: "tx-existing", type: "expense", date: "2026-07-18", title: "Indomaret 012",
+    category: "Makanan", accountId: "cash", amount: 125_000, status: "completed",
+  }];
+  const preview = previewTransactionCsv(
+    "tanggal,jenis,deskripsi,kategori,akun,nominal\n2026-07-18,pengeluaran,  INDOMARET   012 ,Makanan,Kas Utama,125000",
+    accounts,
+    categories,
+    [],
+    existing,
+  );
+  assert.equal(preview.duplicateCount, 1);
+  assert.equal(preview.validCount, 0);
+  assert.equal(preview.errorCount, 0);
+  assert.equal(preview.rows[0].duplicateOf, "tx-existing");
+});
+
 test("realisasi anggaran memakai alokasi split, bukan kategori induk saja", () => {
   const transaction: Transaction = {
     id: "tx-split",

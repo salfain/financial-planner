@@ -22,6 +22,7 @@ function apiGetBootstrap(month) {
     const investmentTransactions = rowsAsObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX);
     const data = {
       configured: accounts.length > 0,
+      schemaVersion: VINN_CONFIG.SCHEMA_VERSION,
       entitlement: licenseStatus_(),
       profile: {
         name: settingValue_('profile_name', 'Pemilik'),
@@ -34,6 +35,7 @@ function apiGetBootstrap(month) {
       accounts: calculatedAccounts,
       budgets: rowsAsObjects_(VINN_CONFIG.SHEETS.BUDGETS).filter(function(row) { return String(row.month) === month; }),
       goals: rowsAsObjects_(VINN_CONFIG.SHEETS.GOALS), bills: rowsAsObjects_(VINN_CONFIG.SHEETS.BILLS),
+      recurring: rowsAsObjects_(VINN_CONFIG.SHEETS.RECURRING).map(recurringClientRow_),
       sinkingFunds: rowsAsObjects_(VINN_CONFIG.SHEETS.SINKING_FUNDS).filter(function(row) { return truthy_(row.is_active); }).map(sinkingFundClientRow_),
       sinkingFundEntries: rowsAsObjects_(VINN_CONFIG.SHEETS.SINKING_FUND_ENTRIES).map(sinkingFundEntryClientRow_).sort(function(a, b) { return String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)); }).slice(0, 200),
       categories: categoryRows_().filter(function(category) { return !category.archived; }),

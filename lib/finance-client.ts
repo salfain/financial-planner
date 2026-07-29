@@ -37,6 +37,7 @@ export type FinanceSecurityStatus = {
 };
 
 export type FinanceSnapshot = {
+  schemaVersion: string;
   configured: boolean;
   entitlement: PlanEntitlement;
   profile: FinanceProfile;
@@ -354,6 +355,8 @@ function normalizeBill(row: Record<string, unknown>, month: string): Bill {
   const durationValue = number(row.durationMonths ?? row.duration_months);
   const durationMonths = durationValue > 0 ? durationValue : null;
   const paidCount = Math.max(0, number(row.paidCount ?? row.paid_count));
+  const currentPeriodPaid = Math.max(0, number(row.currentPeriodPaid ?? row.current_period_paid));
+  const totalPaid = Math.max(0, number(row.totalPaid ?? row.total_paid));
   let rawPhases = row.installmentPhases ?? row.installment_phases ?? row.installment_phases_json ?? [];
   if (typeof rawPhases === "string") {
     try { rawPhases = JSON.parse(rawPhases || "[]"); } catch { rawPhases = []; }
@@ -378,6 +381,8 @@ function normalizeBill(row: Record<string, unknown>, month: string): Bill {
     liabilityAccountId: text(row.liabilityAccountId ?? row.liability_account_id) || null,
     durationMonths,
     paidCount,
+    currentPeriodPaid,
+    totalPaid,
     remainingMonths: durationMonths === null ? null : Math.max(0, durationMonths - paidCount),
     completed,
     startDueDate: sourceDue,
@@ -457,6 +462,7 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
   const accounts = ((source.accounts ?? []) as Record<string, unknown>[]).map(normalizeAccount);
   const legacyStoreName = text(profile.storeName ?? profile.store_name, "Financial Planner");
   return {
+    schemaVersion: text(source.schemaVersion ?? source.schema_version, "legacy"),
     configured: source.configured === undefined ? accounts.length > 0 : bool(source.configured),
     entitlement: normalizeEntitlement(source.entitlement),
     profile: {
@@ -885,18 +891,24 @@ export const adjustFinanceSinkingFund = (
 export const createFinanceBill = (payload: Record<string, unknown>) =>
   mutation("createBill", "/api/finance/bills", payload);
 
+export const createFinanceReceivable = (payload: Record<string, unknown>) =>
+  mutation<{ accountId: string; transactionId: string; replayed: boolean }>("createReceivable", "/api/finance/receivables", payload);
+
+export const upgradeFinanceWorkspace = () => mutation<{ schemaVersion: string }>("upgradeWorkspace", "/api/finance/upgrade", {});
+
 export const updateFinanceBill = (billId: string, payload: Record<string, unknown>) =>
   mutation("updateBill", `/api/finance/bills/${encodeURIComponent(billId)}`, { ...payload, billId }, "PATCH");
 
 export const deleteFinanceBill = (billId: string) =>
   mutation("deleteBill", `/api/finance/bills/${encodeURIComponent(billId)}`, { billId }, "DELETE");
 
-export const markFinanceBillPaid = (bill: Bill, period: string, date: string) =>
+export const markFinanceBillPaid = (bill: Bill, period: string, date: string, options?: { amount?: number; fee?: number; settlement?: boolean }) =>
   mutation("markBillPaid", `/api/finance/bills/${encodeURIComponent(bill.id)}/paid`, {
     billId: bill.id,
     period,
     date,
-    requestId: `bill-payment:${bill.id}:${period}`,
+    ...options,
+    requestId: options ? `bill-payment:${bill.id}:${crypto.randomUUID()}` : `bill-payment:${bill.id}:${period}`,
   });
 
 export const createFinanceCategory = (payload: { name: string; type: "income" | "expense"; color: string; icon?: string }, requestId = `category-create:${crypto.randomUUID()}`) =>

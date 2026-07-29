@@ -3,6 +3,7 @@ import { fromUnitMicro, INVESTMENT_UNIT_SCALE } from "@/lib/investment";
 import { freeEntitlement } from "@/lib/plans";
 import { normalizeFeaturePreferences } from "@/lib/feature-preferences";
 import { installmentAmountAt, normalizeInstallmentPhases } from "@/lib/installment-phases";
+import { FINANCE_SCHEMA_VERSION } from "@/lib/schema-version";
 import { ApiError } from "./api";
 import { getEntitlement } from "./license";
 
@@ -115,6 +116,8 @@ type BillRow = {
   liabilityAccountId: string | null;
   durationMonths: number | null;
   paidCount: number;
+  currentPeriodPaid: number;
+  totalPaid: number;
   installmentPhasesJson: string;
   completed: number;
 };
@@ -231,6 +234,7 @@ export const billSelect = `
          last_paid_period AS lastPaidPeriod,
          liability_account_id AS liabilityAccountId,
          duration_months AS durationMonths, paid_count AS paidCount,
+         current_period_paid AS currentPeriodPaid, total_paid AS totalPaid,
          installment_phases_json AS installmentPhasesJson, completed
   FROM bills
 `;
@@ -359,6 +363,8 @@ export const serializeBill = (row: BillRow, period?: string) => {
     liabilityAccountId: row.liabilityAccountId,
     durationMonths: row.durationMonths,
     paidCount,
+    currentPeriodPaid: Number(row.currentPeriodPaid || 0),
+    totalPaid: Number(row.totalPaid || 0),
     remainingMonths: row.durationMonths === null ? null : Math.max(0, row.durationMonths - paidCount),
     completed: Boolean(row.completed),
     installmentPhases,
@@ -543,6 +549,7 @@ export async function getBootstrap(workspaceId: string, period?: string) {
     ? await getEntitlement(workspaceId)
     : freeEntitlement(workspace?.installationId ?? "setup-pending");
   return {
+    schemaVersion: FINANCE_SCHEMA_VERSION,
     configured: Boolean(workspace?.configured),
     entitlement,
     profile: serializeWorkspace(workspace, workspaceId),

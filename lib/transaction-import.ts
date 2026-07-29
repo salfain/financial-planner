@@ -6,6 +6,7 @@ export type TransactionImportPreviewRow = {
   raw: Record<string, string>;
   transaction?: Transaction;
   matchedRule?: CategoryRule;
+  duplicateOf?: string;
   errors: string[];
 };
 
@@ -14,6 +15,7 @@ export type TransactionImportPreview = {
   valid: Transaction[];
   validCount: number;
   errorCount: number;
+  duplicateCount: number;
   income: number;
   expense: number;
 };
@@ -94,7 +96,9 @@ const parseSplits = (value: string, amount: number): { splits: TransactionSplit[
   return { splits };
 };
 
-export function previewTransactionCsv(source: string, accounts: Account[], categories: FinanceCategory[], categoryRules: CategoryRule[] = []): TransactionImportPreview {
+const comparableTitle = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+
+export function previewTransactionCsv(source: string, accounts: Account[], categories: FinanceCategory[], categoryRules: CategoryRule[] = [], existingTransactions: Transaction[] = []): TransactionImportPreview {
   const records = parseCsvRecords(source);
   const activeAccounts = accounts.filter((account) => account.type !== "Investment");
   const activeCategories = categories.filter((category) => category.active);
@@ -123,7 +127,10 @@ export function previewTransactionCsv(source: string, accounts: Account[], categ
     if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) errors.push("Waktu harus HH:mm.");
     if (parsedSplits.error) errors.push(parsedSplits.error);
     if (parsedSplits.splits.some((split) => !activeCategories.some((item) => item.name.toLowerCase() === split.category.toLowerCase() && item.type === (type === "income" ? "income" : "expense")))) errors.push("Kategori pada split tidak ditemukan atau tidak cocok.");
-    const transaction = errors.length || !type || !account ? undefined : {
+    const duplicate = !errors.length && type && account ? existingTransactions.find((item) =>
+      !item.deletedAt && item.date === date && item.type === type && item.accountId === account.id && item.amount === amount
+      && comparableTitle(item.title || item.merchant || "") === comparableTitle(title)) : undefined;
+    const transaction = errors.length || !type || !account || duplicate ? undefined : {
       id: `tx-${crypto.randomUUID()}`,
       type,
       date,
@@ -139,7 +146,7 @@ export function previewTransactionCsv(source: string, accounts: Account[], categ
       amount,
       status: status as Transaction["status"],
     };
-    return { rowNumber: index + 2, raw, transaction, matchedRule: errors.length ? undefined : matchedRule ?? undefined, errors };
+    return { rowNumber: index + 2, raw, transaction, duplicateOf: duplicate?.id, matchedRule: errors.length ? undefined : matchedRule ?? undefined, errors };
   });
   if (records.length > 100) rows.push({ rowNumber: 102, raw: {}, errors: ["Maksimal 100 transaksi per impor."] });
   const valid = rows.flatMap((row) => row.transaction ? [row.transaction] : []);
@@ -148,6 +155,7 @@ export function previewTransactionCsv(source: string, accounts: Account[], categ
     valid,
     validCount: valid.length,
     errorCount: rows.filter((row) => row.errors.length > 0).length,
+    duplicateCount: rows.filter((row) => row.duplicateOf).length,
     income: valid.filter((row) => row.type === "income").reduce((sum, row) => sum + row.amount, 0),
     expense: valid.filter((row) => row.type === "expense").reduce((sum, row) => sum + row.amount, 0),
   };

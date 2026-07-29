@@ -85,6 +85,7 @@ import {
   installmentAmountAt,
   installmentDuration,
   installmentPlanTotal,
+  remainingInstallmentTotal,
 } from "../lib/installment-phases";
 import {
   DEFAULT_FEATURE_PREFERENCES,
@@ -119,6 +120,7 @@ import {
   formatIDR,
   getCurrentMonth,
   monthlySummary,
+  recomputeAccountBalances,
 } from "../lib/finance";
 import {
   FinanceProfile,
@@ -143,6 +145,7 @@ import {
   createFinanceInvestmentAsset,
   createFinanceInvestmentTrade,
   createFinanceLoanDrawdown,
+  createFinanceReceivable,
   createFinanceTransaction,
   createFinanceRecurringTemplate,
   deleteFinanceBill,
@@ -204,6 +207,7 @@ import {
   uploadFinanceTransactionReceipt,
   financeTransactionReceiptUrl,
   upsertFinanceBudget,
+  upgradeFinanceWorkspace,
   previewFinanceMigration,
   applyFinanceMigration,
   cancelFinanceMigration,
@@ -211,6 +215,7 @@ import {
   reopenFinanceMonthlyBook,
 } from "../lib/finance-client";
 import { freeEntitlement, type PlanCapability, type PlanEntitlement } from "../lib/plans";
+import { FINANCE_SCHEMA_VERSION } from "../lib/schema-version";
 
 type PageKey =
   | "dashboard"
@@ -220,6 +225,7 @@ type PageKey =
   | "debts"
   | "transactions"
   | "accounts"
+  | "receivables"
   | "budgets"
   | "goals"
   | "funds"
@@ -251,6 +257,7 @@ const navGroups: Array<{ key: string; label: string; icon: LucideIcon; items: Na
       { key: "dashboard", label: "Ringkasan", icon: LayoutDashboard },
       { key: "transactions", label: "Transaksi", icon: ReceiptText },
       { key: "accounts", label: "Akun", icon: WalletCards },
+      { key: "receivables", label: "Piutang", icon: UserRound },
       { key: "budgets", label: "Anggaran", icon: BarChart3 },
     ],
   },
@@ -353,6 +360,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   emergency: { eyebrow: "Financial safety", title: "Emergency Fund Planner", subtitle: "Ukur ketahanan finansial dan bangun dana darurat dengan target yang realistis." },
   transactions: { eyebrow: "Ledger utama", title: "Semua transaksi", subtitle: "Pantau setiap pergerakan uang tanpa menghitung transfer dua kali." },
   accounts: { eyebrow: "6 akun aktif", title: "Akun & saldo", subtitle: "Semua rekening, dompet, kewajiban, dan investasi dalam satu tampilan." },
+  receivables: { eyebrow: "Uang dipinjamkan", title: "Piutang", subtitle: "Catat uang yang dipinjam orang lain dan pantau sisa yang belum dikembalikan." },
   budgets: { eyebrow: "Rencana Juli", title: "Anggaran bulanan", subtitle: "Kendalikan pengeluaran sebelum melewati batas yang kamu tentukan." },
   goals: { eyebrow: "3 target aktif", title: "Target finansial", subtitle: "Lihat kemajuan dan kebutuhan kontribusi bulanan untuk setiap tujuan." },
   funds: { eyebrow: "Dana terencana", title: "Sinking Fund / Pos Dana", subtitle: "Pisahkan tujuan penggunaan uang tanpa mengubah saldo akun atau menghitung dana dua kali." },
@@ -429,6 +437,7 @@ export function FinanceApp() {
   const [profile, setProfile] = useState<FinanceProfile>({ name: "Pemilik", storeName: "Financial Planner", currency: "IDR", timezone: "Asia/Jakarta" });
   const [featurePreferences, setFeaturePreferences] = useState<FeaturePreferences>({ ...DEFAULT_FEATURE_PREFERENCES });
   const [configured, setConfigured] = useState(false);
+  const [schemaVersion, setSchemaVersion] = useState("legacy");
   const [entitlement, setEntitlement] = useState<PlanEntitlement>(() => freeEntitlement("setup-pending"));
   const [licenseOpen, setLicenseOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -448,6 +457,8 @@ export function FinanceApp() {
   const [categoryRuleModal, setCategoryRuleModal] = useState<{ rule?: CategoryRule } | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [receivableOpen, setReceivableOpen] = useState(false);
+  const [receivablePayment, setReceivablePayment] = useState<Account | null>(null);
   const [loanDrawdownOpen, setLoanDrawdownOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
@@ -458,6 +469,7 @@ export function FinanceApp() {
   const [sinkingFundAdjustment, setSinkingFundAdjustment] = useState<{ fund: SinkingFund; type: "allocate" | "release" } | null>(null);
   const [billOpen, setBillOpen] = useState(false);
   const [editingBill, setEditingBill] = useState<Bill | null>(null);
+  const [paymentBill, setPaymentBill] = useState<Bill | null>(null);
   const [investmentAssetModal, setInvestmentAssetModal] = useState<{ asset?: InvestmentAsset } | null>(null);
   const [investmentTradeModal, setInvestmentTradeModal] = useState<{ type: "buy" | "sell"; asset?: InvestmentAsset } | null>(null);
   const [transactionQuery, setTransactionQuery] = useState("");
@@ -469,6 +481,7 @@ export function FinanceApp() {
 
   const applySnapshot = (snapshot: Awaited<ReturnType<typeof loadFinanceSnapshot>>) => {
     setConfigured(snapshot.configured);
+    setSchemaVersion(snapshot.schemaVersion);
     setEntitlement(snapshot.entitlement);
     setProfile(snapshot.profile);
     setAccounts(snapshot.accounts);
@@ -649,13 +662,15 @@ export function FinanceApp() {
       showToast("Gunakan Tambah transaksi > Transfer ke akun kartu kredit agar pembayaran tidak menjadi pengeluaran ganda.");
       return;
     }
-    await runMutation(
-      () => markFinanceBillPaid(bill, month, today()),
-      bill.liabilityAccountId
-        ? `${bill.name} dibayar dan saldo utang diperbarui.`
-        : `${bill.name} dibayar dan dicatat sebagai pengeluaran.`,
-    );
+    setPaymentBill(bill);
   };
+
+  const submitBillPayment = async (bill: Bill, amount: number, fee: number, settlement: boolean) => runMutation(
+    () => markFinanceBillPaid(bill, month, today(), { amount, fee, settlement }),
+    settlement
+      ? `${bill.name} dilunasi dan saldo kewajiban diperbarui.`
+      : `${bill.name} dibayar; progres cicilan dan saldo sudah diperbarui.`,
+  );
 
   const payBillGroup = async (account: Account, groupBills: Bill[]) => {
     const unpaidBills = groupBills.filter((bill) => !bill.paid && !bill.completed);
@@ -712,6 +727,21 @@ export function FinanceApp() {
     () => reconcileFinanceAccount(account.id, actualBalance, date, note, requestId),
     actualBalance === account.balance ? "Saldo akun sudah cocok." : "Saldo berhasil direkonsiliasi dan jejak penyesuaian dibuat.",
   );
+
+  const syncInstallmentLiability = async (account: Account, schedules: Bill[]) => {
+    const totals = schedules.map(remainingInstallmentTotal);
+    if (totals.some((value) => value === null)) {
+      showToast("Saldo otomatis hanya tersedia untuk cicilan yang memiliki tenor.");
+      return;
+    }
+    const remaining = totals.reduce<number>((sum, value) => sum + Number(value || 0), 0);
+    if (remaining === account.balance) {
+      showToast(`Saldo ${account.name} sudah sama dengan sisa cicilan.`);
+      return;
+    }
+    if (!window.confirm(`Selaraskan saldo ${account.name} dari ${formatIDR(account.balance)} menjadi ${formatIDR(remaining)} sesuai sisa seluruh cicilan? Jejak penyesuaian akan disimpan.`)) return;
+    await reconcileAccount(account, remaining, today(), "Sinkronisasi otomatis dari sisa jadwal cicilan", `installment-sync:${account.id}:${crypto.randomUUID()}`);
+  };
 
   const saveCategory = async (payload: { name: string; type: "income" | "expense"; color: string }, category?: FinanceCategory, requestId?: string) => runMutation(
     () => category
@@ -802,6 +832,7 @@ export function FinanceApp() {
 
   const openCreateForPage = () => {
     if (activePage === "accounts") return setAccountOpen(true);
+    if (activePage === "receivables") return setReceivableOpen(true);
     if (activePage === "budgets") return setBudgetOpen(true);
     if (activePage === "goals") return setGoalOpen(true);
     if (activePage === "funds") return setSinkingFundModal({});
@@ -810,7 +841,7 @@ export function FinanceApp() {
     setTransactionOpen(true);
   };
 
-  const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "funds" ? "Buat pos dana" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
+  const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "receivables" ? "Catat piutang" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "funds" ? "Buat pos dana" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
   const notifications = notificationOverview?.notifications ?? [];
   const unreadNotifications = notificationOverview?.unreadCount ?? 0;
 
@@ -945,17 +976,18 @@ export function FinanceApp() {
           {activePage === "debts" && <DebtPayoffPage month={month} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => requirePlan("imports") && setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
           {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onBorrow={() => setLoanDrawdownOpen(true)} onImport={() => requirePlan("imports") && setAccountImportOpen(true)} onEdit={setEditingAccount} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
+          {activePage === "receivables" && <ReceivablesPage accounts={accounts} privacy={privacy} onAdd={() => setReceivableOpen(true)} onReceive={setReceivablePayment} onHistory={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
           {activePage === "budgets" && <BudgetsPage budgets={budgets} transactions={transactions} privacy={privacy} month={month} onAdd={() => setBudgetOpen(true)} onEdit={setEditingBudget} onDelete={removeBudget} />}
           {activePage === "goals" && <GoalsPage goals={goals} privacy={privacy} onProgress={setGoalProgressTarget} onEdit={setEditingGoal} onDelete={removeGoal} onAdd={() => setGoalOpen(true)} />}
           {activePage === "funds" && <SinkingFundsPage funds={sinkingFunds} entries={sinkingFundEntries} accounts={accounts} privacy={privacy} onAdd={() => setSinkingFundModal({})} onEdit={(fund) => setSinkingFundModal({ fund })} onAdjust={(fund, type) => setSinkingFundAdjustment({ fund, type })} onDelete={removeSinkingFund} />}
-          {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} saving={saving} onPay={payBill} onPayAll={payBillGroup} onEdit={setEditingBill} onDelete={removeBill} onAdd={() => setBillOpen(true)} />}
+          {activePage === "bills" && <BillsPage bills={bills} accounts={accounts} privacy={privacy} saving={saving} onPay={payBill} onPayAll={payBillGroup} onSyncLiability={syncInstallmentLiability} onEdit={setEditingBill} onDelete={removeBill} onAdd={() => setBillOpen(true)} />}
           {activePage === "calendar" && <FinancialCalendarPage accounts={accounts} bills={bills} goals={goals} privacy={privacy} initialMonth={month} />}
           {activePage === "recurring" && <RecurringPage accounts={accounts} categories={categories} privacy={privacy} onRefresh={refreshData} onToast={showToast} />}
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
           {activePage === "review" && <MonthlyReviewPage period={month} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
-          {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} />}
+          {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} schemaVersion={schemaVersion} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} />}
         </div>
       </main>
 
@@ -965,16 +997,19 @@ export function FinanceApp() {
       </nav>
 
       {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} transactions={transactions} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
-      {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} categoryRules={categoryRules} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
+      {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} categoryRules={categoryRules} existingTransactions={transactions} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
       {accountImportOpen && <AccountImportModal accounts={accounts} saving={saving} onClose={() => setAccountImportOpen(false)} onSubmit={async (items) => { const ok = await importAccounts(items); if (ok) setAccountImportOpen(false); return ok; }} />}
       {(accountOpen || editingAccount) && <AccountModal account={editingAccount ?? undefined} saving={saving} onClose={() => { setAccountOpen(false); setEditingAccount(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingAccount ? updateFinanceAccount(editingAccount.id, payload) : createFinanceAccount(payload), editingAccount ? "Akun berhasil diperbarui." : "Akun baru berhasil ditambahkan."); if (ok) { setAccountOpen(false); setEditingAccount(null); } }} />}
       {loanDrawdownOpen && <LoanDrawdownModal accounts={accounts} saving={saving} onClose={() => setLoanDrawdownOpen(false)} onSubmit={async (transaction) => { const ok = await recordLoanDrawdown(transaction); if (ok) setLoanDrawdownOpen(false); return ok; }} />}
+      {receivableOpen && <ReceivableModal accounts={accounts} saving={saving} onClose={() => setReceivableOpen(false)} onSubmit={async (payload) => { const ok = await runMutation(() => createFinanceReceivable(payload), "Piutang dan perpindahan dananya berhasil dicatat."); if (ok) setReceivableOpen(false); }} />}
+      {receivablePayment && <ReceivablePaymentModal receivable={receivablePayment} accounts={accounts} privacy={privacy} saving={saving} onClose={() => setReceivablePayment(null)} onSubmit={async (destinationAccountId, amount, date) => { const ok = await runMutation(() => createFinanceTransaction({ id: `tx-${crypto.randomUUID()}`, type: "transfer", date, title: `Pembayaran piutang - ${receivablePayment.name}`, merchant: receivablePayment.institution, category: "Transfer", accountId: receivablePayment.id, destinationAccountId, amount, status: "completed" }), amount >= receivablePayment.balance ? "Piutang sudah lunas." : "Pembayaran piutang berhasil dicatat."); if (ok) setReceivablePayment(null); }} />}
       {(budgetOpen || editingBudget) && <BudgetModal budget={editingBudget ?? undefined} month={month} categories={categories} saving={saving} onClose={() => { setBudgetOpen(false); setEditingBudget(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingBudget ? updateFinanceBudget(editingBudget.id, payload) : upsertFinanceBudget(payload), "Anggaran berhasil disimpan."); if (ok) { setBudgetOpen(false); setEditingBudget(null); } }} />}
       {(goalOpen || editingGoal) && <GoalModal goal={editingGoal ?? undefined} saving={saving} onClose={() => { setGoalOpen(false); setEditingGoal(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingGoal ? updateFinanceGoal(editingGoal.id, payload) : createFinanceGoal(payload), editingGoal ? "Target finansial berhasil diperbarui." : "Target finansial berhasil dibuat."); if (ok) { setGoalOpen(false); setEditingGoal(null); } }} />}
       {goalProgressTarget && <GoalProgressModal goal={goalProgressTarget} privacy={privacy} saving={saving} onClose={() => setGoalProgressTarget(null)} onSubmit={async (amount, mode) => { const ok = await adjustGoalProgress(goalProgressTarget, amount, mode); if (ok) setGoalProgressTarget(null); }} />}
       {sinkingFundModal && <SinkingFundModal fund={sinkingFundModal.fund} accounts={accounts} funds={sinkingFunds} saving={saving} onClose={() => setSinkingFundModal(null)} onSubmit={async (payload) => { const current = sinkingFundModal.fund; const ok = await runMutation(() => current ? updateFinanceSinkingFund(current.id, payload) : createFinanceSinkingFund(payload), current ? "Pos dana berhasil diperbarui." : "Pos dana berhasil dibuat tanpa mengubah saldo akun."); if (ok) setSinkingFundModal(null); }} />}
       {sinkingFundAdjustment && <SinkingFundAdjustmentModal fund={sinkingFundAdjustment.fund} type={sinkingFundAdjustment.type} saving={saving} onClose={() => setSinkingFundAdjustment(null)} onSubmit={async (amount, date, note) => { const action = sinkingFundAdjustment; const ok = await runMutation(() => adjustFinanceSinkingFund(action.fund.id, amount, action.type, date, note), action.type === "allocate" ? `${formatIDR(amount)} dialokasikan ke ${action.fund.name}.` : `${formatIDR(amount)} dilepas dari ${action.fund.name}.`); if (ok) setSinkingFundAdjustment(null); }} />}
       {(billOpen || editingBill) && <BillModal bill={editingBill ?? undefined} accounts={accounts} categories={categories} saving={saving} onClose={() => { setBillOpen(false); setEditingBill(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingBill ? updateFinanceBill(editingBill.id, payload) : createFinanceBill(payload), editingBill ? "Tagihan berhasil diperbarui." : "Tagihan rutin berhasil ditambahkan."); if (ok) { setBillOpen(false); setEditingBill(null); } }} />}
+      {paymentBill && <BillPaymentModal bill={paymentBill} privacy={privacy} saving={saving} onClose={() => setPaymentBill(null)} onSubmit={async (amount, fee, settlement) => { const ok = await submitBillPayment(paymentBill, amount, fee, settlement); if (ok) setPaymentBill(null); }} />}
       {reconcileTarget && <ReconcileModal account={reconcileTarget} privacy={privacy} saving={saving} onClose={() => setReconcileTarget(null)} onSubmit={async (actualBalance, date, note, requestId) => { const ok = await reconcileAccount(reconcileTarget, actualBalance, date, note, requestId); if (ok) setReconcileTarget(null); }} />}
       {categoryModal && <CategoryModal category={categoryModal.category} saving={saving} onClose={() => setCategoryModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveCategory(payload, categoryModal.category, requestId); if (ok) setCategoryModal(null); }} />}
       {categoryRuleModal && <CategoryRuleModal rule={categoryRuleModal.rule} categories={categories} saving={saving} onClose={() => setCategoryRuleModal(null)} onSubmit={async (payload) => { const ok = await saveCategoryRule(payload, categoryRuleModal.rule); if (ok) setCategoryRuleModal(null); }} />}
@@ -1021,6 +1056,18 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   const longTermLiabilities = accounts.filter((account) => account.liability && ["Loan", "Mortgage"].includes(account.type));
   const activeInstallments = bills.filter((bill) => bill.liabilityAccountId && !bill.completed);
   const nearestInstallment = [...activeInstallments].filter((bill) => !bill.paid).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  const wealthHistory = Array.from({ length: 7 }, (_, index) => {
+    const period = addMonthsToPeriod(month, index - 6);
+    const endDate = `${period}-${String(new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate()).padStart(2, "0")}`;
+    const balances = recomputeAccountBalances(accounts, transactions.filter((item) => item.date <= endDate));
+    return { period, ...accountSummary(balances) };
+  });
+  const wealthValues = wealthHistory.map((point) => point.netWorth);
+  const wealthMin = Math.min(...wealthValues);
+  const wealthMax = Math.max(...wealthValues);
+  const wealthSpan = Math.max(1, wealthMax - wealthMin);
+  const wealthPolyline = wealthHistory.map((point, index) => `${20 + index * 76.6},${118 - (point.netWorth - wealthMin) / wealthSpan * 88}`).join(" ");
+  const wealthChange = wealthHistory.at(-1)!.netWorth - wealthHistory[0].netWorth;
 
   return (
     <div className="dashboard-grid">
@@ -1064,6 +1111,14 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         <div className="health-content">
           <div className="score-ring" style={{ "--score": `${healthScore * 3.6}deg` } as React.CSSProperties}><div><strong>{healthScore}</strong><small>/100</small></div></div>
           <div><span className="health-label">{healthLabel}</span><p>Skor dihitung deterministik dari savings rate, likuiditas, utang, dan kepatuhan anggaran.</p><button className="text-button" onClick={() => onNavigate("reports")}>Lihat analisis <ArrowRight size={15} /></button></div>
+        </div>
+      </section>
+
+      <section className="panel wealth-trend-panel">
+        <div className="card-title-row"><div><span className="card-kicker">Riwayat kekayaan</span><h2>Perkembangan 7 bulan</h2></div><span className={wealthChange >= 0 ? "positive-text" : "negative-text"}>{wealthChange >= 0 ? "+" : ""}{privacy ? "••••" : formatIDR(wealthChange)}</span></div>
+        <div className="wealth-trend-chart">
+          <svg viewBox="0 0 500 145" role="img" aria-label="Grafik perkembangan kekayaan bersih tujuh bulan"><line x1="20" y1="118" x2="480" y2="118"/><polyline points={wealthPolyline} fill="none" stroke="var(--primary)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>{wealthHistory.map((point, index) => <circle key={point.period} cx={20 + index * 76.6} cy={118 - (point.netWorth - wealthMin) / wealthSpan * 88} r="4.5" fill="var(--surface)" stroke="var(--primary)" strokeWidth="3"/>)}</svg>
+          <div>{wealthHistory.map((point) => <span key={point.period}><small>{shortMonth(`${point.period}-01`)}</small><strong>{privacy ? "••••" : formatIDR(point.netWorth, true)}</strong></span>)}</div>
         </div>
       </section>
 
@@ -1251,6 +1306,18 @@ function AccountsPage({ accounts, privacy, onAdd, onBorrow, onImport, onEdit, on
       </article>)}
       <button className="add-card" onClick={onAdd}><span><Plus size={21} /></span><strong>Tambah akun baru</strong><small>Bank, e-wallet, cash, atau lainnya</small></button>
     </div>
+  </div>;
+}
+
+function ReceivablesPage({ accounts, privacy, onAdd, onReceive, onHistory }: { accounts: Account[]; privacy: boolean; onAdd: () => void; onReceive: (account: Account) => void; onHistory: (account: Account) => void }) {
+  const receivables = accounts.filter((account) => account.type === "Receivable");
+  const outstanding = receivables.reduce((sum, account) => sum + account.balance, 0);
+  return <div className="content-stack">
+    <div className="summary-strip"><div><span>Total piutang</span><Amount value={outstanding} privacy={privacy}/><small>{receivables.length} pihak</small></div><div><span>Status</span><strong>{receivables.filter((item) => item.balance > 0).length} belum lunas</strong><small>Saldo berasal dari ledger</small></div><div><span>Pencatatan</span><strong>Transfer aset</strong><small>Bukan pengeluaran atau pemasukan</small></div><div><span>Aksi</span><button className="primary-button compact" onClick={onAdd}><Plus size={15}/> Catat piutang</button></div></div>
+    <section className="panel receivables-panel"><div className="card-title-row"><div><span className="card-kicker">Receivable ledger</span><h2>Uang yang belum dikembalikan</h2></div></div><div className="receivable-list">{receivables.map((account) => {
+      const dueDate = account.mask.replace(/^JT\s*/, "");
+      return <article className={account.balance === 0 ? "paid" : ""} key={account.id}><span className="account-logo" style={{ color: account.color, background: `${account.color}18` }}><UserRound size={19}/></span><span><strong>{account.name}</strong><small>{account.institution || "Peminjam"} · jatuh tempo {shortDate(dueDate)}</small></span><span><small>Sisa piutang</small><Amount value={account.balance} privacy={privacy}/></span><span className="receivable-actions"><button className="secondary-button" onClick={() => onHistory(account)}><History size={14}/> Riwayat</button><button className="primary-button" disabled={account.balance <= 0} onClick={() => onReceive(account)}><ArrowDownLeft size={14}/> Terima pembayaran</button></span></article>;
+    })}{!receivables.length && <div className="empty-state"><UserRound size={30}/><h3>Belum ada piutang</h3><p>Catat saat kamu meminjamkan uang. Saldo kas berkurang dan piutang bertambah tanpa dianggap sebagai pengeluaran.</p><button className="primary-button" onClick={onAdd}><Plus size={15}/> Catat piutang pertama</button></div>}</div></section>
   </div>;
 }
 
@@ -1677,7 +1744,7 @@ function RecurringPage({ accounts, categories, privacy, onRefresh, onToast }: { 
   </div>;
 }
 
-function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onEdit, onDelete, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; saving: boolean; onPay: (bill: Bill) => void; onPayAll: (account: Account, bills: Bill[]) => void; onEdit: (bill: Bill) => void; onDelete: (bill: Bill) => void; onAdd: () => void }) {
+function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onSyncLiability, onEdit, onDelete, onAdd }: { bills: Bill[]; accounts: Account[]; privacy: boolean; saving: boolean; onPay: (bill: Bill) => void; onPayAll: (account: Account, bills: Bill[]) => void; onSyncLiability: (account: Account, bills: Bill[]) => void; onEdit: (bill: Bill) => void; onDelete: (bill: Bill) => void; onAdd: () => void }) {
   const activeBills = bills.filter((bill) => !bill.completed);
   const pending = activeBills.filter((bill) => !bill.paid);
   const installmentGroups = accounts.filter((account) => account.liability).map((account) => {
@@ -1716,6 +1783,8 @@ function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onEdit, 
       <div className="installment-group-grid">{section.groups.map(({ account, schedules, monthly }) => {
         const unpaidSchedules = schedules.filter((bill) => !bill.paid);
         const dueTotal = unpaidSchedules.reduce((sum, bill) => sum + bill.amount, 0);
+        const remainingTotals = schedules.map(remainingInstallmentTotal);
+        const scheduledBalance = remainingTotals.some((value) => value === null) ? null : remainingTotals.reduce<number>((sum, value) => sum + Number(value || 0), 0);
         return <article className="installment-group-card" key={account.id}>
           <div className="installment-group-head">
             <span className="bill-brand"><CreditCard size={18} /></span>
@@ -1728,8 +1797,8 @@ function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onEdit, 
             <span className="installment-item-actions"><button className={bill.paid ? "secondary-button" : "primary-button"} onClick={() => onPay(bill)} disabled={saving || bill.paid}>{bill.paid ? "Selesai" : "Bayar"}</button><button className="icon-button small" onClick={() => onEdit(bill)} aria-label={`Edit ${bill.name}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus cicilan ${bill.name}?`) && onDelete(bill)} aria-label={`Hapus ${bill.name}`}><Trash2 size={15} /></button></span>
           </div>)}</div>
           <div className="installment-group-footer">
-            <span><small>Tagihan gabungan bulan ini</small><strong><Amount value={dueTotal} privacy={privacy} /> · {unpaidSchedules.length} belum dibayar</strong></span>
-            <button className={unpaidSchedules.length ? "primary-button" : "secondary-button"} disabled={saving || !unpaidSchedules.length} onClick={() => onPayAll(account, schedules)}><CheckCircle2 size={16} />{saving ? "Memproses…" : unpaidSchedules.length ? "Bayar semua" : "Lunas bulan ini"}</button>
+            <span><small>Tagihan gabungan bulan ini</small><strong><Amount value={dueTotal} privacy={privacy} /> · {unpaidSchedules.length} belum dibayar</strong>{scheduledBalance !== null && <small>Sisa jadwal <Amount value={scheduledBalance} privacy={privacy} />{scheduledBalance !== account.balance ? " · saldo perlu diselaraskan" : " · saldo sudah sesuai"}</small>}</span>
+            <span className="installment-footer-actions"><button className="secondary-button" disabled={saving || scheduledBalance === null || scheduledBalance === account.balance} onClick={() => onSyncLiability(account, schedules)}><Scale size={16} /> Sinkronkan saldo</button><button className={unpaidSchedules.length ? "primary-button" : "secondary-button"} disabled={saving || !unpaidSchedules.length} onClick={() => onPayAll(account, schedules)}><CheckCircle2 size={16} />{saving ? "Memproses…" : unpaidSchedules.length ? "Bayar semua" : "Lunas bulan ini"}</button></span>
           </div>
         </article>;
       })}</div>
@@ -2332,8 +2401,10 @@ function NotificationSettingsPanel({ settings, onSave, onToast }: {
       <label><span>Peringatan anggaran</span><select value={draft.budgetWarningPercent} onChange={(event) => setDraft((current) => ({ ...current, budgetWarningPercent: Number(event.target.value) }))}><option value="75">Mulai 75%</option><option value="90">Mulai 90%</option></select><ChevronDown size={15} /></label>
       <label><span>Backup dianggap lama</span><select value={draft.backupWarningDays} onChange={(event) => setDraft((current) => ({ ...current, backupWarningDays: Number(event.target.value) }))}><option value="7">7 hari</option><option value="14">14 hari</option><option value="30">30 hari</option></select><ChevronDown size={15} /></label>
       <label><span>Deadline target</span><select value={draft.goalWarningDays} onChange={(event) => setDraft((current) => ({ ...current, goalWarningDays: Number(event.target.value) }))}><option value="7">7 hari sebelumnya</option><option value="30">30 hari sebelumnya</option><option value="60">60 hari sebelumnya</option></select><ChevronDown size={15} /></label>
+      <label><span>Email tujuan</span><input type="email" value={draft.emailAddress} onChange={(event) => setDraft((current) => ({ ...current, emailAddress: event.target.value }))} placeholder="nama@email.com" disabled={!draft.emailEnabled}/><small>Dikirim otomatis pukul 07.00 dari Google Apps Script.</small></label>
+      <div className="notification-delivery-options"><div className="settings-row"><div><strong>Kirim email penting</strong><small>Jatuh tempo dan peringatan kritis.</small></div><button className={`switch ${draft.emailEnabled ? "on" : ""}`} onClick={() => setDraft((current) => ({ ...current, emailEnabled: !current.emailEnabled }))} aria-pressed={draft.emailEnabled}><span /></button></div><div className="settings-row"><div><strong>Ringkasan mingguan</strong><small>Rangkuman tambahan setiap Senin.</small></div><button className={`switch ${draft.weeklyDigest ? "on" : ""}`} onClick={() => setDraft((current) => ({ ...current, weeklyDigest: !current.weeklyDigest }))} aria-pressed={draft.weeklyDigest}><span /></button></div></div>
     </div>
-    <div className="settings-actions"><button className="primary-button" onClick={save} disabled={saving || !draft.billReminderDays.length}><Bell size={15} /> {saving ? "Menyimpan…" : "Simpan reminder"}</button><small>Notifikasi hanya informatif dan tidak melakukan pembayaran atau perubahan data otomatis.</small></div>
+    <div className="settings-actions"><button className="primary-button" onClick={save} disabled={saving || !draft.billReminderDays.length || (draft.emailEnabled && !/^\S+@\S+\.\S+$/.test(draft.emailAddress))}><Bell size={15} /> {saving ? "Menyimpan…" : "Simpan reminder"}</button><small>Notifikasi hanya informatif dan tidak melakukan pembayaran atau perubahan data otomatis.</small></div>
     {error && <div className="portability-error" role="alert">{error}</div>}
   </section>;
 }
@@ -2461,7 +2532,22 @@ function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLab
   </section>;
 }
 
-function SettingsPage({ profile, entitlement, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh }: {
+function UpdateCenterPanel({ schemaVersion, backendLabel, onRefresh, onToast }: { schemaVersion: string; backendLabel: string; onRefresh: () => Promise<void>; onToast: (message: string) => void }) {
+  const [working, setWorking] = useState(false);
+  const current = schemaVersion === FINANCE_SCHEMA_VERSION;
+  const update = async () => {
+    setWorking(true);
+    try {
+      await upgradeFinanceWorkspace();
+      await onRefresh();
+      onToast("Pemeriksaan instalasi selesai; struktur data sudah diperbarui.");
+    } catch (reason) { onToast(reason instanceof Error ? reason.message : "Pembaruan tidak dapat dijalankan."); }
+    finally { setWorking(false); }
+  };
+  return <section className="panel settings-section settings-wide update-center-panel"><div className="settings-title"><span><Download size={20}/></span><div><h2>Pusat instalasi & pembaruan</h2><p>Memeriksa kelengkapan struktur data tanpa menghapus saldo atau riwayat.</p></div><span className={`connection-status ${current ? "" : "warning"}`}><i/>{current ? "Versi terbaru" : "Perlu diperiksa"}</span></div><div className="update-version-grid"><span><small>Versi aplikasi</small><strong>{FINANCE_SCHEMA_VERSION}</strong></span><span><small>Versi penyimpanan</small><strong>{schemaVersion}</strong></span><span><small>Backend</small><strong>{backendLabel}</strong></span><button className="primary-button" onClick={update} disabled={working}><ShieldCheck size={15}/>{working ? "Memeriksa…" : "Periksa & perbarui"}</button></div><small>Pembaruan aman dijalankan ulang. Pada Google Sheets, kolom atau sheet yang belum ada akan ditambahkan otomatis.</small></section>;
+}
+
+function SettingsPage({ profile, entitlement, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, schemaVersion, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh }: {
   profile: FinanceProfile;
   entitlement: PlanEntitlement;
   onOpenLicense: () => void;
@@ -2475,6 +2561,7 @@ function SettingsPage({ profile, entitlement, onOpenLicense, saving, darkMode, s
   categoryRules: CategoryRule[];
   auditLogs: AuditLog[];
   backendLabel: string;
+  schemaVersion: string;
   notificationSettings: NotificationSettings;
   onSaveProfile: (name: string) => Promise<boolean>;
   onSaveFeaturePreferences: (preferences: FeaturePreferences) => Promise<boolean>;
@@ -2496,7 +2583,8 @@ function SettingsPage({ profile, entitlement, onOpenLicense, saving, darkMode, s
     <SecurityAccessPanel privacy={privacy} />
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
-    <NotificationSettingsPanel key={`${notificationSettings.enabled}-${notificationSettings.billReminderDays.join(",")}-${notificationSettings.budgetWarningPercent}-${notificationSettings.backupWarningDays}-${notificationSettings.goalWarningDays}`} settings={notificationSettings} onSave={onSaveNotificationSettings} onToast={onToast} />
+    <UpdateCenterPanel schemaVersion={schemaVersion} backendLabel={backendLabel} onRefresh={onRefresh} onToast={onToast}/>
+    <NotificationSettingsPanel key={`${notificationSettings.enabled}-${notificationSettings.billReminderDays.join(",")}-${notificationSettings.budgetWarningPercent}-${notificationSettings.backupWarningDays}-${notificationSettings.goalWarningDays}-${notificationSettings.emailEnabled}-${notificationSettings.emailAddress}-${notificationSettings.weeklyDigest}`} settings={notificationSettings} onSave={onSaveNotificationSettings} onToast={onToast} />
     <AiSettingsPanel onToast={onToast} />
     <LedgerHealthPanel privacy={privacy} onToast={onToast} onRefresh={onRefresh} />
     <DataPortabilityPanel backendLabel={backendLabel} onToast={onToast} onRefresh={onRefresh} />
@@ -2998,10 +3086,11 @@ function TransactionModalLegacy({ accounts, categories, initial, saving, onClose
   </div>;
 }
 
-function TransactionImportModal({ accounts, categories, categoryRules, saving, onClose, onSubmit }: {
+function TransactionImportModal({ accounts, categories, categoryRules, existingTransactions, saving, onClose, onSubmit }: {
   accounts: Account[];
   categories: FinanceCategory[];
   categoryRules: CategoryRule[];
+  existingTransactions: Transaction[];
   saving: boolean;
   onClose: () => void;
   onSubmit: (transactions: Transaction[]) => Promise<boolean>;
@@ -3014,7 +3103,7 @@ function TransactionImportModal({ accounts, categories, categoryRules, saving, o
     setError(""); setFilename(file.name);
     if (file.size > 1024 * 1024) { setPreview(null); setError("Ukuran CSV maksimal 1 MB."); return; }
     try {
-      const result = previewTransactionCsv(await file.text(), accounts, categories, categoryRules);
+      const result = previewTransactionCsv(await file.text(), accounts, categories, categoryRules, existingTransactions);
       if (!result.rows.length) throw new Error("CSV kosong atau hanya berisi header.");
       setPreview(result);
     } catch (reason) { setPreview(null); setError(reason instanceof Error ? reason.message : "CSV tidak dapat dibaca."); }
@@ -3030,8 +3119,8 @@ function TransactionImportModal({ accounts, categories, categoryRules, saving, o
       <label className="csv-dropzone"><Upload size={20} /><span><strong>{filename || "Pilih file CSV"}</strong><small>Maksimal 100 transaksi atau 1 MB</small></span><input type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
       {error && <div className="ocr-message"><X size={15} />{error}</div>}
       {preview && <>
-        <div className="import-summary"><span><small>Baris valid</small><strong>{preview.validCount}</strong></span><span className={preview.errorCount ? "negative-text" : "positive-text"}><small>Perlu diperbaiki</small><strong>{preview.errorCount}</strong></span><span><small>Pemasukan</small><strong>{formatIDR(preview.income)}</strong></span><span><small>Pengeluaran</small><strong>{formatIDR(preview.expense)}</strong></span></div>
-        <div className="import-preview-table"><div className="import-preview-head"><span>Baris</span><span>Transaksi</span><span>Akun / kategori</span><span>Nominal</span><span>Status</span></div>{preview.rows.slice(0, 30).map((row) => <div className={row.errors.length ? "invalid" : ""} key={row.rowNumber}><span>{row.rowNumber}</span><span><strong>{row.transaction?.title || row.raw.title || "-"}</strong><small>{row.transaction?.date || row.raw.date || "-"}</small></span><span>{row.transaction ? <>{accounts.find((item) => item.id === row.transaction?.accountId)?.name} · {row.transaction.category}{row.matchedRule && <small className="auto-category-badge"><Sparkles size={11} /> Otomatis: {row.matchedRule.keyword}</small>}</> : "-"}</span><span>{row.transaction ? formatIDR(row.transaction.amount) : row.raw.amount || "-"}</span><span>{row.errors.length ? row.errors.join(" ") : "Siap"}</span></div>)}</div>
+        <div className="import-summary"><span><small>Siap diimpor</small><strong>{preview.validCount}</strong></span><span><small>Sudah ada</small><strong>{preview.duplicateCount}</strong></span><span className={preview.errorCount ? "negative-text" : "positive-text"}><small>Perlu diperbaiki</small><strong>{preview.errorCount}</strong></span><span><small>Pengeluaran baru</small><strong>{formatIDR(preview.expense)}</strong></span></div>
+        <div className="import-preview-table"><div className="import-preview-head"><span>Baris</span><span>Transaksi</span><span>Akun / kategori</span><span>Nominal</span><span>Status</span></div>{preview.rows.slice(0, 30).map((row) => <div className={row.errors.length ? "invalid" : row.duplicateOf ? "duplicate" : ""} key={row.rowNumber}><span>{row.rowNumber}</span><span><strong>{row.transaction?.title || row.raw.title || "-"}</strong><small>{row.transaction?.date || row.raw.date || "-"}</small></span><span>{row.transaction ? <>{accounts.find((item) => item.id === row.transaction?.accountId)?.name} · {row.transaction.category}{row.matchedRule && <small className="auto-category-badge"><Sparkles size={11} /> Otomatis: {row.matchedRule.keyword}</small>}</> : row.duplicateOf ? "Cocok dengan ledger" : "-"}</span><span>{row.transaction ? formatIDR(row.transaction.amount) : row.raw.amount || "-"}</span><span>{row.errors.length ? row.errors.join(" ") : row.duplicateOf ? "Sudah ada · dilewati" : "Siap"}</span></div>)}</div>
         {preview.rows.length > 30 && <small className="import-more">Menampilkan 30 dari {preview.rows.length} baris.</small>}
       </>}
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button type="button" className="primary-button" disabled={saving || !preview?.validCount || Boolean(preview.errorCount)} onClick={() => preview && void onSubmit(preview.valid)}><FileUp size={17} /> {saving ? "Mengimpor..." : `Impor ${preview?.validCount || 0} transaksi`}</button></div>
@@ -3344,6 +3433,61 @@ function RecurringModal({ accounts, categories, saving, onClose, onSubmit }: { a
   </SimpleModal>;
 }
 
+function ReceivableModal({ accounts, saving, onClose, onSubmit }: { accounts: Account[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
+  const cashAccounts = accounts.filter((account) => !account.liability && !["Investment", "Receivable"].includes(account.type));
+  const [borrower, setBorrower] = useState("");
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [sourceAccountId, setSourceAccountId] = useState(cashAccounts[0]?.id ?? "");
+  const [date, setDate] = useState(today());
+  const [dueDate, setDueDate] = useState(today());
+  return <SimpleModal title="Catat piutang" kicker="Uang dipinjamkan" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit({ borrower: borrower.trim(), name: name.trim(), amount: moneyInputNumber(amount), sourceAccountId, date, dueDate }); }}>
+    <div className="form-grid"><label><span>Nama peminjam</span><input value={borrower} onChange={(event) => setBorrower(event.target.value)} placeholder="Contoh: Alvin" required autoFocus/></label><label><span>Nama piutang</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Pinjaman pribadi" required/></label><label><span>Nominal</span><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required/></label><label><span>Sumber dana</span><select value={sourceAccountId} onChange={(event) => setSourceAccountId(event.target.value)} required><option value="" disabled>Pilih akun</option>{cashAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15}/></label><label><span>Tanggal diberikan</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} required/></label><label><span>Jatuh tempo</span><input type="date" min={date} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required/></label></div>
+    <div className="ocr-message"><Scale size={15}/>Dana dipindahkan dari kas ke akun piutang. Kekayaan bersih tetap sama.</div>
+  </SimpleModal>;
+}
+
+function ReceivablePaymentModal({ receivable, accounts, privacy, saving, onClose, onSubmit }: { receivable: Account; accounts: Account[]; privacy: boolean; saving: boolean; onClose: () => void; onSubmit: (destinationAccountId: string, amount: number, date: string) => Promise<void> }) {
+  const cashAccounts = accounts.filter((account) => !account.liability && !["Investment", "Receivable"].includes(account.type));
+  const [destinationAccountId, setDestinationAccountId] = useState(cashAccounts[0]?.id ?? "");
+  const [amount, setAmount] = useState(String(receivable.balance));
+  const [date, setDate] = useState(today());
+  return <SimpleModal title={`Pembayaran ${receivable.name}`} kicker="Pengembalian piutang" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); return onSubmit(destinationAccountId, moneyInputNumber(amount), date); }}>
+    <div className="payment-summary-card"><span><small>Sisa piutang</small><strong><Amount value={receivable.balance} privacy={privacy}/></strong></span><span><small>Peminjam</small><strong>{receivable.institution}</strong></span><span><small>Jatuh tempo</small><strong>{shortDate(receivable.mask.replace(/^JT\s*/, ""))}</strong></span></div>
+    <div className="form-grid"><label><span>Nominal diterima</span><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" max={receivable.balance} required/></label><label><span>Masuk ke akun</span><select value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)} required>{cashAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15}/></label><label><span>Tanggal diterima</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} required/></label></div>
+    <div className="ocr-message"><ArrowRight size={15}/>Pembayaran menjadi transfer dari piutang ke kas, bukan pemasukan baru.</div>
+  </SimpleModal>;
+}
+
+function BillPaymentModal({ bill, privacy, saving, onClose, onSubmit }: { bill: Bill; privacy: boolean; saving: boolean; onClose: () => void; onSubmit: (amount: number, fee: number, settlement: boolean) => Promise<void> }) {
+  const currentPaid = bill.currentPeriodPaid ?? 0;
+  const regularRemaining = Math.max(0, bill.amount - currentPaid);
+  const payoff = remainingInstallmentTotal(bill);
+  const [amount, setAmount] = useState(String(regularRemaining || bill.amount));
+  const [fee, setFee] = useState("");
+  const [settlement, setSettlement] = useState(false);
+  const principal = settlement ? Number(payoff ?? regularRemaining) : moneyInputNumber(amount);
+  return <SimpleModal title={`Bayar ${bill.name}`} kicker="Pembayaran fleksibel" saving={saving} onClose={onClose} submitLabel={settlement ? "Lunasi sekarang" : "Simpan pembayaran"} onSubmit={(event) => {
+    event.preventDefault();
+    return onSubmit(principal, moneyInputNumber(fee), settlement);
+  }}>
+    <div className="payment-summary-card">
+      <span><small>Cicilan bulan ini</small><strong><Amount value={bill.amount} privacy={privacy}/></strong></span>
+      <span><small>Sudah dibayar sebagian</small><strong><Amount value={currentPaid} privacy={privacy}/></strong></span>
+      <span><small>Sisa seluruh kontrak</small><strong>{payoff === null ? "Tanpa tenor" : <Amount value={payoff} privacy={privacy}/>}</strong></span>
+    </div>
+    <div className="transaction-type-tabs bill-payment-tabs">
+      <button type="button" className={!settlement ? "active" : ""} onClick={() => setSettlement(false)}>Bayar sebagian / ekstra</button>
+      <button type="button" className={settlement ? "active" : ""} disabled={payoff === null} onClick={() => setSettlement(true)}>Pelunasan dipercepat</button>
+    </div>
+    <div className="form-grid">
+      <label><span>Pokok yang dibayar</span><input value={formatMoneyInput(settlement ? String(payoff ?? 0) : amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" readOnly={settlement} required/><small>Bayar kurang dari tagihan untuk parsial, atau lebih untuk memajukan cicilan berikutnya.</small></label>
+      <label><span>Biaya admin / denda</span><input value={formatMoneyInput(fee)} onChange={(event) => setFee(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" placeholder="Rp 0"/><small>Dicatat terpisah sebagai Biaya Keuangan.</small></label>
+    </div>
+    <div className="ocr-message"><Scale size={15}/><span>Pokok mengurangi saldo utang. Biaya admin menjadi pengeluaran, sehingga laporan tidak menghitung pembayaran dua kali.</span></div>
+  </SimpleModal>;
+}
+
 function BillModal({ bill, accounts, categories, saving, onClose, onSubmit }: { bill?: Bill; accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
   const paymentAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
   const liabilityAccounts = accounts.filter((account) => account.liability);
@@ -3623,6 +3767,6 @@ function CategoryRuleModal({ rule, categories, saving, onClose, onSubmit }: {
   </SimpleModal>;
 }
 
-function SimpleModal({ title, kicker, saving, onClose, onSubmit, children }: { title: string; kicker: string; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent) => void | Promise<void>; children: React.ReactNode }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal compact-modal" role="dialog" aria-modal="true"><div className="modal-head"><div><span className="card-kicker">{kicker}</span><h2>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div><form onSubmit={onSubmit}>{children}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" disabled={saving}><Check size={17} /> {saving ? "Menyimpan…" : "Simpan"}</button></div></form></section></div>;
+function SimpleModal({ title, kicker, saving, onClose, onSubmit, children, submitLabel = "Simpan" }: { title: string; kicker: string; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent) => void | Promise<void>; children: React.ReactNode; submitLabel?: string }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal compact-modal" role="dialog" aria-modal="true"><div className="modal-head"><div><span className="card-kicker">{kicker}</span><h2>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div><form onSubmit={onSubmit}>{children}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" disabled={saving}><Check size={17} /> {saving ? "Menyimpan…" : submitLabel}</button></div></form></section></div>;
 }

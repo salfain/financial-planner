@@ -7,6 +7,8 @@ export type InstallmentPhase = {
 type InstallmentPlan = {
   amount: number;
   paidCount?: number;
+  durationMonths?: number | null;
+  currentPeriodPaid?: number;
   installmentPhases?: InstallmentPhase[];
 };
 
@@ -60,4 +62,18 @@ export function installmentAmountAt(plan: InstallmentPlan, occurrenceOffset = 0)
 
 export function currentInstallmentPhase(plan: InstallmentPlan) {
   return installmentPhaseAt(plan.installmentPhases ?? [], plan.paidCount ?? 0);
+}
+
+/** Total nominal jadwal yang masih menjadi kewajiban, setelah pembayaran parsial. */
+export function remainingInstallmentTotal(plan: InstallmentPlan) {
+  const duration = plan.durationMonths ?? (plan.installmentPhases?.length
+    ? installmentDuration(plan.installmentPhases)
+    : null);
+  if (duration === null || duration === undefined) return null;
+  const paidCount = Math.min(duration, Math.max(0, Math.floor(plan.paidCount ?? 0)));
+  let remaining = 0;
+  for (let index = paidCount; index < duration; index += 1) {
+    remaining += installmentAmountAt({ ...plan, paidCount: index });
+  }
+  return Math.max(0, remaining - Math.max(0, Math.floor(plan.currentPeriodPaid ?? 0)));
 }

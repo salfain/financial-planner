@@ -146,7 +146,7 @@ function seedDemoState(month: string): DemoState {
       { id: "demo-recurring-salary", name: "Gaji bulanan", type: "income", amount: 14_500_000, category: "Gaji", accountId: "demo-bank", frequency: "monthly", startDate: dateInMonth(twoMonthsAgo, 1), nextDueDate: dateInMonth(shiftMonth(month, 1), 1), isSubscription: false, active: true, lastPostedDate: dateInMonth(month, 1), updatedAt: nowIso() },
       { id: "demo-recurring-stream", name: "Streaming keluarga", type: "expense", amount: 159_000, category: "Hiburan", accountId: "demo-card", frequency: "monthly", startDate: dateInMonth(twoMonthsAgo, 18), nextDueDate: dateInMonth(month, 18), isSubscription: true, active: true, lastPostedDate: dateInMonth(previous, 18), updatedAt: nowIso() },
     ],
-    notificationSettings: { enabled: true, billReminderDays: [7, 3, 1, 0], budgetWarningPercent: 75, backupWarningDays: 7, goalWarningDays: 30 },
+    notificationSettings: { enabled: true, billReminderDays: [7, 3, 1, 0], budgetWarningPercent: 75, backupWarningDays: 7, goalWarningDays: 30, emailEnabled: false, emailAddress: "", weeklyDigest: true },
     dismissedNotifications: [], aiMessages: [], reports: [], migrations: [], lastTransactionId: null,
     backups: [{ id: "demo-backup-initial", kind: "backup", filename: "financial-planner-demo.json", contentType: "application/json", sizeBytes: 28412, status: "ready", createdAt: nowIso(), downloadUrl: "#" }],
     backupSchedule: { enabled: true, frequency: "weekly", lastBackupAt: nowIso(), nextBackupAt: new Date(Date.now() + 7 * 86_400_000).toISOString(), mode: "on_access" },

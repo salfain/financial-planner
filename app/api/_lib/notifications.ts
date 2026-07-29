@@ -16,6 +16,9 @@ type NotificationSettingsRow = {
   budgetWarningPercent: number;
   backupWarningDays: number;
   goalWarningDays: number;
+  emailEnabled: number;
+  emailAddress: string;
+  weeklyDigest: number;
 };
 
 type NotificationStateRow = {
@@ -55,6 +58,9 @@ function settingsRecord(row: NotificationSettingsRow): NotificationSettings {
     budgetWarningPercent: row.budgetWarningPercent,
     backupWarningDays: row.backupWarningDays,
     goalWarningDays: row.goalWarningDays,
+    emailEnabled: Boolean(row.emailEnabled),
+    emailAddress: row.emailAddress || "",
+    weeklyDigest: Boolean(row.weeklyDigest),
   };
 }
 
@@ -62,8 +68,8 @@ async function ensureNotificationSettings(workspaceId: string) {
   const now = nowIso();
   await getD1().prepare(
     `INSERT INTO notification_settings
-       (workspace_id, enabled, bill_reminder_days, budget_warning_percent, backup_warning_days, goal_warning_days, created_at, updated_at)
-     VALUES (?, 1, '[7,3,1,0]', 75, 7, 30, ?, ?)
+       (workspace_id, enabled, bill_reminder_days, budget_warning_percent, backup_warning_days, goal_warning_days, email_enabled, email_address, weekly_digest, created_at, updated_at)
+     VALUES (?, 1, '[7,3,1,0]', 75, 7, 30, 0, '', 1, ?, ?)
      ON CONFLICT(workspace_id) DO NOTHING`,
   ).bind(workspaceId, now, now).run();
 }
@@ -74,7 +80,8 @@ async function getSettings(workspaceId: string) {
     `SELECT enabled, bill_reminder_days AS billReminderDays,
             budget_warning_percent AS budgetWarningPercent,
             backup_warning_days AS backupWarningDays,
-            goal_warning_days AS goalWarningDays
+            goal_warning_days AS goalWarningDays,
+            email_enabled AS emailEnabled, email_address AS emailAddress, weekly_digest AS weeklyDigest
      FROM notification_settings WHERE workspace_id = ? LIMIT 1`,
   ).bind(workspaceId).first<NotificationSettingsRow>();
   if (!row) throw new ApiError(500, "NOTIFICATION_SETTINGS_MISSING", "Pengaturan notifikasi tidak dapat dimuat.");
@@ -147,15 +154,18 @@ export async function updateNotificationSettings(workspaceId: string, settings: 
   await d1.batch([
     d1.prepare(
       `INSERT INTO notification_settings
-         (workspace_id, enabled, bill_reminder_days, budget_warning_percent, backup_warning_days, goal_warning_days, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         (workspace_id, enabled, bill_reminder_days, budget_warning_percent, backup_warning_days, goal_warning_days, email_enabled, email_address, weekly_digest, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id) DO UPDATE SET enabled = excluded.enabled,
          bill_reminder_days = excluded.bill_reminder_days,
          budget_warning_percent = excluded.budget_warning_percent,
          backup_warning_days = excluded.backup_warning_days,
          goal_warning_days = excluded.goal_warning_days,
+         email_enabled = excluded.email_enabled,
+         email_address = excluded.email_address,
+         weekly_digest = excluded.weekly_digest,
          updated_at = excluded.updated_at`,
-    ).bind(workspaceId, settings.enabled ? 1 : 0, JSON.stringify(settings.billReminderDays), settings.budgetWarningPercent, settings.backupWarningDays, settings.goalWarningDays, now, now),
+    ).bind(workspaceId, settings.enabled ? 1 : 0, JSON.stringify(settings.billReminderDays), settings.budgetWarningPercent, settings.backupWarningDays, settings.goalWarningDays, settings.emailEnabled ? 1 : 0, settings.emailAddress, settings.weeklyDigest ? 1 : 0, now, now),
     auditStatement(d1, {
       workspaceId,
       action: "notification.settings.update",

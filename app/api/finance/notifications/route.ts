@@ -16,12 +16,20 @@ function parseSettings(payload: Record<string, unknown>): NotificationSettings {
     .filter((value) => Number.isSafeInteger(value) && [7, 3, 1, 0].includes(value))
     .sort((a, b) => b - a);
   if (!billReminderDays.length) throw new ApiError(400, "INVALID_REMINDER_DAYS", "Pilih minimal satu jadwal reminder tagihan.");
+  const emailAddress = String(payload.emailAddress || "").trim().slice(0, 160);
+  const emailEnabled = payload.emailEnabled === undefined ? false : booleanValue(payload, "emailEnabled");
+  if (emailEnabled && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress)) {
+    throw new ApiError(400, "INVALID_NOTIFICATION_EMAIL", "Alamat email notifikasi tidak valid.");
+  }
   return {
     enabled: booleanValue(payload, "enabled"),
     billReminderDays,
     budgetWarningPercent: intChoice(payload, "budgetWarningPercent", [75, 90]),
     backupWarningDays: intChoice(payload, "backupWarningDays", [7, 14, 30]),
     goalWarningDays: intChoice(payload, "goalWarningDays", [7, 30, 60]),
+    emailEnabled,
+    emailAddress,
+    weeklyDigest: payload.weeklyDigest === undefined ? true : booleanValue(payload, "weeklyDigest"),
   };
 }
 

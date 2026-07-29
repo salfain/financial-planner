@@ -3,7 +3,10 @@ const NOTIFICATION_DEFAULTS = Object.freeze({
   billReminderDays: [7, 3, 1, 0],
   budgetWarningPercent: 75,
   backupWarningDays: 7,
-  goalWarningDays: 30
+  goalWarningDays: 30,
+  emailEnabled: false,
+  emailAddress: '',
+  weeklyDigest: true
 });
 
 function notificationNumberSetting_(key, fallback, allowed) {
@@ -32,7 +35,10 @@ function notificationSettingsGs_() {
     billReminderDays: notificationDays_(settingValue_('notification_bill_days', '[7,3,1,0]'), NOTIFICATION_DEFAULTS.billReminderDays),
     budgetWarningPercent: notificationNumberSetting_('notification_budget_percent', 75, [75, 90]),
     backupWarningDays: notificationNumberSetting_('notification_backup_days', 7, [7, 14, 30]),
-    goalWarningDays: notificationNumberSetting_('notification_goal_days', 30, [7, 30, 60])
+    goalWarningDays: notificationNumberSetting_('notification_goal_days', 30, [7, 30, 60]),
+    emailEnabled: truthy_(settingValue_('notification_email_enabled', 'false')),
+    emailAddress: String(settingValue_('notification_email_address', '')),
+    weeklyDigest: truthy_(settingValue_('notification_weekly_digest', 'true'))
   };
 }
 
@@ -149,16 +155,55 @@ function apiUpdateNotificationSettings(payload) {
       budgetWarningPercent: Number(payload.budgetWarningPercent),
       backupWarningDays: Number(payload.backupWarningDays),
       goalWarningDays: Number(payload.goalWarningDays)
+      ,emailEnabled: payload.emailEnabled === true
+      ,emailAddress: String(payload.emailAddress || '').trim().slice(0, 160)
+      ,weeklyDigest: payload.weeklyDigest !== false
     };
+    if (settings.emailEnabled && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.emailAddress)) throw createError_('INVALID_NOTIFICATION_EMAIL', 'Alamat email notifikasi tidak valid.');
     if (!settings.billReminderDays.length || [75, 90].indexOf(settings.budgetWarningPercent) === -1 || [7, 14, 30].indexOf(settings.backupWarningDays) === -1 || [7, 30, 60].indexOf(settings.goalWarningDays) === -1) throw createError_('INVALID_NOTIFICATION_SETTINGS', 'Pengaturan reminder tidak valid.');
     upsertSetting_('notification_enabled', settings.enabled);
     upsertSetting_('notification_bill_days', JSON.stringify(settings.billReminderDays));
     upsertSetting_('notification_budget_percent', settings.budgetWarningPercent);
     upsertSetting_('notification_backup_days', settings.backupWarningDays);
     upsertSetting_('notification_goal_days', settings.goalWarningDays);
+    upsertSetting_('notification_email_enabled', settings.emailEnabled);
+    upsertSetting_('notification_email_address', settings.emailAddress);
+    upsertSetting_('notification_weekly_digest', settings.weeklyDigest);
+    configureFinanceNotificationTrigger_(settings.emailEnabled);
     audit_('UPDATE_NOTIFICATION_SETTINGS', 'notifications', '', id_('req'), settings);
     return ok_({ settings: settings });
   } catch (error) { return fail_(error); }
+}
+
+function configureFinanceNotificationTrigger_(enabled) {
+  ScriptApp.getProjectTriggers().filter(function(trigger) { return trigger.getHandlerFunction() === 'sendFinanceNotificationEmail'; }).forEach(function(trigger) { ScriptApp.deleteTrigger(trigger); });
+  if (enabled) ScriptApp.newTrigger('sendFinanceNotificationEmail').timeBased().everyDays(1).atHour(7).create();
+}
+
+function sendFinanceNotificationEmail() {
+  const settings = notificationSettingsGs_();
+  if (!settings.enabled || !settings.emailEnabled || !settings.emailAddress) return;
+  const now = new Date();
+  const period = Utilities.formatDate(now, VINN_CONFIG.TIMEZONE, 'yyyy-MM');
+  const today = Utilities.formatDate(now, VINN_CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  const isWeeklyDay = Number(Utilities.formatDate(now, VINN_CONFIG.TIMEZONE, 'u')) === 1;
+  const items = financeNotificationsGs_(period, today, settings).filter(function(item) {
+    return item.severity === 'critical' || item.type === 'bill_due' || (settings.weeklyDigest && isWeeklyDay);
+  });
+  if (!items.length) return;
+  const signature = today + ':' + items.map(function(item) { return item.id; }).join('|');
+  if (String(settingValue_('notification_email_last_signature', '')) === signature) return;
+  const rows = items.slice(0, 20).map(function(item) {
+    return '<li style="margin:0 0 12px"><strong>' + escapeHtml_(item.title) + '</strong><br><span style="color:#5f6f69">' + escapeHtml_(item.message) + '</span></li>';
+  }).join('');
+  const subject = (items.some(function(item) { return item.severity === 'critical'; }) ? '[Perlu perhatian] ' : '') + 'Ringkasan Financial Planner';
+  const textBody = items.map(function(item) { return '- ' + item.title + ': ' + item.message; }).join('\n');
+  MailApp.sendEmail({ to: settings.emailAddress, subject: subject, body: textBody, htmlBody: '<div style="font-family:Arial,sans-serif;color:#12231d"><h2>Financial Planner</h2><p>Berikut pengingat dari data keuangan Anda:</p><ul>' + rows + '</ul><p style="color:#7a8984;font-size:12px">Email ini informatif dan tidak melakukan pembayaran otomatis.</p></div>', name: 'Financial Planner' });
+  upsertSetting_('notification_email_last_signature', signature);
+}
+
+function escapeHtml_(value) {
+  return String(value || '').replace(/[&<>"']/g, function(character) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]; });
 }
 
 function apiUpdateNotificationState(payload) {

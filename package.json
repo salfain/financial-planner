@@ -14,10 +14,13 @@
     "test:gas": "node scripts/smoke-gas-core.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "build:gas": "node scripts/build-gas-frontend.mjs",
+    "build:mobile-api": "node scripts/build-mobile-api-package.mjs",
+    "mobile:access-key": "node scripts/generate-mobile-access-key.mjs",
     "package:customer": "npm run build:gas && node scripts/build-customer-package.mjs",
     "package:demo": "npm run build:gas && node scripts/build-demo-package.mjs",
     "license:keygen": "node scripts/generate-license-key.mjs",
     "license:issue": "node scripts/issue-license.mjs",
+    "license:studio": "node scripts/license-studio.mjs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

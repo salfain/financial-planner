@@ -6,6 +6,7 @@ import {
   installmentDuration,
   installmentPlanTotal,
   normalizeInstallmentPhases,
+  remainingInstallmentTotal,
 } from "../lib/installment-phases";
 
 const phases = [
@@ -29,4 +30,10 @@ test("normalisasi menolak fase yang rusak", () => {
   assert.deepEqual(normalizeInstallmentPhases([{ label: "Valid", durationMonths: 3, amount: 100_000 }, { label: "Rusak", durationMonths: 0, amount: 0 }]), [
     { label: "Valid", durationMonths: 3, amount: 100_000 },
   ]);
+});
+
+test("sisa kontrak menghitung fase, bulan terbayar, dan pembayaran parsial", () => {
+  assert.equal(remainingInstallmentTotal({ amount: 450_000, paidCount: 2, currentPeriodPaid: 50_000, installmentPhases: phases }), 5_155_120);
+  assert.equal(remainingInstallmentTotal({ amount: 300_000, durationMonths: 9, paidCount: 2, currentPeriodPaid: 100_000 }), 2_000_000);
+  assert.equal(remainingInstallmentTotal({ amount: 300_000 }), null);
 });
