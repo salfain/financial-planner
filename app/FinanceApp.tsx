@@ -126,8 +126,10 @@ import {
   FinanceDiagnostics,
   FinanceProfile,
   FinanceSecurityStatus,
+  FINANCE_MUTATION_PROGRESS_EVENT,
   LoanDrawdownInput,
   SetupWorkspaceInput,
+  type FinanceMutationProgress,
   activateFinanceLicense,
   askFinanceAi,
   archiveFinanceAccount,
@@ -482,6 +484,7 @@ export function FinanceApp() {
   const [investmentTradeModal, setInvestmentTradeModal] = useState<{ type: "buy" | "sell"; asset?: InvestmentAsset } | null>(null);
   const [transactionQuery, setTransactionQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [slowMutation, setSlowMutation] = useState<FinanceMutationProgress | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const month = currentMonth();
   const demoMode = hydrated && isFinanceDemoMode();
@@ -569,6 +572,17 @@ export function FinanceApp() {
     };
     window.addEventListener("keydown", focusSearch);
     return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
+
+  useEffect(() => {
+    const mutationProgress = (event: Event) => {
+      const detail = (event as CustomEvent<FinanceMutationProgress>).detail;
+      if (!detail) return;
+      if (detail.phase === "slow") setSlowMutation(detail);
+      else setSlowMutation((current) => current?.requestId === detail.requestId ? null : current);
+    };
+    window.addEventListener(FINANCE_MUTATION_PROGRESS_EVENT, mutationProgress);
+    return () => window.removeEventListener(FINANCE_MUTATION_PROGRESS_EVENT, mutationProgress);
   }, []);
 
   const monthly = monthlySummary(transactions, month);
@@ -1046,6 +1060,7 @@ export function FinanceApp() {
       {investmentAssetModal && <InvestmentAssetModal asset={investmentAssetModal.asset} accounts={accounts} saving={saving} onClose={() => setInvestmentAssetModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveInvestmentAsset(payload, investmentAssetModal.asset, requestId); if (ok) setInvestmentAssetModal(null); }} />}
       {investmentTradeModal && <InvestmentTradeModal type={investmentTradeModal.type} initialAsset={investmentTradeModal.asset} assets={investmentAssets} accounts={accounts} privacy={privacy} saving={saving} onClose={() => setInvestmentTradeModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveInvestmentTrade(payload, requestId); if (ok) setInvestmentTradeModal(null); }} />}
       {licenseOpen && <LicenseModal entitlement={entitlement} onClose={() => setLicenseOpen(false)} onChanged={async (next) => { setEntitlement(next); await refreshData(); showToast(`Paket ${next.label} aktif.`); }} />}
+      {slowMutation && <div className="mutation-progress" role="status" aria-live="polite"><span><Clock3 size={17}/></span><div><strong>Google Sheets masih memproses</strong><small>Perubahan sedang diperiksa. Jangan refresh atau menekan Simpan kembali.</small></div></div>}
       {toast && <div className="toast"><span><Check size={16} /></span>{toast}</div>}
     </div>
   );
@@ -3342,7 +3357,12 @@ function AccountImportModal({ accounts, saving, onClose, onSubmit }: {
 }
 
 function LoadingWorkspace() {
-  return <main className="workspace-state"><BrandMark /><div className="workspace-spinner" /><h1>Menyiapkan Financial Planner</h1><p>Membaca akun, ledger, anggaran, target, dan tagihan dari penyimpanan utama.</p></main>;
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), 4_500);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return <main className="workspace-state"><BrandMark /><div className="workspace-spinner" /><h1>Menyiapkan Financial Planner</h1><p>{slow ? "Google Apps Script sedang memulai sesi. Data tetap aman dan halaman akan terbuka otomatis." : "Membaca akun, ledger, anggaran, target, dan tagihan dari penyimpanan utama."}</p>{slow && <small className="workspace-slow-note"><Clock3 size={14}/> Cold start Google biasanya hanya terjadi pada pembukaan pertama.</small>}</main>;
 }
 
 function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | null; saving: boolean; onRetry: () => void; onSubmit: (input: SetupWorkspaceInput) => Promise<void> }) {

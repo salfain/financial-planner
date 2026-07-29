@@ -20,10 +20,17 @@ test("setup pelanggan memakai identitas netral dan installation id", async () =>
 });
 
 test("pembuat paket hanya menyalin source dan panduan instalasi", async () => {
-  const builder = await readFile(new URL("scripts/build-customer-package.mjs", root), "utf8");
+  const [builder, verifier, packageJson] = await Promise.all([
+    readFile(new URL("scripts/build-customer-package.mjs", root), "utf8"),
+    readFile(new URL("scripts/verify-customer-package.mjs", root), "utf8"),
+    readFile(new URL("package.json", root), "utf8"),
+  ]);
   assert.match(builder, /containsCustomerData: false/);
   assert.match(builder, /allowedExtensions/);
   assert.doesNotMatch(builder, /\.openai|\.wrangler|\.clasp\.json["']/);
+  assert.match(verifier, /BEGIN \(\?:RSA \)\?PRIVATE KEY/);
+  assert.match(verifier, /Checksum/);
+  assert.match(packageJson, /verify-customer-package\.mjs/);
 });
 
 test("paket demo publik memakai runtime minimal read-only", async () => {

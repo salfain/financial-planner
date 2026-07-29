@@ -122,6 +122,20 @@ export class FinanceMutationCommittedError extends Error {
 export const isFinanceMutationCommittedError = (error: unknown): error is FinanceMutationCommittedError =>
   error instanceof FinanceMutationCommittedError;
 
+export const FINANCE_MUTATION_PROGRESS_EVENT = "financial-planner:mutation-progress";
+
+export type FinanceMutationProgress = {
+  phase: "slow" | "complete";
+  action: string;
+  requestId: string;
+  elapsedMs: number;
+};
+
+const emitMutationProgress = (detail: FinanceMutationProgress) => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<FinanceMutationProgress>(FINANCE_MUTATION_PROGRESS_EVENT, { detail }));
+};
+
 class FinanceMutationTimeoutError extends Error {
   constructor() {
     super("Waktu respons Google Apps Script habis.");
@@ -157,36 +171,46 @@ async function webRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 async function mutation<T>(action: string, path: string, payload: Record<string, unknown>, method = "POST") {
   const requestPayload = { ...payload, requestId: payload.requestId ?? crypto.randomUUID() };
-  if (isFinanceDemoMode()) return demoRequest<T>(action, requestPayload);
-  if (hasAppsScriptBridge()) {
-    const pending = callAppsScript<T>(action, requestPayload);
-    try {
-      return await withTimeout(pending, 15_000);
-    } catch (error) {
-      if (!(error instanceof FinanceMutationTimeoutError)) throw error;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        const status = await withTimeout(
-          callAppsScript<{ completed: boolean }>("mutationStatus", { requestId: requestPayload.requestId }),
-          8_000,
-        ).catch(() => ({ completed: false }));
-        if (status.completed) {
-          try {
-            return await withTimeout(pending, 3_000);
-          } catch (pendingError) {
-            if (!(pendingError instanceof FinanceMutationTimeoutError)) throw pendingError;
-            throw new FinanceMutationCommittedError(action, String(requestPayload.requestId));
+  const requestId = String(requestPayload.requestId);
+  const startedAt = Date.now();
+  const slowTimer = typeof window === "undefined" ? null : window.setTimeout(() => {
+    emitMutationProgress({ phase: "slow", action, requestId, elapsedMs: Date.now() - startedAt });
+  }, 4_000);
+  try {
+    if (isFinanceDemoMode()) return demoRequest<T>(action, requestPayload);
+    if (hasAppsScriptBridge()) {
+      const pending = callAppsScript<T>(action, requestPayload);
+      try {
+        return await withTimeout(pending, 15_000);
+      } catch (error) {
+        if (!(error instanceof FinanceMutationTimeoutError)) throw error;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const status = await withTimeout(
+            callAppsScript<{ completed: boolean }>("mutationStatus", { requestId: requestPayload.requestId }),
+            8_000,
+          ).catch(() => ({ completed: false }));
+          if (status.completed) {
+            try {
+              return await withTimeout(pending, 3_000);
+            } catch (pendingError) {
+              if (!(pendingError instanceof FinanceMutationTimeoutError)) throw pendingError;
+              throw new FinanceMutationCommittedError(action, requestId);
+            }
           }
+          if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 1_200));
         }
-        if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 1_200));
+        throw new FinanceApiError(
+          504,
+          "APPS_SCRIPT_TIMEOUT",
+          "Google Apps Script belum memberikan hasil. Coba lagi setelah beberapa saat.",
+        );
       }
-      throw new FinanceApiError(
-        504,
-        "APPS_SCRIPT_TIMEOUT",
-        "Google Apps Script belum memberikan hasil. Coba lagi setelah beberapa saat.",
-      );
     }
+    return webRequest<T>(path, { method, body: JSON.stringify(requestPayload) });
+  } finally {
+    if (slowTimer !== null) window.clearTimeout(slowTimer);
+    emitMutationProgress({ phase: "complete", action, requestId, elapsedMs: Date.now() - startedAt });
   }
-  return webRequest<T>(path, { method, body: JSON.stringify(requestPayload) });
 }
 
 const text = (value: unknown, fallback = "") => value === undefined || value === null ? fallback : String(value);

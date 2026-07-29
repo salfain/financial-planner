@@ -15,11 +15,15 @@ function normalizeCategoryRuleGs_(value) {
   };
 }
 
-function categoryRulesGs_() {
-  const parsed = parseJsonObject_(settingValue_(CATEGORY_RULES_SETTING_KEY, '[]'));
+function normalizeCategoryRulesGs_(value) {
+  const parsed = parseJsonObject_(value || '[]');
   if (!Array.isArray(parsed)) return [];
   return parsed.map(normalizeCategoryRuleGs_).filter(function(rule) { return rule.keyword && rule.category; })
     .sort(function(a, b) { return Number(b.active) - Number(a.active) || b.priority - a.priority || a.keyword.localeCompare(b.keyword); });
+}
+
+function categoryRulesGs_() {
+  return normalizeCategoryRulesGs_(settingValue_(CATEGORY_RULES_SETTING_KEY, '[]'));
 }
 
 function saveCategoryRulesGs_(rules) {

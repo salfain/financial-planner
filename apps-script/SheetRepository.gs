@@ -4,6 +4,35 @@ function getWorkbook_() {
   return spreadsheet;
 }
 
+function rebuildSheetRowsForHeaders_(existingHeaders, rows, expectedHeaders) {
+  const current = (existingHeaders || []).map(function(header) { return String(header || '').trim(); });
+  const expected = (expectedHeaders || []).map(String);
+  const alreadyAligned = expected.every(function(header, index) { return current[index] === header; });
+  if (alreadyAligned) return null;
+
+  const hasUnknownHeader = current.some(function(header) {
+    return header && expected.indexOf(header) === -1;
+  });
+  if (hasUnknownHeader) return null;
+
+  const sourceIndexes = expected.map(function(header) {
+    const candidates = [];
+    current.forEach(function(currentHeader, index) {
+      if (currentHeader === header) candidates.push(index);
+    });
+    if (!candidates.length) return -1;
+    return candidates.sort(function(left, right) {
+      const leftValues = (rows || []).filter(function(row) { return row[left] !== '' && row[left] !== null && row[left] !== undefined; }).length;
+      const rightValues = (rows || []).filter(function(row) { return row[right] !== '' && row[right] !== null && row[right] !== undefined; }).length;
+      return rightValues - leftValues || left - right;
+    })[0];
+  });
+
+  return (rows || []).map(function(row) {
+    return sourceIndexes.map(function(index) { return index < 0 ? '' : row[index]; });
+  });
+}
+
 function ensureSheet_(name, headers) {
   const workbook = getWorkbook_();
   let sheet = workbook.getSheetByName(name);
@@ -16,10 +45,25 @@ function ensureSheet_(name, headers) {
       .setBackground('#126b59')
       .setFontColor('#ffffff');
   } else {
-    const existing = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0];
-    headers.forEach(function(header, index) {
-      if (!existing[index]) sheet.getRange(1, index + 1).setValue(header);
-    });
+    const rowCount = sheet.getLastRow();
+    const width = Math.max(sheet.getLastColumn(), headers.length);
+    const existing = sheet.getRange(1, 1, 1, width).getValues()[0];
+    const rows = rowCount > 1 ? sheet.getRange(2, 1, rowCount - 1, width).getValues() : [];
+    const rebuiltRows = rebuildSheetRowsForHeaders_(existing, rows, headers);
+    if (rebuiltRows) {
+      sheet.getRange(1, 1, rowCount, width).clearContent();
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      if (rebuiltRows.length) sheet.getRange(2, 1, rebuiltRows.length, headers.length).setValues(rebuiltRows);
+      sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, headers.length)
+        .setFontWeight('bold')
+        .setBackground('#126b59')
+        .setFontColor('#ffffff');
+    } else {
+      headers.forEach(function(header, index) {
+        if (!existing[index]) sheet.getRange(1, index + 1).setValue(header);
+      });
+    }
   }
   return sheet;
 }

@@ -237,6 +237,48 @@ const transactionBase = {
   updated_at: "2026-07-18T00:00:00Z", deleted_at: "",
 };
 
+// Simulasi paket pelanggan dimulai dari penyimpanan kosong, bukan dari fixture penjual.
+let result = invoke(`setupFinancialPlanner()`);
+assert.equal(result.ok, true);
+assert.equal(sheets.Accounts.length, 0);
+assert.equal(sheets.Transactions.length, 0);
+assert.equal(sheets.Bills.length, 0);
+assert.equal(sheets.Goals.length, 0);
+assert.equal(sheets.Categories.filter((category) => category.is_default === true).length, 8);
+
+result = invoke(`apiSetupWorkspace({ requestId: "customer-setup-1", profileName: "Pelanggan Uji", storeName: "Financial Planner Pelanggan", currency: "IDR", timezone: "Asia/Jakarta", accounts: [{ name: "Rekening Pelanggan", type: "Bank", institution: "Bank Uji", openingBalance: 1250000, color: "#126b59" }] })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.configured, true);
+assert.equal(sheets.Accounts.length, 1);
+assert.equal(sheets.Accounts[0].name, "Rekening Pelanggan");
+assert.equal(sheets.Transactions.length, 0);
+assert.equal(sheets.Bills.length, 0);
+assert.equal(JSON.stringify(sheets).includes("VINN STORE"), false);
+
+vm.runInContext(`
+  originalVerifyLicenseTokenForCustomerTest_ = verifyLicenseToken_;
+  verifyLicenseToken_ = function() {
+    return { product: 'financial-planner', version: 1, licenseId: 'lic-customer-test', tier: 'premium', installationId: licenseInstallationId_(), issuedAt: '2026-07-20T00:00:00.000Z', expiresAt: null };
+  };
+`, context);
+result = invoke(`apiActivateLicense({ requestId: "customer-license-1", token: "FP1.customer-test.signature" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.tier, "premium");
+assert.equal(result.data.capabilities.planning, true);
+assert.equal(result.data.capabilities.investments, true);
+result = invoke(`apiCreateBackup("customer-install-test")`);
+assert.equal(result.ok, true);
+assert.equal(result.data.kind, "backup");
+assert.match(result.data.downloadUrl, /^https:\/\/drive\.test\//);
+vm.runInContext(`verifyLicenseToken_ = originalVerifyLicenseTokenForCustomerTest_;`, context);
+
+// Fixture pengujian produk berikutnya juga dimulai bersih setelah alur instalasi pelanggan selesai.
+Object.keys(sheets).forEach((name) => { sheets[name].length = 0; });
+properties.clear();
+userProperties.clear();
+cache.clear();
+triggers.length = 0;
+
 for (const [id, liability] of [
   ["asset-up", false], ["asset-down", false], ["debt-up", true],
   ["debt-down", true], ["source", false], ["destination", false], ["recovery", false],
@@ -246,7 +288,7 @@ for (const [id, liability] of [
 add("Accounts", { id: "inv-cash", name: "Kas Investasi", type: "Bank", opening_balance: 100000, is_liability: false, is_active: true });
 add("Accounts", { id: "inv-book", name: "Portofolio", type: "Investment", opening_balance: 0, is_liability: false, is_active: true });
 const accountCountBeforeImport = sheets.Accounts.length;
-let result = invoke(`apiImportAccounts({ requestId: "account-import-1", accounts: [{ id: "imported-bank", name: "Rekening Cabang", type: "Bank", institution: "BCA", openingBalance: 250000, mask: "7788", color: "#126b59" }, { id: "imported-card", name: "Kartu Operasional", type: "Credit Card", openingBalance: 500000, color: "#c76565" }] })`);
+result = invoke(`apiImportAccounts({ requestId: "account-import-1", accounts: [{ id: "imported-bank", name: "Rekening Cabang", type: "Bank", institution: "BCA", openingBalance: 250000, mask: "7788", color: "#126b59" }, { id: "imported-card", name: "Kartu Operasional", type: "Credit Card", openingBalance: 500000, color: "#c76565" }] })`);
 assert.equal(result.ok, true);
 assert.equal(result.data.imported, 2);
 assert.equal(sheets.Accounts.find((account) => account.id === "imported-card").is_liability, true);

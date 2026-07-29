@@ -203,6 +203,10 @@ test("penyimpanan UI tidak menunggu sinkronisasi penuh selesai", async () => {
   assert.match(mutationBlock, /isFinanceMutationCommittedError/);
   assert.match(client, /mutationStatus/);
   assert.match(client, /15_000/);
+  assert.match(client, /FINANCE_MUTATION_PROGRESS_EVENT/);
+  assert.match(client, /phase: "slow"/);
+  assert.match(app, /Google Sheets masih memproses/);
+  assert.match(app, /Cold start Google/);
   assert.match(router, /mutationStatus/);
 });
 
@@ -551,7 +555,8 @@ test("fitur opsional dapat disembunyikan secara persisten tanpa mematikan ledger
   assert.match(route, /feature_preferences\.update/);
   assert.match(schema, /featurePreferences/);
   assert.match(gas, /apiUpdateFeaturePreferences/);
-  assert.match(dashboard, /featurePreferences: featurePreferences_/);
+  assert.match(dashboard, /const settings = rowsAsObjects_\(VINN_CONFIG\.SHEETS\.SETTINGS\)/);
+  assert.match(dashboard, /featurePreferences: normalizeFeaturePreferencesGs_\(setting\('feature_preferences'/);
   assert.match(router, /updateFeaturePreferences/);
 });
 

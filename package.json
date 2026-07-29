@@ -16,7 +16,7 @@
     "build:gas": "node scripts/build-gas-frontend.mjs",
     "build:mobile-api": "node scripts/build-mobile-api-package.mjs",
     "mobile:access-key": "node scripts/generate-mobile-access-key.mjs",
-    "package:customer": "npm run build:gas && node scripts/build-customer-package.mjs",
+    "package:customer": "npm run build:gas && node scripts/build-customer-package.mjs && node scripts/verify-customer-package.mjs",
     "package:demo": "npm run build:gas && node scripts/build-demo-package.mjs",
     "license:keygen": "node scripts/generate-license-key.mjs",
     "license:issue": "node scripts/issue-license.mjs",

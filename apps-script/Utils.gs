@@ -108,6 +108,21 @@ function accountCurrentBalance_(account, transactions) {
   return Math.round(truthy_(account.is_liability) ? opening - movement : opening + movement);
 }
 
+function transactionMovementsByAccount_(transactions) {
+  return (transactions || []).reduce(function(result, transaction) {
+    const accountId = String(transaction.account_id || '');
+    if (!accountId) return result;
+    result[accountId] = (result[accountId] || 0) + transactionMovement_(transaction);
+    return result;
+  }, {});
+}
+
+function accountCurrentBalanceFromMovements_(account, movementsByAccount) {
+  const movement = Number((movementsByAccount || {})[String(account.id)] || 0);
+  const opening = Number(account.opening_balance || 0);
+  return Math.round(truthy_(account.is_liability) ? opening - movement : opening + movement);
+}
+
 function transactionBalanceEffect_(account, transaction) {
   const movement = transactionMovement_(transaction);
   return truthy_(account.is_liability) ? -movement : movement;
