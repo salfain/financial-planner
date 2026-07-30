@@ -316,10 +316,25 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .chart-legend span { width: 7px; height: 7px; margin-left: 5px; border-radius: 2px; }
 .legend-income { background: var(--primary); }.legend-expense { background: #e9a8ae; }
 .bar-chart { height: 178px; display: flex; align-items: flex-end; gap: clamp(6px, 1.15vw, 15px); margin-top: 13px; padding: 20px 12px 18px; border-bottom: 1px solid var(--border-soft); background: repeating-linear-gradient(to bottom, transparent 0 44px, var(--border-soft) 45px); }
-.bar-column { height: 100%; flex: 1; display: flex; align-items: flex-end; justify-content: center; gap: 3px; position: relative; }
-.bar-column span { width: min(8px, 42%); min-height: 4px; border-radius: 4px 4px 1px 1px; }
+.bar-column { height: 100%; min-width: 0; flex: 1; display: flex; align-items: flex-end; justify-content: center; gap: 3px; position: relative; padding: 0; color: inherit; border: 0; outline: 0; background: transparent; cursor: pointer; font: inherit; }
+.bar-column > .bar-income,.bar-column > .bar-expense { width: min(8px, 42%); min-height: 4px; border-radius: 4px 4px 1px 1px; transition: filter .16s ease, transform .16s ease; transform-origin: bottom; }
 .bar-income { background: linear-gradient(to top, var(--primary), #37a88a); }.bar-expense { background: #e5a3aa; opacity: .85; }
 .bar-column small { position: absolute; bottom: -18px; color: var(--text-faint); font-size: 7px; }
+.bar-column:hover > .bar-income,.bar-column:hover > .bar-expense,.bar-column:focus-visible > .bar-income,.bar-column:focus-visible > .bar-expense { filter: brightness(1.13); transform: scaleX(1.2); }
+.bar-column:focus-visible::after { content: ""; position: absolute; inset: -5px -3px -2px; border: 1px solid var(--primary); border-radius: 7px; pointer-events: none; }
+.bar-tooltip { position: absolute; z-index: 8; top: -13px; left: 50%; width: 150px; display: grid; gap: 4px; padding: 9px 10px; color: #f5fbf8; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: #102a23; box-shadow: 0 10px 24px rgba(4,25,19,.28); opacity: 0; pointer-events: none; text-align: left; transform: translate(-50%, -5px); transition: opacity .14s ease, transform .14s ease; }
+.bar-tooltip::after { content: ""; position: absolute; top: 100%; left: 50%; border: 5px solid transparent; border-top-color: #102a23; transform: translateX(-50%); }
+.bar-tooltip > strong { color: #fff; font-size: 9px; }
+.bar-tooltip > span { display: grid; grid-template-columns: 6px 1fr auto; align-items: center; gap: 5px; color: rgba(255,255,255,.7); font-size: 8px; }
+.bar-tooltip i { width: 6px; height: 6px; border-radius: 50%; }
+.bar-tooltip b { color: #fff; font-size: 8px; white-space: nowrap; }
+.bar-column:hover .bar-tooltip,.bar-column:focus-visible .bar-tooltip,.bar-column:focus-within .bar-tooltip { opacity: 1; transform: translate(-50%, 0); }
+.bar-column:first-child .bar-tooltip,.bar-column:nth-child(2) .bar-tooltip { left: 0; transform: translate(0, -5px); }
+.bar-column:first-child:hover .bar-tooltip,.bar-column:nth-child(2):hover .bar-tooltip,.bar-column:first-child:focus-visible .bar-tooltip,.bar-column:nth-child(2):focus-visible .bar-tooltip { transform: translate(0, 0); }
+.bar-column:first-child .bar-tooltip::after,.bar-column:nth-child(2) .bar-tooltip::after { left: 14px; transform: none; }
+.bar-column:last-child .bar-tooltip,.bar-column:nth-last-child(2) .bar-tooltip { right: 0; left: auto; transform: translate(0, -5px); }
+.bar-column:last-child:hover .bar-tooltip,.bar-column:nth-last-child(2):hover .bar-tooltip,.bar-column:last-child:focus-visible .bar-tooltip,.bar-column:nth-last-child(2):focus-visible .bar-tooltip { transform: translate(0, 0); }
+.bar-column:last-child .bar-tooltip::after,.bar-column:nth-last-child(2) .bar-tooltip::after { right: 14px; left: auto; transform: none; }
 .chart-summary { display: flex; justify-content: flex-end; gap: 25px; padding-top: 10px; color: var(--text-soft); font-size: 8px; }
 .chart-summary span { display: flex; align-items: center; gap: 5px; }.chart-summary strong { margin-left: 4px; color: var(--text); }
 .chart-summary i { width: 6px; height: 6px; border-radius: 50%; }.green-dot { background: var(--primary); }.red-dot { background: #e5a3aa; }

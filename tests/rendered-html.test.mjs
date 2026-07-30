@@ -476,6 +476,18 @@ test("layout mobile GAS menyusut tanpa menutupi navigasi", async () => {
   assert.match(layout, /viewportFit: "cover"/);
 });
 
+test("grafik arus kas menampilkan nilai saat hover, fokus, dan sentuhan", async () => {
+  const [app, styles] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../app/globals.css"),
+  ]);
+  assert.match(app, /className="bar-tooltip"/);
+  assert.match(app, /aria-describedby=\{tooltipId\}/);
+  assert.match(app, /Pemasukan \$\{incomeLabel\}\. Pengeluaran \$\{expenseLabel\}/);
+  assert.match(styles, /\.bar-column:hover \.bar-tooltip/);
+  assert.match(styles, /\.bar-column:focus-visible \.bar-tooltip/);
+});
+
 test("mode demo publik read-only terpisah dari build pelanggan", async () => {
   const [app, client, demo, main, index, demoMain, demoIndex, styles] = await Promise.all([
     source("../app/FinanceApp.tsx"), source("../lib/finance-client.ts"), source("../lib/demo-finance.ts"),

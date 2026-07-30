@@ -1129,6 +1129,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
     const items = transactions.filter((item) => item.date === date && item.status === "completed");
     return {
       day,
+      date,
       income: items.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amount, 0),
       expense: items.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.amount, 0),
     };
@@ -1254,7 +1255,27 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
       <section className="panel cashflow-panel">
         <div className="card-title-row"><div><span className="card-kicker">Arus kas</span><h2>Pemasukan vs pengeluaran</h2></div><div className="chart-legend"><span className="legend-income" /> Masuk <span className="legend-expense" /> Keluar</div></div>
         <div className="bar-chart" aria-label="Grafik arus kas dua minggu terakhir">
-          {dailySeries.map((item, index) => <div className="bar-column" key={item.day}><span className="bar-income" style={{ height: `${item.income ? Math.max(4, item.income / chartMax * 100) : 0}%` }} /><span className="bar-expense" style={{ height: `${item.expense ? Math.max(4, item.expense / chartMax * 100) : 0}%` }} /><small>{index % 2 === 0 ? item.day : ""}</small></div>)}
+          {dailySeries.map((item, index) => {
+            const tooltipId = `cashflow-tooltip-${item.date}`;
+            const incomeLabel = privacy ? "nominal disembunyikan" : formatIDR(item.income);
+            const expenseLabel = privacy ? "nominal disembunyikan" : formatIDR(item.expense);
+            return <button
+              type="button"
+              className="bar-column"
+              key={item.day}
+              aria-describedby={tooltipId}
+              aria-label={`${shortDate(item.date)}. Pemasukan ${incomeLabel}. Pengeluaran ${expenseLabel}.`}
+            >
+              <span className="bar-income" aria-hidden="true" style={{ height: `${item.income ? Math.max(4, item.income / chartMax * 100) : 0}%` }} />
+              <span className="bar-expense" aria-hidden="true" style={{ height: `${item.expense ? Math.max(4, item.expense / chartMax * 100) : 0}%` }} />
+              <span className="bar-tooltip" id={tooltipId} role="tooltip">
+                <strong>{shortDate(item.date)}</strong>
+                <span><i className="green-dot" />Masuk <b>{privacy ? "Rp â€¢â€¢â€¢â€¢" : formatIDR(item.income)}</b></span>
+                <span><i className="red-dot" />Keluar <b>{privacy ? "Rp â€¢â€¢â€¢â€¢" : formatIDR(item.expense)}</b></span>
+              </span>
+              <small aria-hidden="true">{index % 2 === 0 ? item.day : ""}</small>
+            </button>;
+          })}
         </div>
         <div className="chart-summary"><span><i className="green-dot" /> Total masuk <strong>{privacy ? "Rp ••••" : formatIDR(monthly.income)}</strong></span><span><i className="red-dot" /> Total keluar <strong>{privacy ? "Rp ••••" : formatIDR(monthly.expense)}</strong></span></div>
       </section>
