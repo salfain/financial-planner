@@ -465,12 +465,12 @@ test("layout mobile GAS menyusut tanpa menutupi navigasi", async () => {
   assert.match(styles, /body \{ padding-bottom: 0; \}/);
   assert.match(styles, /--mobile-safe-bottom: min\(env\(safe-area-inset-bottom, 0px\), 34px\)/);
   assert.match(styles, /min-height: var\(--app-viewport-height, 100dvh\)/);
-  assert.match(styles, /inset: auto 0 var\(--app-fixed-bottom, 0px\)/);
+  assert.match(styles, /inset: auto 0 0/);
   assert.match(styles, /padding-bottom: calc\(88px \+ var\(--mobile-safe-bottom\)\)/);
   assert.match(styles, /\.mobile-nav \.nav-item \{ min-width: 0; flex: 1 1 0; \}/);
   assert.match(styles, /font-size: 16px/);
   assert.match(app, /window\.visualViewport/);
-  assert.match(app, /--app-fixed-bottom/);
+  assert.doesNotMatch(app, /--app-fixed-bottom/);
   assert.match(main, /viewport-fit=cover, interactive-widget=resizes-content/);
   assert.match(index, /viewport-fit=cover, interactive-widget=resizes-content/);
   assert.match(layout, /viewportFit: "cover"/);
