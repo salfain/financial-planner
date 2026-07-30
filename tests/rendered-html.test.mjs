@@ -186,7 +186,6 @@ test("UI Core Finance mengekspos fitur nyata dengan data persisten", async () =>
   assert.match(client, /\/api\/finance\/transactions\/undo/);
   assert.match(css, /\.advanced-filter-row/);
   assert.match(css, /\.hero-liability-details/);
-  assert.match(css, /\.dashboard-quick-actions/);
   assert.doesNotMatch(app, /const\s+demo(?:Accounts|Transactions|Budgets|Goals|Bills)/);
 });
 

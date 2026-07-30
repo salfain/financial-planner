@@ -265,8 +265,6 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .page-heading h1 { margin: 2px 0 1px; font-size: clamp(22px, 2.3vw, 31px); line-height: 1.25; letter-spacing: -.035em; }
 .page-heading p { margin: 0; color: var(--text-soft); font-size: 11px; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 15px; }
-.dashboard-quick-actions { display: none; }
-.dashboard-metrics { display: contents; }
 .panel, .metric-card, .health-card { border: 1px solid var(--border-soft); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-sm); }
 .hero-card { position: relative; grid-column: span 8; min-height: 276px; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; padding: 25px 28px 23px; color: #fff; border-radius: 18px; background: linear-gradient(125deg, #0d6a57 0%, #155f52 50%, #103f38 100%); box-shadow: 0 18px 34px rgba(16,81,68,.17); }
 .hero-card .card-kicker { color: rgba(255,255,255,.7); }
@@ -1348,97 +1346,4 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .app-shell .table-search input {
     font-size: 16px;
   }
-}
-
-/* App-style mobile dashboard: preserve Financial Planner data and palette,
-   while prioritizing balance, actions, monthly status, then deeper analysis. */
-@media (max-width: 720px) {
-  .page-dashboard {
-    padding-top: 16px;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--primary-soft) 42%, transparent) 0, transparent 190px);
-  }
-
-  .page-dashboard .page-heading { margin-bottom: 15px; }
-  .page-dashboard .page-heading h1 { margin-top: 4px; font-size: clamp(24px, 7vw, 29px); line-height: 1.14; }
-  .page-dashboard .page-heading p { margin-top: 5px; max-width: 34rem; color: var(--text-soft); font-size: 12px; }
-  .page-dashboard .dashboard-grid { display: flex; flex-direction: column; gap: 13px; }
-  .page-dashboard .onboarding-banner { order: 0; }
-  .page-dashboard .hero-card { order: 1; border-radius: 24px; }
-  .page-dashboard .dashboard-quick-actions { order: 2; }
-  .page-dashboard .dashboard-metrics { order: 3; }
-  .page-dashboard .bills-panel { order: 6; }
-  .page-dashboard .cashflow-panel { order: 7; }
-  .page-dashboard .category-panel { order: 8; }
-  .page-dashboard .wealth-trend-panel { order: 9; }
-  .page-dashboard .health-card { order: 10; }
-  .page-dashboard .accounts-panel { order: 11; }
-  .page-dashboard .goals-panel { order: 12; }
-  .page-dashboard .recent-panel { order: 13; }
-  .page-dashboard .insight-card { order: 14; }
-
-  .dashboard-quick-actions {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    padding: 4px 0 2px;
-  }
-  .dashboard-quick-actions button {
-    min-width: 0;
-    display: grid;
-    justify-items: center;
-    gap: 4px;
-    padding: 4px 2px;
-    color: var(--text);
-    border: 0;
-    background: transparent;
-    cursor: pointer;
-    text-align: center;
-  }
-  .dashboard-quick-actions button > span {
-    width: 48px;
-    height: 48px;
-    display: grid;
-    place-items: center;
-    color: var(--primary);
-    border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--border));
-    border-radius: 17px;
-    background: var(--surface);
-    box-shadow: var(--shadow-sm);
-  }
-  .dashboard-quick-actions button:first-child > span { color: #fff; border-color: var(--primary); background: var(--primary); }
-  .dashboard-quick-actions strong { max-width: 100%; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-  .dashboard-quick-actions small { max-width: 100%; overflow: hidden; color: var(--text-faint); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-
-  .page-dashboard .hero-card { gap: 14px; padding: 21px 20px 19px; }
-  .page-dashboard .hero-value { margin-top: 6px; font-size: clamp(32px, 10vw, 43px); }
-  .page-dashboard .positive-change span { display: none; }
-  .page-dashboard .hero-mini-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .page-dashboard .hero-mini-stats > div { gap: 3px; padding: 11px 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: rgba(5,39,32,.2); }
-  .page-dashboard .hero-liability-details { border-radius: 15px; }
-  .page-dashboard .hero-liability-details button { min-height: 68px; padding: 10px 11px; }
-
-  .page-dashboard .dashboard-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
-  .page-dashboard .dashboard-metrics .metric-card { grid-column: auto; grid-template-columns: 40px minmax(0,1fr); min-height: 78px; border-radius: 17px; }
-  .page-dashboard .metric-card.cashflow { grid-column: 1 / -1; width: 100%; }
-  .page-dashboard .metric-icon { width: 40px; height: 40px; }
-  .page-dashboard .metric-value { font-size: 15px; }
-
-  .page-dashboard .panel,
-  .page-dashboard .health-card,
-  .page-dashboard .insight-card { border-radius: 20px; }
-  .page-dashboard .bills-panel { padding: 18px 17px; }
-  .page-dashboard .recent-panel { overflow: hidden; }
-  .page-dashboard .wealth-trend-panel { min-height: 0; }
-}
-
-@media (max-width: 420px) {
-  .page-dashboard { padding-right: 12px; padding-left: 12px; }
-  .dashboard-quick-actions { gap: 3px; }
-  .dashboard-quick-actions button > span { width: 45px; height: 45px; border-radius: 15px; }
-  .dashboard-quick-actions small { display: none; }
-  .page-dashboard .dashboard-metrics { gap: 10px; }
-  .page-dashboard .metric-card.income,
-  .page-dashboard .metric-card.expense { padding: 13px 11px; grid-template-columns: 34px minmax(0,1fr); gap: 8px; }
-  .page-dashboard .metric-card.income .metric-icon,
-  .page-dashboard .metric-card.expense .metric-icon { width: 34px; height: 34px; }
 }
