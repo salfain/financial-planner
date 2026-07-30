@@ -1028,7 +1028,7 @@ export function FinanceApp() {
           {demoWhatsAppUrl && <a href={demoWhatsAppUrl} target="_blank" rel="noreferrer"><Send size={15} /> Beli via WhatsApp</a>}
         </section>}
 
-        <div className="page-wrap">
+        <div className={`page-wrap page-${activePage}`}>
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
@@ -1214,6 +1214,13 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         <div className="hero-pattern" aria-hidden="true"><span /><span /><span /><span /><span /></div>
       </section>
 
+      <section className="dashboard-quick-actions" aria-label="Akses cepat">
+        <button type="button" onClick={onAdd}><span><Plus size={19} /></span><strong>Transaksi</strong><small>Catat baru</small></button>
+        <button type="button" onClick={() => onNavigate("accounts")}><span><WalletCards size={19} /></span><strong>Akun</strong><small>Lihat saldo</small></button>
+        <button type="button" onClick={() => onNavigate("bills")}><span><ReceiptText size={19} /></span><strong>Tagihan</strong><small>Cek jadwal</small></button>
+        <button type="button" onClick={() => onNavigate("goals")}><span><Target size={19} /></span><strong>Target</strong><small>Pantau tujuan</small></button>
+      </section>
+
       <section className="health-card">
         <div className="card-title-row"><div><span className="card-kicker">Skor kesehatan</span><h2>Kondisi finansial</h2></div></div>
         <div className="health-content">
@@ -1239,18 +1246,20 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         </div>
       </section>
 
-      <section className="metric-card income">
-        <span className="metric-icon"><ArrowDownLeft size={19} /></span>
-        <div><span>Pemasukan bulan ini</span><Amount value={monthly.income} privacy={privacy} className="metric-value" /><small>Di luar transfer internal</small></div>
-      </section>
-      <section className="metric-card expense">
-        <span className="metric-icon"><ArrowUpRight size={19} /></span>
-        <div><span>Pengeluaran bulan ini</span><Amount value={monthly.expense} privacy={privacy} className="metric-value" /><small>Refund sudah dikurangkan</small></div>
-      </section>
-      <section className="metric-card cashflow">
-        <span className="metric-icon"><TrendingUp size={19} /></span>
-        <div><span>Arus kas bersih</span><Amount value={monthly.cashflow} privacy={privacy} className="metric-value" /><small><strong>{monthly.savingsRate.toFixed(1)}%</strong> savings rate</small></div>
-      </section>
+      <div className="dashboard-metrics">
+        <section className="metric-card income">
+          <span className="metric-icon"><ArrowDownLeft size={19} /></span>
+          <div><span>Pemasukan bulan ini</span><Amount value={monthly.income} privacy={privacy} className="metric-value" /><small>Di luar transfer internal</small></div>
+        </section>
+        <section className="metric-card expense">
+          <span className="metric-icon"><ArrowUpRight size={19} /></span>
+          <div><span>Pengeluaran bulan ini</span><Amount value={monthly.expense} privacy={privacy} className="metric-value" /><small>Refund sudah dikurangkan</small></div>
+        </section>
+        <section className="metric-card cashflow">
+          <span className="metric-icon"><TrendingUp size={19} /></span>
+          <div><span>Arus kas bersih</span><Amount value={monthly.cashflow} privacy={privacy} className="metric-value" /><small><strong>{monthly.savingsRate.toFixed(1)}%</strong> savings rate</small></div>
+        </section>
+      </div>
 
       <section className="panel cashflow-panel">
         <div className="card-title-row"><div><span className="card-kicker">Arus kas</span><h2>Pemasukan vs pengeluaran</h2></div><div className="chart-legend"><span className="legend-income" /> Masuk <span className="legend-expense" /> Keluar</div></div>
