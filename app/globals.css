@@ -651,6 +651,10 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .sinking-fund-actions { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
 .sinking-fund-actions button { justify-content: center; }
 .sinking-fund-add { min-height: 300px; }
+.sinking-fund-add.is-empty { grid-column: 1 / -1; min-height: 230px; padding: 32px; }
+.sinking-fund-add.is-empty small { max-width: 560px; font-size: 10px; line-height: 1.55; text-align: center; }
+.sinking-fund-add > .goal-add-cta { width: auto; height: auto; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin: 8px 0 0; padding: 0 15px; color: #fff; border-radius: 10px; background: var(--primary); font-size: 10px; font-weight: 750; white-space: nowrap; box-shadow: 0 7px 18px color-mix(in srgb,var(--primary) 20%,transparent); }
+.sinking-fund-add > .goal-add-cta > svg { flex: 0 0 auto; }
 .sinking-fund-history > div:last-child { display: grid; }
 .sinking-fund-history > div:last-child > div { display: grid; grid-template-columns: 32px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border-soft); }
 .sinking-fund-history > div:last-child > div > span:first-child { width: 30px; height: 30px; display: grid; place-items: center; color: var(--primary); border-radius: 9px; background: var(--primary-soft); }
@@ -660,7 +664,7 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .sinking-fund-history small { color: var(--text-faint); font-size: 7.5px; }
 .sinking-fund-form label > small { color: var(--text-faint); font-size: 7px; line-height: 1.45; }
 @media (max-width: 1100px) { .sinking-fund-hero { grid-template-columns: 1fr; }.sinking-fund-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-@media (max-width: 720px) { .sinking-fund-hero { min-height: 0; padding: 23px 19px; }.sinking-fund-hero-metrics { grid-template-columns: 1fr; }.sinking-fund-hero-metrics > span + span { border-top: 1px solid rgba(255,255,255,.14); border-left: 0; }.sinking-fund-grid { grid-template-columns: 1fr; }.sinking-fund-card { padding: 16px; }.sinking-fund-add { min-height: 210px; }.sinking-fund-actions { grid-template-columns: 1fr 1fr; }.sinking-fund-actions button { width: 100%; }.sinking-fund-history { padding: 16px; } }
+@media (max-width: 720px) { .sinking-fund-hero { min-height: 0; padding: 23px 19px; }.sinking-fund-hero-metrics { grid-template-columns: 1fr; }.sinking-fund-hero-metrics > span + span { border-top: 1px solid rgba(255,255,255,.14); border-left: 0; }.sinking-fund-grid { grid-template-columns: 1fr; }.sinking-fund-card { padding: 16px; }.sinking-fund-add,.sinking-fund-add.is-empty { min-height: 210px; padding: 24px 18px; }.sinking-fund-actions { grid-template-columns: 1fr 1fr; }.sinking-fund-actions button { width: 100%; }.sinking-fund-history { padding: 16px; } }
 
 .calendar-page { display: grid; gap: 14px; }
 .calendar-horizon-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); overflow: hidden; border: 1px solid var(--border-soft); border-radius: 15px; background: var(--surface); box-shadow: var(--shadow-sm); }
@@ -828,7 +832,16 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .wealth-trend-labels strong { overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .notification-delivery-options { display: grid; gap: 8px; }
 .notification-delivery-options .settings-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.receivable-summary { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.receivables-panel { padding: 20px 22px; }
+.receivables-panel > .card-title-row { padding-bottom: 15px; border-bottom: 1px solid var(--border-soft); }
 .receivable-list { display: grid; gap: 10px; }
+.receivables-panel .receivable-list { margin-top: 12px; }
+.receivable-empty { min-height: 245px; align-content: center; padding: 32px 20px; border-radius: 14px; background: var(--surface-soft); }
+.receivable-empty .empty-state-icon { width: 48px; height: 48px; display: grid; place-items: center; color: var(--primary); border-radius: 14px; background: var(--primary-soft); }
+.receivable-empty h3 { margin-top: 12px; }
+.receivable-empty p { max-width: 590px; color: var(--text-soft); line-height: 1.55; }
+.receivable-empty .primary-button { margin-top: 13px; white-space: nowrap; }
 .receivable-list article { display: grid; grid-template-columns: auto minmax(0,1fr) minmax(130px,auto) auto; align-items: center; gap: 14px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-soft); }
 .receivable-list article > span { display: grid; gap: 3px; min-width: 0; }
 .receivable-list article.paid { opacity: .65; }
@@ -889,7 +902,7 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .wealth-trend-labels .wealth-label-end { grid-column: 6 / span 2; text-align: right; }
   .wealth-trend-labels strong { font-size: 9px; }
 }
-@media (max-width: 720px) { .receivable-list article { grid-template-columns: auto minmax(0,1fr); }.receivable-list article > span:nth-child(3),.receivable-actions { grid-column: 2; }.receivable-actions { grid-auto-flow: row; }.receivable-actions button { width: 100%; } }
+@media (max-width: 720px) { .receivable-summary { grid-template-columns: 1fr; }.receivable-summary > div { border-right: 0; border-bottom: 1px solid var(--border-soft); }.receivable-summary > div:last-child { border-bottom: 0; }.receivables-panel { padding: 17px 15px; }.receivable-empty { min-height: 220px; padding: 28px 16px; }.receivable-list article { grid-template-columns: auto minmax(0,1fr); }.receivable-list article > span:nth-child(3),.receivable-actions { grid-column: 2; }.receivable-actions { grid-auto-flow: row; }.receivable-actions button { width: 100%; } }
 @media (max-width: 720px) { .update-version-grid { grid-template-columns: 1fr 1fr; }.update-version-grid button { grid-column: 1 / -1; } }
 
 /* Mobile viewport guardrails: reserve the fixed navigation once, inside the app. */

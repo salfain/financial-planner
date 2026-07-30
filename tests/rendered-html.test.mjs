@@ -540,6 +540,8 @@ test("Pos Dana memakai alokasi virtual, riwayat, Google Sheets, AI, backup, dan 
   assert.match(app, /Tidak menghitung uang dua kali/);
   assert.match(app, /SinkingFundAdjustmentModal/);
   assert.match(styles, /\.sinking-fund-card/);
+  assert.match(styles, /\.sinking-fund-add\.is-empty \{ grid-column: 1 \/ -1/);
+  assert.match(styles, /\.sinking-fund-add > \.goal-add-cta/);
   assert.match(client, /createFinanceSinkingFund/);
   assert.match(client, /adjustFinanceSinkingFund/);
   assert.match(schema, /sinkingFunds/);
@@ -553,6 +555,18 @@ test("Pos Dana memakai alokasi virtual, riwayat, Google Sheets, AI, backup, dan 
   assert.match(router, /adjustSinkingFund/);
   assert.match(ai, /sinkingFundAllocated/);
   assert.match(portability, /sinkingFundEntries/);
+});
+
+test("halaman Piutang kosong tetap ringkas tanpa tombol ringkasan berulang", async () => {
+  const [app, styles] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../app/globals.css"),
+  ]);
+  assert.match(app, /summary-strip receivable-summary/);
+  assert.match(app, /empty-state receivable-empty/);
+  assert.doesNotMatch(app, /<span>Aksi<\/span><button className="primary-button compact" onClick=\{onAdd\}>/);
+  assert.match(styles, /\.receivable-summary \{ grid-template-columns: repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(styles, /\.receivable-empty \{ min-height: 245px/);
 });
 
 test("fitur opsional dapat disembunyikan secara persisten tanpa mematikan ledger inti", async () => {
