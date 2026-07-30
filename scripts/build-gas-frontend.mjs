@@ -42,6 +42,12 @@ function makeLargeBase64LiteralsTemplateSafe(source) {
 }
 
 const safeJavascript = makeLargeBase64LiteralsTemplateSafe(javascript)
+  // PowerPoint generators contain XML declarations such as `<?xml` inside
+  // JavaScript string literals. HtmlService treats the raw `<?` token as a
+  // template scriptlet even inside an included <script>. Hex escaping keeps
+  // the JavaScript value identical at runtime without exposing that token to
+  // the Apps Script template parser.
+  .replaceAll("<?", "\\x3c?")
   .replace(/<\/script/gi, "<\\/script")
   // core-js ships a whitespace lookup as a multiline template literal. Escape
   // its trailing tab so the generated Apps Script bundle stays diff-clean.

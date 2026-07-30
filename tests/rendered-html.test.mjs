@@ -304,6 +304,10 @@ test("UI laporan, backup, dan migrasi memakai storage serta preview nyata", asyn
     source("../.openai/hosting.json"),
   ]);
   assert.match(app, /Buat, simpan & unduh PDF/);
+  assert.match(app, /Export PPT/);
+  assert.match(app, /buildMonthlyFinancePowerPoint/);
+  assert.match(app, /outputType: "blob"/);
+  assert.match(app, /PPT dibuat langsung di browser/);
   assert.match(app, /Backup lengkap/);
   assert.match(app, /Preview siap diterapkan/);
   assert.match(app, /Backup pra-migrasi akan dibuat otomatis/);

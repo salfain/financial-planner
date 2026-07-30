@@ -36,6 +36,7 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Presentation,
   ReceiptText,
   Repeat2,
   Route,
@@ -2262,6 +2263,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
   const [sections, setSections] = useState<ReportSection[]>(reportSectionOptions.map((item) => item.key));
   const [maskPdf, setMaskPdf] = useState(privacy);
   const [generating, setGenerating] = useState(false);
+  const [generatingPpt, setGeneratingPpt] = useState(false);
   const [reports, setReports] = useState<ExportRecord[]>([]);
   const [roadmapReportSettings, setRoadmapReportSettings] = useState<RoadmapSettings>(DEFAULT_ROADMAP_SETTINGS);
   const [debtReportPlanner, setDebtReportPlanner] = useState<{ settings: DebtPlannerSettings; debts: DebtPlan[] }>({ settings: DEFAULT_DEBT_SETTINGS, debts: [] });
@@ -2352,6 +2354,37 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
     }
   };
 
+  const exportPowerPoint = async () => {
+    if (generatingPpt) return;
+    setGeneratingPpt(true);
+    setError("");
+    try {
+      const powerPoint = await import("../lib/powerpoint-report");
+      const result = powerPoint.buildMonthlyFinancePowerPoint({
+        period,
+        profile,
+        transactions,
+        accounts,
+        budgets,
+        goals,
+        bills,
+        investmentAssets,
+        investmentTransactions,
+        privacy: maskPdf,
+      });
+      const output = await result.presentation.write({ outputType: "blob", compression: true });
+      const blob = output instanceof Blob
+        ? output
+        : new Blob([output as BlobPart], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+      downloadBrowserFile(blob, result.filename);
+      onToast(`PowerPoint ${result.slideCount} slide untuk ${monthLabel(period)} berhasil diunduh.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "PowerPoint tidak dapat dibuat.");
+    } finally {
+      setGeneratingPpt(false);
+    }
+  };
+
   return <div className="report-layout">
     <section className="report-sheet">
       <div className="report-brand"><BrandMark /><span><strong>{profile.storeName}</strong><small>Personal Finance</small></span><div><small>LAPORAN BULANAN</small><strong>{monthLabel(period)}</strong></div></div>
@@ -2360,7 +2393,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
       <div className="report-section"><span className="card-kicker">Arus kas bulanan</span><div className="report-bars"><div><span>Pemasukan</span><i style={{ width: `${monthly.income / chartMax * 100}%` }} /><Amount value={monthly.income} privacy={privacy} /></div><div><span>Pengeluaran</span><i className="expense-bar" style={{ width: `${monthly.expense / chartMax * 100}%` }} /><Amount value={monthly.expense} privacy={privacy} /></div><div><span>Tabungan</span><i className="saving-bar" style={{ width: `${Math.max(0, monthly.cashflow) / chartMax * 100}%` }} /><Amount value={monthly.cashflow} privacy={privacy} /></div></div></div>
       <div className="report-note"><Sparkles size={18} /><p><strong>Catatan:</strong> {reportNote}</p></div>
     </section>
-    <aside className="report-actions panel"><span className="card-kicker">Ekspor A4</span><h2>Buat laporan lengkap</h2><p>Pilih bagian yang diperlukan. PDF disimpan pada storage workspace dan juga diunduh ke perangkatmu.</p><div className="report-section-picker">{reportSectionOptions.map((item) => <label key={item.key}><input type="checkbox" checked={sections.includes(item.key)} onChange={() => toggleSection(item.key)} /><span>{item.label}</span></label>)}</div><label className="report-privacy-option"><input type="checkbox" checked={maskPdf} onChange={(event) => setMaskPdf(event.target.checked)} /><span>Samarkan semua nominal pada PDF</span></label><button className="primary-button full" onClick={exportPdf} disabled={generating || !sections.length}><FileText size={17} /> {generating ? "Membuat PDF…" : "Buat, simpan & unduh PDF"}</button><button className="secondary-button full" onClick={exportCsv}><Download size={17} /> Unduh CSV transaksi</button>{error && <div className="portability-error" role="alert">{error}</div>}<div className="security-note"><ShieldCheck size={18} /><span><strong>Snapshot periode terkunci</strong><small>Riwayat laporan menyimpan file yang sama dengan versi unduhan.</small></span></div>{reports.length > 0 && <div className="export-history"><strong>Riwayat PDF</strong>{reports.slice(0, 5).map((report) => <a key={report.id} href={report.downloadUrl} target="_blank" rel="noreferrer"><span><FileText size={15} /><span><b>{report.period ? monthLabel(report.period) : "Laporan"}</b><small>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(report.createdAt))}</small></span></span><small>{fileSizeLabel(report.sizeBytes)}</small></a>)}</div>}</aside>
+    <aside className="report-actions panel"><span className="card-kicker">Ekspor laporan</span><h2>Buat laporan lengkap</h2><p>PDF cocok untuk arsip, sedangkan PowerPoint menyusun presentasi visual dari data bulan yang sedang dipilih.</p><div className="report-section-picker">{reportSectionOptions.map((item) => <label key={item.key}><input type="checkbox" checked={sections.includes(item.key)} onChange={() => toggleSection(item.key)} /><span>{item.label}</span></label>)}</div><label className="report-privacy-option"><input type="checkbox" checked={maskPdf} onChange={(event) => setMaskPdf(event.target.checked)} /><span>Samarkan semua nominal pada PDF &amp; PPT</span></label><button className="primary-button full" onClick={exportPdf} disabled={generating || !sections.length}><FileText size={17} /> {generating ? "Membuat PDF…" : "Buat, simpan & unduh PDF"}</button><button className="secondary-button full report-ppt-button" onClick={exportPowerPoint} disabled={generatingPpt}><Presentation size={17} /> {generatingPpt ? "Menyusun presentasi…" : `Export PPT ${monthLabel(period)}`}</button><button className="secondary-button full" onClick={exportCsv}><Download size={17} /> Unduh CSV transaksi</button>{error && <div className="portability-error" role="alert">{error}</div>}<div className="security-note"><ShieldCheck size={18} /><span><strong>Diproses aman di perangkat</strong><small>PPT dibuat langsung di browser dan tidak mengirim data ke layanan presentasi lain.</small></span></div>{reports.length > 0 && <div className="export-history"><strong>Riwayat PDF</strong>{reports.slice(0, 5).map((report) => <a key={report.id} href={report.downloadUrl} target="_blank" rel="noreferrer"><span><FileText size={15} /><span><b>{report.period ? monthLabel(report.period) : "Laporan"}</b><small>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(report.createdAt))}</small></span></span><small>{fileSizeLabel(report.sizeBytes)}</small></a>)}</div>}</aside>
   </div>;
 }
 

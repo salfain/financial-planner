@@ -1054,6 +1054,15 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .app-shell .transaction-row {
   min-height: 68px;
 }
+.report-actions .report-ppt-button {
+  color: var(--primary);
+  border-color: color-mix(in srgb,var(--primary) 36%,var(--border));
+  background: color-mix(in srgb,var(--primary-soft) 55%,var(--surface));
+}
+.report-actions .report-ppt-button:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
 .app-shell .bill-cards article,
 .app-shell .budget-row,
 .app-shell .account-row {
