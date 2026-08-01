@@ -203,6 +203,34 @@ test("agenda menandai periode cicilan yang sudah dibayar", () => {
   assert.deepEqual(outstandingFinancialCalendarEvents(events).map((event) => event.date), ["2026-09-01"]);
 });
 
+test("status lunas bulan sebelumnya tidak menutup cicilan bulan berikutnya", () => {
+  const events = buildFinancialCalendarEvents({
+    fromDate: "2026-08-01",
+    throughDate: "2026-08-31",
+    bills: [{
+      id: "motor-nmax",
+      name: "MOTOR NMAX",
+      amount: 1_752_000,
+      dueDate: "2026-08-01",
+      category: "Kewajiban",
+      accountId: "bank",
+      liabilityAccountId: "baf-motor",
+      paid: true,
+      lastPaidPeriod: "2026-07",
+      durationMonths: 24,
+      paidCount: 3,
+      remainingMonths: 21,
+    }],
+    goals: [],
+    recurringTemplates: [],
+  });
+
+  assert.equal(events[0]?.date, "2026-08-01");
+  assert.equal(events[0]?.paid, false);
+  assert.equal(events[0]?.countsTowardNeed, true);
+  assert.deepEqual(outstandingFinancialCalendarEvents(events).map((event) => event.date), ["2026-08-01"]);
+});
+
 test("tanggal cicilan maju satu bulan tanpa melewati akhir bulan", () => {
   assert.equal(addCalendarMonths("2026-08-31", 1), "2026-09-30");
 });

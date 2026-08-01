@@ -67,16 +67,23 @@ export function buildFinancialCalendarEvents(input: {
   const events: FinancialCalendarEvent[] = [];
 
   input.bills.filter((bill) => !bill.completed).forEach((bill) => {
+    const duePeriod = bill.dueDate.slice(0, 7);
+    const leadingOccurrencePaid = bill.lastPaidPeriod
+      ? bill.lastPaidPeriod === duePeriod
+      : Boolean(bill.paid);
     const remaining = bill.durationMonths === null || bill.durationMonths === undefined
       ? 120
       : Math.max(0, bill.remainingMonths ?? bill.durationMonths);
-    const occurrenceLimit = Math.min(120, remaining + (bill.paid ? 1 : 0));
+    const occurrenceLimit = Math.min(120, remaining + (leadingOccurrencePaid ? 1 : 0));
     let occurrence = bill.dueDate;
     let occurrenceIndex = 0;
     while (occurrence <= input.throughDate && occurrenceIndex < occurrenceLimit) {
       if (occurrence >= input.fromDate) {
+        const occurrencePeriod = occurrence.slice(0, 7);
         const paid = Boolean(occurrenceIndex === 0 && (
-          bill.paid || bill.lastPaidPeriod === occurrence.slice(0, 7)
+          bill.lastPaidPeriod
+            ? bill.lastPaidPeriod === occurrencePeriod
+            : bill.paid && duePeriod === occurrencePeriod
         ));
         events.push({
           id: `bill:${bill.id}:${occurrence}`,
