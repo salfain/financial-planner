@@ -462,6 +462,47 @@ result = invoke(`api("createGoal", { sessionToken: coupleSessionToken, requestId
 assert.equal(result.ok, false);
 assert.equal(result.error.code, "ACCOUNT_REQUIRED");
 
+// Fase 4 — aksi tingkat workspace terkunci untuk pemilik.
+for (const [action, extra] of [
+  ["createBackup", ""],
+  ["backupOverview", ""],
+  ["migrationHistory", ""],
+  ["repairLedger", ", expectedRevision: \"x\""],
+  ["closeMonthlyBook", ", period: \"2026-08\", confirmed: true"],
+  ["saveAiKey", ", provider: \"gemini\", apiKey: \"AIzaSyTestKeyForCoupleModeAudit\""],
+  ["activateLicense", ", licenseKey: \"x\""],
+]) {
+  result = invoke(`api("${action}", { sessionToken: spouseSessionToken, requestId: "scope-owner-only-${action}"${extra} })`);
+  assert.equal(result.ok, false, `${action} seharusnya ditolak untuk editor`);
+  assert.equal(result.error.code, "OWNER_ONLY", `${action} menghasilkan ${result.error.code}`);
+}
+result = invoke(`api("backupOverview", { sessionToken: coupleSessionToken, requestId: "scope-owner-backup-ok" })`);
+assert.equal(result.ok, true);
+
+// Riwayat AI tidak dibagi antar anggota.
+add("AIChat", { id: "ai-owner-1", role: "user", content: "Rahasia pemilik", period: "2026-08", context_manifest_json: "{}", created_at: "2026-08-01T00:00:00Z", member_id: coupleOwnerId });
+add("AIChat", { id: "ai-spouse-1", role: "user", content: "Rahasia pasangan", period: "2026-08", context_manifest_json: "{}", created_at: "2026-08-01T00:00:00Z", member_id: spouseId });
+add("AIChat", { id: "ai-legacy-1", role: "user", content: "Sebelum mode pasangan", period: "2026-08", context_manifest_json: "{}", created_at: "2026-08-01T00:00:00Z", member_id: "" });
+result = invoke(`api("aiHistory", { sessionToken: spouseSessionToken })`);
+assert.equal(result.ok, true);
+assert.deepEqual(result.data.messages.map((message) => message.id), ["ai-spouse-1"]);
+result = invoke(`api("aiHistory", { sessionToken: coupleSessionToken })`);
+assert.deepEqual(result.data.messages.map((message) => message.id).sort(), ["ai-legacy-1", "ai-owner-1"]);
+// Menghapus riwayat hanya mengenai percakapan sendiri.
+result = invoke(`api("clearAiHistory", { sessionToken: spouseSessionToken, requestId: "scope-ai-clear" })`);
+assert.equal(result.ok, true);
+assert.equal(sheets.AIChat.some((row) => row.id === "ai-spouse-1"), false);
+assert.equal(sheets.AIChat.some((row) => row.id === "ai-owner-1"), true);
+assert.equal(sheets.AIChat.some((row) => row.id === "ai-legacy-1"), true);
+
+// Status notifikasi bersifat per anggota.
+result = invoke(`api("updateNotificationState", { sessionToken: spouseSessionToken, requestId: "scope-notif-spouse", notificationIds: ["bill:demo"], action: "dismiss" })`);
+assert.equal(result.ok, true);
+assert.equal(sheets.NotificationStates.find((row) => row.notification_key === "bill:demo").member_id, spouseId);
+result = invoke(`api("updateNotificationState", { sessionToken: coupleSessionToken, requestId: "scope-notif-owner", notificationIds: ["bill:demo"], action: "dismiss" })`);
+assert.equal(result.ok, true);
+assert.equal(sheets.NotificationStates.filter((row) => row.notification_key === "bill:demo").length, 2);
+
 // Aturan perubahan scope.
 result = invoke(`api("updateAccount", { sessionToken: spouseSessionToken, requestId: "scope-hide-shared", accountId: sharedAccountId, scope: "private" })`);
 assert.equal(result.ok, false);

@@ -11,9 +11,22 @@ function portabilityFolder_() {
   return existing.hasNext() ? existing.next() : parent.createFolder(VINN_PORTABILITY_FOLDER);
 }
 
-function portabilityHistory_() {
+function portabilityHistoryAll_() {
   try { return JSON.parse(PropertiesService.getDocumentProperties().getProperty(VINN_PORTABILITY_HISTORY_KEY) || '[]'); }
   catch (error) { return []; }
+}
+
+// Fase 4 — berkas laporan dibuat dari snapshot milik satu anggota sehingga
+// isinya dapat memuat akun pribadi. Riwayatnya karena itu ikut di-scope.
+function portabilityHistory_() {
+  const memberId = currentScopeMemberId_();
+  if (!memberId) return portabilityHistoryAll_();
+  const isOwner = currentMemberIsOwner_();
+  return portabilityHistoryAll_().filter(function(item) {
+    const owner = String(item && item.memberId || '').trim();
+    if (!owner) return isOwner;
+    return owner === memberId;
+  });
 }
 
 function savePortabilityHistory_(history) {
@@ -21,10 +34,13 @@ function savePortabilityHistory_(history) {
 }
 
 function recordPortability_(record) {
-  const history = portabilityHistory_().filter(function(item) { return String(item.id) !== String(record.id); });
-  history.unshift(record);
+  // Riwayat disimpan utuh; penyaringan hanya terjadi saat dibaca agar entri
+  // anggota lain tidak terhapus oleh ekspor anggota ini.
+  const owned = Object.assign({ memberId: currentScopeMemberId_() || '' }, record);
+  const history = portabilityHistoryAll_().filter(function(item) { return String(item.id) !== String(owned.id); });
+  history.unshift(owned);
   savePortabilityHistory_(history);
-  return record;
+  return owned;
 }
 
 function portabilityExportRecord_(file, kind, metadata, period) {
@@ -305,7 +321,9 @@ function apiPreviewMigration(payload) {
 function apiCancelMigration(payload) {
   try {
     const id = String(payload.migrationId || '');
-    const history = portabilityHistory_();
+    // Mutasi riwayat memakai daftar utuh agar menyimpan ulang tidak menghapus
+    // entri milik anggota lain yang tersaring dari pandangan pemanggil.
+    const history = portabilityHistoryAll_();
     const item = history.find(function(entry) { return entry.kind === 'migration' && String(entry.id) === id; });
     if (!item) throw createError_('MIGRATION_NOT_FOUND', 'Preview migrasi tidak ditemukan.');
     if (item.status === 'applied') throw createError_('MIGRATION_APPLIED', 'Migrasi sudah diterapkan.');
@@ -327,7 +345,7 @@ function apiApplyMigration(payload) {
   try {
     return withDocumentLock_(function() {
       const id = String(payload.migrationId || '');
-      const history = portabilityHistory_();
+      const history = portabilityHistoryAll_();
       const item = history.find(function(entry) { return entry.kind === 'migration' && String(entry.id) === id; });
       if (!item) throw createError_('MIGRATION_NOT_FOUND', 'Preview migrasi tidak ditemukan.');
       if (item.status === 'applied') return ok_(migrationRecordGs_(item));

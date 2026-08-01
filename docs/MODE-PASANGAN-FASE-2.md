@@ -52,7 +52,7 @@ Setiap perubahan tercatat pada AuditLog melalui aksi `UPDATE` modul `accounts`.
 - Tujuan, pos dana, tagihan, transaksi rutin, dan aset investasi masih berupa data bersama pada fase ini. Pewarisan scope-nya dikerjakan pada Fase 3. Lihat `MODE-PASANGAN-FASE-3.md`.
 - Ekspor, backup, dan portabilitas masih beroperasi pada seluruh workspace dan sebaiknya dijalankan oleh pemilik.
 - Privasi tetap berlaku di tingkat aplikasi. Pemilik spreadsheet masih dapat membaca seluruh baris mentah, jadi spreadsheet tidak boleh dibagikan kepada anggota kedua.
-- Mode Pasangan belum boleh diserahkan sebagai fitur produksi sampai audit kebocoran Fase 4 selesai.
+- Audit kebocoran dikerjakan pada Fase 4. Lihat `MODE-PASANGAN-FASE-4.md`.
 
 ## Verifikasi Fase 2
 

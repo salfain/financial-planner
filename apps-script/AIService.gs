@@ -327,7 +327,13 @@ function apiAskAi(payload) {
 function apiClearAiHistory() {
   try {
     const sheet = getWorkbook_().getSheetByName(VINN_CONFIG.SHEETS.AI_CHAT);
-    if (sheet && sheet.getLastRow() > 1) {
+    if (currentScopeMemberId_()) {
+      // Pada Mode Pasangan, menghapus riwayat hanya boleh mengenai percakapan
+      // milik anggota yang sedang masuk, bukan mengosongkan sheet bersama.
+      rowsAsObjects_(VINN_CONFIG.SHEETS.AI_CHAT)
+        .sort(function(a, b) { return b._row - a._row; })
+        .forEach(function(row) { deleteObjectRow_(VINN_CONFIG.SHEETS.AI_CHAT, row._row); });
+    } else if (sheet && sheet.getLastRow() > 1) {
       sheet.getRange(2, 1, sheet.getLastRow() - 1, VINN_CONFIG.HEADERS.AIChat.length).clearContent();
     }
     audit_('CLEAR_AI_HISTORY', 'ai_chat', '', id_('req'), {});

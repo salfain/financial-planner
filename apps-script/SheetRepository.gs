@@ -104,11 +104,19 @@ function sheetCellValue_(header, value) {
 
 // Atribusi anggota dicap terpusat agar tidak ada jalur tulis yang terlewat.
 function stampMemberAttribution_(sheetName, object) {
-  if (sheetName !== VINN_CONFIG.SHEETS.TRANSACTIONS) return object;
-  if (object.created_by_member_id) return object;
   const memberId = currentScopeMemberId_();
   if (!memberId) return object;
-  return Object.assign({}, object, { created_by_member_id: memberId });
+  if (sheetName === VINN_CONFIG.SHEETS.TRANSACTIONS) {
+    if (object.created_by_member_id) return object;
+    return Object.assign({}, object, { created_by_member_id: memberId });
+  }
+  const ownedColumn = SCOPE_MEMBER_OWNED_SHEETS[sheetName];
+  if (ownedColumn && !object[ownedColumn]) {
+    const stamped = {};
+    stamped[ownedColumn] = memberId;
+    return Object.assign({}, object, stamped);
+  }
+  return object;
 }
 
 function appendObjects_(sheetName, objects) {

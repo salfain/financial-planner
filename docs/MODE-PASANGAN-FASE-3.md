@@ -41,7 +41,7 @@ Kapasitas alokasi pos dana dihitung dari pos dana yang terlihat pada akun terkai
 - Anggaran tetap bersama sesuai keputusan di atas.
 - Ekspor, backup, dan portabilitas masih beroperasi pada seluruh workspace dan sebaiknya dijalankan oleh pemilik.
 - Privasi tetap berlaku di tingkat aplikasi. Pemilik spreadsheet masih dapat membaca seluruh baris mentah, jadi spreadsheet tidak boleh dibagikan kepada anggota kedua.
-- Mode Pasangan belum boleh diserahkan sebagai fitur produksi sampai audit kebocoran Fase 4 selesai.
+- Audit kebocoran dikerjakan pada Fase 4. Lihat `MODE-PASANGAN-FASE-4.md`.
 
 ## Verifikasi Fase 3
 

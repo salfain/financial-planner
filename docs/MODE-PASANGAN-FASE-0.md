@@ -32,7 +32,7 @@ Gunakan **Financial Planner → Nonaktifkan Mode Pasangan**. Aplikasi kembali ke
 - Fase 0 baru melindungi pintu masuk API dengan sesi anggota.
 - Penambahan anggota kedua dan pergantian PIN dari dalam aplikasi dikerjakan pada Fase 1.
 - Pemisahan data pribadi dan bersama di setiap service dikerjakan pada Fase 2. Lihat `MODE-PASANGAN-FASE-2.md`.
-- Jangan menyerahkan Mode Pasangan sebagai fitur produksi sampai audit kebocoran Fase 4 selesai.
+- Audit kebocoran Fase 4 sudah selesai. Lihat `MODE-PASANGAN-FASE-4.md`.
 - Privasi berlaku di aplikasi. Pemilik spreadsheet tetap dapat membaca sheet mentah.
 
 ## Perilaku keamanan

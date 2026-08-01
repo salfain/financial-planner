@@ -105,9 +105,36 @@ function sinkingFundScopeIndex_() {
   return index;
 }
 
+// Fase 4 — sheet berikut milik satu anggota secara langsung, bukan turunan akun.
+// Riwayat AI memuat pertanyaan keuangan pribadi dan status notifikasi bersifat
+// per orang, jadi keduanya tidak boleh dibagi antar anggota.
+const SCOPE_MEMBER_OWNED_SHEETS = Object.freeze({
+  AIChat: 'member_id',
+  NotificationStates: 'member_id'
+});
+
+function currentMemberIsOwner_() {
+  const context = currentMemberContext_();
+  return Boolean(context && context.member && String(context.member.role) === 'owner');
+}
+
+// Baris warisan sebelum Mode Pasangan aktif tidak memiliki pemilik. Baris itu
+// dibuat oleh pemilik workspace saat instalasi masih pengguna tunggal, sehingga
+// hanya pemilik yang boleh melihatnya.
+function memberOwnedRowVisible_(row, column, memberId, isOwner) {
+  const owner = String(row[column] || '').trim();
+  if (!owner) return isOwner;
+  return owner === String(memberId);
+}
+
 function applyScopeFilter_(sheetName, rows) {
   const memberId = currentScopeMemberId_();
   if (!memberId) return rows;
+  const ownedColumn = SCOPE_MEMBER_OWNED_SHEETS[sheetName];
+  if (ownedColumn) {
+    const isOwner = currentMemberIsOwner_();
+    return rows.filter(function(row) { return memberOwnedRowVisible_(row, ownedColumn, memberId, isOwner); });
+  }
   if (sheetName === VINN_CONFIG.SHEETS.ACCOUNTS) {
     return rows.filter(function(account) { return accountVisibleToMember_(account, memberId); });
   }

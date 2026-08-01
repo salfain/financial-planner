@@ -1,3 +1,22 @@
+// Fase 4 — aksi berikut bekerja pada seluruh workspace, bukan pada data satu
+// anggota. Membiarkannya terbuka untuk editor membuat pasangan dapat mengekspor,
+// memigrasi, atau mengunci data anggota lain tanpa pernah melihatnya di layar.
+const OWNER_ONLY_ACTIONS = Object.freeze({
+  setup: true, setupWorkspace: true, upgradeWorkspace: true,
+  activateLicense: true, deactivateLicense: true,
+  backup: true, createBackup: true, backupOverview: true, updateBackupSchedule: true,
+  migrationHistory: true, previewMigration: true, applyMigration: true, cancelMigration: true,
+  repairLedger: true, closeMonthlyBook: true, reopenMonthlyBook: true,
+  saveAiKey: true
+});
+
+function assertActionAllowedForMember_(action, context) {
+  if (!OWNER_ONLY_ACTIONS[action]) return;
+  if (!context || context.mode !== 'couple') return;
+  if (String(context.member && context.member.role) === 'owner') return;
+  throw createError_('OWNER_ONLY', 'Hanya pemilik workspace yang dapat menjalankan aksi ini.');
+}
+
 function api(action, payload) {
   payload = payload || {};
   const publicActions = { health: true, whoami: true, memberLogin: true };
@@ -8,6 +27,7 @@ function api(action, payload) {
     if (context && context.mode === 'couple' && context.member.mustChangePin && action !== 'changeOwnPin') {
       throw createError_('PIN_CHANGE_REQUIRED', 'Ganti PIN sementara sebelum melanjutkan.');
     }
+    assertActionAllowedForMember_(action, context);
     const routes = {
       setup: function() { return setupFinancialPlanner(context); },
       health: function() { return apiHealthCheck(); },
