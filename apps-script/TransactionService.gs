@@ -411,7 +411,7 @@ function apiDeleteTransaction(transactionId, requestId, expectedUpdatedAt) {
       }
       related.forEach(function(row) { assertExpectedTransactionVersion_(row, expectedUpdatedAt); });
       const trashEntries = related.map(function(row) {
-        return { id: id_('trash'), source_sheet: VINN_CONFIG.SHEETS.TRANSACTIONS, entity_id: row.id, payload_json: JSON.stringify(row), deleted_by: Session.getActiveUser().getEmail() || 'owner', deleted_at: deletedAt };
+        return { id: id_('trash'), source_sheet: VINN_CONFIG.SHEETS.TRANSACTIONS, entity_id: row.id, payload_json: JSON.stringify(row), deleted_by: currentAuditActor_(), deleted_at: deletedAt };
       });
       const updates = related.map(function(row) {
         const rowNumber = row._row;

@@ -4,7 +4,7 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("manifest Apps Script menjaga deployment single-owner", async () => {
+test("manifest Apps Script aman untuk instalasi pengguna tunggal sebelum Mode Pasangan aktif", async () => {
   const manifest = JSON.parse(await readFile(new URL("apps-script/appsscript.json", root), "utf8"));
   assert.equal(manifest.webapp.executeAs, "USER_DEPLOYING");
   assert.equal(manifest.webapp.access, "MYSELF");
@@ -15,7 +15,7 @@ test("setup pelanggan memakai identitas netral dan installation id", async () =>
   const domain = await readFile(new URL("apps-script/DomainService.gs", root), "utf8");
   assert.match(setup, /function setupFinancialPlanner\(\)/);
   assert.match(setup, /FINANCIAL_PLANNER_INSTALLATION_ID/);
-  assert.match(setup, /edition: 'single-owner'/);
+  assert.match(setup, /coupleModeEnabled_\(\) \? 'couple' : 'single-owner'/);
   assert.match(domain, /payload\.profileName \|\| 'Pemilik'/);
 });
 

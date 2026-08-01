@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import vm from "node:vm";
@@ -86,6 +86,7 @@ const sheetNames = [
   "Bills", "Recurring", "Assets", "InvestmentTransactions", "AuditLog", "Trash",
   "AIChat",
   "NotificationStates",
+  "Members", "MemberSessions", "MemberLoginAttempts",
 ];
 const sheets = Object.fromEntries(sheetNames.map((name) => [name, []]));
 const context = vm.createContext({
@@ -106,6 +107,7 @@ const context = vm.createContext({
     DigestAlgorithm: { SHA_256: "SHA_256" },
     Charset: { UTF_8: "UTF_8" },
     computeDigest: (_algorithm, value) => [...createHash("sha256").update(String(value), "utf8").digest()],
+    computeHmacSha256Signature: (value, key) => [...createHmac("sha256", String(key)).update(String(value), "utf8").digest()],
   },
   DriveApp: {
     getFileById: (id) => {
@@ -163,7 +165,10 @@ const context = vm.createContext({
       remove: (key) => cache.delete(key),
     }),
   },
-  Session: { getActiveUser: () => ({ getEmail: () => "owner@test" }) },
+  Session: {
+    getActiveUser: () => ({ getEmail: () => "" }),
+    getEffectiveUser: () => ({ getEmail: () => "owner@test" }),
+  },
 });
 
 new vm.Script(combinedSource, { filename: "apps-script/combined.gs" }).runInContext(context);
@@ -266,6 +271,43 @@ assert.equal(result.ok, true);
 assert.equal(result.data.tier, "premium");
 assert.equal(result.data.capabilities.planning, true);
 assert.equal(result.data.capabilities.investments, true);
+assert.equal(result.data.capabilities.couple_mode, true);
+
+result = invoke(`enableCoupleMode()`);
+assert.equal(result.ok, true);
+assert.equal(result.data.enabled, true);
+assert.match(result.data.temporaryPin, /^\d{6}$/);
+assert.equal(sheets.Members.length, 1);
+assert.equal(sheets.Members[0].role, "owner");
+const coupleOwnerId = result.data.owner.id;
+const coupleOwnerPin = result.data.temporaryPin;
+result = invoke(`api("bootstrap", {})`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "AUTH_REQUIRED");
+result = invoke(`api("health", {})`);
+assert.equal(result.ok, true);
+assert.equal(result.data.coupleMode.enabled, true);
+result = invoke(`api("whoami", {})`);
+assert.equal(result.ok, true);
+assert.equal(result.data.authenticated, false);
+context.coupleOwnerId = coupleOwnerId;
+context.coupleOwnerPin = coupleOwnerPin;
+result = invoke(`api("memberLogin", { memberId: coupleOwnerId, pin: coupleOwnerPin, requestId: "member-login-valid" })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.authenticated, true);
+assert.match(result.data.sessionToken, /^[A-Za-z0-9_-]+$/);
+context.coupleSessionToken = result.data.sessionToken;
+result = invoke(`api("bootstrap", { sessionToken: coupleSessionToken })`);
+assert.equal(result.ok, true);
+for (let attempt = 1; attempt <= 5; attempt += 1) {
+  result = invoke(`api("memberLogin", { memberId: coupleOwnerId, pin: "000000", requestId: "member-login-wrong-${attempt}" })`);
+}
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "LOGIN_LOCKED");
+result = invoke(`disableCoupleMode()`);
+assert.equal(result.ok, true);
+assert.equal(sheets.MemberSessions.every((session) => Boolean(session.revoked_at)), true);
+
 result = invoke(`apiCreateBackup("customer-install-test")`);
 assert.equal(result.ok, true);
 assert.equal(result.data.kind, "backup");

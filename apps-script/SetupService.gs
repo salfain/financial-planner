@@ -13,6 +13,7 @@ function setupFinancialPlanner() {
       ['currency', VINN_CONFIG.CURRENCY, nowIso_()],
       ['timezone', VINN_CONFIG.TIMEZONE, nowIso_()],
       ['feature_preferences', JSON.stringify(normalizeFeaturePreferencesGs_({})), nowIso_()],
+      ['couple_mode_enabled', coupleModeEnabled_() ? 'true' : 'false', nowIso_()],
       ['setup_completed', 'true', nowIso_()]
     ].filter(function(row) { return existingKeys.indexOf(row[0]) === -1; });
     if (defaults.length) settingsSheet.getRange(settingsSheet.getLastRow() + 1, 1, defaults.length, 3).setValues(defaults);
@@ -83,15 +84,16 @@ function setupFinancialPlanner() {
     }
     documentProperties.setProperty('FINANCIAL_PLANNER_SCHEMA_VERSION', VINN_CONFIG.SCHEMA_VERSION);
     documentProperties.setProperty('VINN_SCHEMA_VERSION', VINN_CONFIG.SCHEMA_VERSION);
+    const edition = coupleModeEnabled_() ? 'couple' : 'single-owner';
     audit_('SETUP', 'system', '', id_('req'), {
       schemaVersion: VINN_CONFIG.SCHEMA_VERSION,
-      edition: 'single-owner'
+      edition: edition
     });
     invalidateDashboard_();
     return ok_({
       appName: VINN_CONFIG.APP_NAME,
       schemaVersion: VINN_CONFIG.SCHEMA_VERSION,
-      edition: 'single-owner',
+      edition: edition,
       installationId: installationId
     });
   });
@@ -115,7 +117,12 @@ function apiHealthCheck() {
     return ok_({
       appName: VINN_CONFIG.APP_NAME,
       schemaVersion: VINN_CONFIG.SCHEMA_VERSION,
-      edition: 'single-owner',
+      edition: coupleModeEnabled_() ? 'couple' : 'single-owner',
+      coupleMode: {
+        enabled: coupleModeEnabled_(),
+        initialized: activeMembers_().length > 0,
+        requiresAuthentication: coupleModeEnabled_()
+      },
       installationId: licenseInstallationId_(),
       entitlement: licenseStatus_(),
       sheets: results

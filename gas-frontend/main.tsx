@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { FinanceApp } from "../app/FinanceApp";
 import "../app/globals.css";
-import { callAppsScript, hasAppsScriptBridge } from "../lib/apps-script-client";
+import {
+  callAppsScript,
+  clearAppsScriptMemberSession,
+  hasAppsScriptBridge,
+  saveAppsScriptMemberSession,
+} from "../lib/apps-script-client";
 import "./styles.css";
 
 type SheetHealth = {
@@ -14,6 +19,21 @@ type HealthResponse = {
   appName: string;
   schemaVersion: string;
   sheets: SheetHealth[];
+  coupleMode?: {
+    enabled: boolean;
+    initialized: boolean;
+    requiresAuthentication: boolean;
+  };
+};
+
+type MemberChoice = { id: string; displayName: string };
+type MemberIdentity = MemberChoice & { role: "owner" | "editor"; mustChangePin?: boolean };
+type MemberAuthResponse = {
+  mode: "single" | "couple";
+  authenticated: boolean;
+  member: MemberIdentity | null;
+  members: MemberChoice[];
+  sessionToken?: string;
 };
 
 type BootstrapResponse = {
@@ -78,12 +98,69 @@ function broadcastBridgeState(detail: BridgeState) {
   window.dispatchEvent(new CustomEvent<BridgeState>("vinn-store:gas-state", { detail }));
 }
 
+function MemberLogin({ auth, onAuthenticated }: { auth: MemberAuthResponse; onAuthenticated: (next: MemberAuthResponse) => void }) {
+  const [memberId, setMemberId] = useState(auth.members[0]?.id || "");
+  const [pin, setPin] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await callAppsScript<MemberAuthResponse>("memberLogin", { memberId, pin });
+      if (!result.sessionToken || !result.member) throw new Error("Sesi anggota tidak berhasil dibuat.");
+      saveAppsScriptMemberSession(result.sessionToken, result.member.id);
+      onAuthenticated(result);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Login anggota gagal.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="setup-shell">
+      <section className="setup-copy">
+        <div className="brand setup-brand"><span className="brand-mark">FP</span><span className="brand-copy"><strong>Financial Planner</strong><small>Mode Pasangan</small></span></div>
+        <span className="setup-kicker">RUANG KEUANGAN AMAN</span>
+        <h1>Masuk sebagai anggota</h1>
+        <p>Pilih profil Anda dan masukkan PIN. Data pribadi tetap dipisahkan, sedangkan akun bersama dapat digunakan berdua.</p>
+        <div className="setup-benefits">
+          <span>Data pribadi disaring di dalam aplikasi</span>
+          <span>Akun bersama terlihat oleh kedua anggota</span>
+          <span>Spreadsheet hanya dikelola oleh pemilik</span>
+        </div>
+      </section>
+      <section className="setup-card">
+        <h2>Login anggota</h2>
+        <p>Gunakan PIN 6 angka yang diberikan oleh pemilik.</p>
+        {error && <div className="setup-error"><span aria-hidden="true">!</span><span><strong>Belum dapat masuk</strong><small>{error}</small></span></div>}
+        {!auth.members.length ? (
+          <div className="setup-error"><span aria-hidden="true">!</span><span><strong>Anggota belum disiapkan</strong><small>Jalankan Aktifkan Mode Pasangan dari menu Financial Planner di Google Sheets.</small></span></div>
+        ) : (
+          <form onSubmit={submit}>
+            <div className="form-grid setup-form">
+              <label className="full-field"><span>Anggota</span><select value={memberId} onChange={(event) => setMemberId(event.target.value)}>{auth.members.map((member) => <option key={member.id} value={member.id}>{member.displayName}</option>)}</select></label>
+              <label className="full-field"><span>PIN 6 angka</span><input value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="current-password" placeholder="••••••" /></label>
+            </div>
+            <button className="primary-button setup-submit" disabled={submitting || pin.length !== 6}>{submitting ? "Memeriksa…" : "Masuk ke Financial Planner"}</button>
+            <small className="setup-footnote">Lima PIN yang salah akan mengunci login selama 10 menit.</small>
+          </form>
+        )}
+      </section>
+    </main>
+  );
+}
+
 function GasHost() {
   const [bridgeState, setBridgeState] = useState<BridgeState>({
     status: "connecting",
     message: "Menghubungkan Google Sheets…",
   });
   const [showStatus, setShowStatus] = useState(true);
+  const [memberAuth, setMemberAuth] = useState<MemberAuthResponse | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -127,6 +204,19 @@ function GasHost() {
           return;
         }
 
+        if (health.coupleMode?.enabled) {
+          const identity = await callAppsScript<MemberAuthResponse>("whoami");
+          if (identity.sessionToken && identity.member) {
+            saveAppsScriptMemberSession(identity.sessionToken, identity.member.id);
+          } else if (!identity.authenticated) {
+            clearAppsScriptMemberSession();
+          }
+          if (!active) return;
+          setMemberAuth(identity);
+        } else {
+          setMemberAuth({ mode: "single", authenticated: true, member: null, members: [] });
+        }
+
         update({
           status: "connected",
           health,
@@ -164,7 +254,11 @@ function GasHost() {
           {bridgeState.message}
         </div>
       )}
-      <FinanceApp />
+      {memberAuth?.mode === "couple" && !memberAuth.authenticated
+        ? <MemberLogin auth={memberAuth} onAuthenticated={setMemberAuth} />
+        : window.__FINANCE_DEMO__ === true || memberAuth?.authenticated || bridgeState.status === "unavailable" || bridgeState.status === "needs_setup" || bridgeState.status === "error"
+        ? <FinanceApp />
+        : null}
     </>
   );
 }

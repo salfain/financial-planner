@@ -114,6 +114,7 @@ function apiUpdateBackupSchedule(payload) {
 }
 
 function vinnStoreScheduledBackup() {
+  cleanupMemberAuth_();
   const schedule = backupScheduleGs_();
   if (!schedule.enabled) return;
   if (schedule.nextBackupAt && new Date(schedule.nextBackupAt).getTime() > Date.now()) return;

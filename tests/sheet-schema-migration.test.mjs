@@ -14,6 +14,9 @@ new vm.Script(`${config}\n${repository}`, { filename: "sheet-schema-migration.gs
 const expectedBillsHeaders = JSON.parse(
   vm.runInContext("JSON.stringify(VINN_CONFIG.HEADERS.Bills)", context),
 );
+const expectedAccountHeaders = JSON.parse(
+  vm.runInContext("JSON.stringify(VINN_CONFIG.HEADERS.Accounts)", context),
+);
 
 const rebuild = (headers, rows) => {
   context.testHeaders = headers;
@@ -52,4 +55,29 @@ test("migrasi tidak menimpa kolom asing dan melewati struktur yang sudah sesuai"
   const customHeaders = [...expectedBillsHeaders];
   customHeaders[4] = "kolom_manual_pelanggan";
   assert.equal(rebuild(customHeaders, [["nilai"]]), null);
+});
+
+test("migrasi Fase 0 menambah scope akun tanpa mengubah data lama", () => {
+  const legacyHeaders = expectedAccountHeaders.slice(0, -1);
+  const legacyRow = legacyHeaders.map((header) => `value:${header}`);
+  context.testHeaders = legacyHeaders;
+  context.testRows = [legacyRow];
+  const migrated = JSON.parse(JSON.stringify(vm.runInContext(
+    "rebuildSheetRowsForHeaders_(testHeaders, testRows, VINN_CONFIG.HEADERS.Accounts)",
+    context,
+  )));
+  assert.equal(migrated[0].length, expectedAccountHeaders.length);
+  assert.deepEqual(migrated[0].slice(0, -1), legacyRow);
+  assert.equal(migrated[0].at(-1), "");
+});
+
+test("sheet autentikasi anggota menyimpan hash dan status, bukan token mentah", () => {
+  const headers = JSON.parse(vm.runInContext("JSON.stringify(VINN_CONFIG.HEADERS)", context));
+  assert.deepEqual(headers.Members, [
+    "id", "email", "display_name", "role", "pin_hash", "pin_salt", "active",
+    "must_change_pin", "created_at", "updated_at",
+  ]);
+  assert.equal(headers.MemberSessions.includes("token_hash"), true);
+  assert.equal(headers.MemberSessions.includes("token"), false);
+  assert.equal(headers.MemberLoginAttempts.includes("locked_until"), true);
 });

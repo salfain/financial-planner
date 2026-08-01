@@ -173,7 +173,7 @@ function validateLedgerMutation_(previousTransactions, nextTransactions) {
 function audit_(action, moduleName, entityId, requestId, details) {
   appendObjects_(VINN_CONFIG.SHEETS.AUDIT_LOG, [{
     id: id_('audit'), request_id: requestId || '', action: action, module: moduleName,
-    entity_id: entityId || '', actor_email: Session.getActiveUser().getEmail() || 'owner',
+    entity_id: entityId || '', actor_email: currentAuditActor_(),
     details_json: JSON.stringify(details || {}), created_at: nowIso_()
   }]);
 }

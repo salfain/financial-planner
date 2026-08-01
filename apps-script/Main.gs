@@ -16,6 +16,10 @@ function onOpen() {
     .addItem('Jalankan Setup', 'setupFinancialPlanner')
     .addItem('Periksa Struktur', 'apiHealthCheck')
     .addSeparator()
+    .addItem('Aktifkan Mode Pasangan', 'enableCoupleMode')
+    .addItem('Atur PIN Pemilik', 'setCoupleModeOwnerPin')
+    .addItem('Nonaktifkan Mode Pasangan', 'disableCoupleMode')
+    .addSeparator()
     .addItem('Buat Backup', 'apiCreateBackup')
     .addToUi();
 }

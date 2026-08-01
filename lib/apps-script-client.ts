@@ -11,6 +11,46 @@ type GoogleScriptRunner = {
   api: (action: string, payload: unknown) => void;
 };
 
+const MEMBER_SESSION_TOKEN_KEY = "financial-planner:member-session-token";
+const MEMBER_SESSION_ID_KEY = "financial-planner:member-session-id";
+
+export class AppsScriptApiError extends Error {
+  code: string;
+  details: unknown;
+
+  constructor(code: string, message: string, details?: unknown) {
+    super(message);
+    this.name = "AppsScriptApiError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
+function localStorageValue(key: string) {
+  if (typeof window === "undefined") return "";
+  try { return window.localStorage.getItem(key) || ""; }
+  catch { return ""; }
+}
+
+export const getAppsScriptSessionToken = () => localStorageValue(MEMBER_SESSION_TOKEN_KEY);
+export const getAppsScriptSessionScope = () => localStorageValue(MEMBER_SESSION_ID_KEY) || "anonymous";
+
+export function saveAppsScriptMemberSession(sessionToken: string, memberId: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(MEMBER_SESSION_TOKEN_KEY, sessionToken);
+  window.localStorage.setItem(MEMBER_SESSION_ID_KEY, memberId);
+}
+
+export function clearAppsScriptMemberSession() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(MEMBER_SESSION_TOKEN_KEY);
+    window.localStorage.removeItem(MEMBER_SESSION_ID_KEY);
+  } catch {
+    // Penyimpanan browser dapat dinonaktifkan; sesi server tetap akan kedaluwarsa.
+  }
+}
+
 declare global {
   interface Window {
     google?: { script?: { run?: GoogleScriptRunner } };
@@ -31,9 +71,17 @@ export function callAppsScript<T>(action: string, payload: Record<string, unknow
       .withSuccessHandler((raw) => {
         const response = raw as ApiResponse<T>;
         if (response.ok && response.data !== undefined) resolve(response.data);
-        else reject(new Error(response.error?.message ?? "Permintaan gagal."));
+        else reject(new AppsScriptApiError(
+          response.error?.code ?? "REQUEST_FAILED",
+          response.error?.message ?? "Permintaan gagal.",
+          (response.error as { details?: unknown } | undefined)?.details,
+        ));
       })
       .withFailureHandler((error) => reject(error))
-      .api(action, { ...payload, requestId: payload.requestId ?? crypto.randomUUID() });
+      .api(action, {
+        ...payload,
+        sessionToken: (payload.sessionToken ?? getAppsScriptSessionToken()) || undefined,
+        requestId: payload.requestId ?? crypto.randomUUID(),
+      });
   });
 }

@@ -13,7 +13,7 @@ import type { MonthlyClosing, MonthlyReview } from "./monthly-review";
 import type { CategoryRule } from "./category-rules";
 import type { SinkingFund, SinkingFundEntry } from "./sinking-funds";
 import { normalizeFeaturePreferences, type FeaturePreferences } from "./feature-preferences";
-import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
+import { callAppsScript, getAppsScriptSessionScope, hasAppsScriptBridge } from "./apps-script-client";
 import { freeEntitlement, type PlanCapability, type PlanEntitlement, type PlanTier } from "./plans";
 import { demoRequest, demoSecurityStatus, isFinanceDemoMode } from "./demo-finance";
 import { installmentAmountAt, normalizeInstallmentPhases } from "./installment-phases";
@@ -532,7 +532,7 @@ const SNAPSHOT_CACHE_TTL_MS = 15 * 60_000;
 
 type SnapshotCacheStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-const snapshotScope = () => isFinanceDemoMode() ? "demo" : hasAppsScriptBridge() ? "gas" : "sites";
+const snapshotScope = () => isFinanceDemoMode() ? "demo" : hasAppsScriptBridge() ? `gas:${getAppsScriptSessionScope()}` : "sites";
 const snapshotCacheKey = (month: string) => `financial-planner:snapshot:${FINANCE_SCHEMA_VERSION}:${snapshotScope()}:${month}`;
 
 export function readCachedFinanceSnapshot(month: string, storage?: SnapshotCacheStorage | null) {

@@ -1,7 +1,7 @@
 const FINANCIAL_PLANNER_PLAN_RULES = Object.freeze({
   advanced_transactions: 'pro', imports: 'pro', attachments: 'pro', planning: 'pro',
   recurring: 'pro', pdf_reports: 'pro', scheduled_backup: 'pro', investments: 'premium',
-  ai: 'premium', ocr: 'premium'
+  ai: 'premium', ocr: 'premium', couple_mode: 'premium'
 });
 
 function licenseInstallationId_() {
