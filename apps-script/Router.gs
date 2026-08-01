@@ -5,11 +5,18 @@ function api(action, payload) {
   try {
     if (!publicActions[action]) context = resolveMemberContext_(payload.sessionToken);
     setRequestMemberContext_(context);
+    if (context && context.mode === 'couple' && context.member.mustChangePin && action !== 'changeOwnPin') {
+      throw createError_('PIN_CHANGE_REQUIRED', 'Ganti PIN sementara sebelum melanjutkan.');
+    }
     const routes = {
       setup: function() { return setupFinancialPlanner(context); },
       health: function() { return apiHealthCheck(); },
       whoami: function() { return apiWhoami(payload); },
       memberLogin: function() { return apiMemberLogin(payload); },
+      listMembers: function() { return apiListMembers(payload, context); },
+      createMember: function() { return apiCreateMember(payload, context); },
+      updateMember: function() { return apiUpdateMember(payload, context); },
+      changeOwnPin: function() { return apiChangeOwnPin(payload, context); },
       mutationStatus: function() { return apiMutationStatus(payload, context); },
       bootstrap: function() { return apiGetBootstrap(payload && payload.month, context); },
       licenseStatus: function() { return apiLicenseStatus(context); },

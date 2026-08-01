@@ -8,6 +8,7 @@ import {
   hasAppsScriptBridge,
   saveAppsScriptMemberSession,
 } from "../lib/apps-script-client";
+import { changeOwnFinancePin } from "../lib/member-auth";
 import "./styles.css";
 
 type SheetHealth = {
@@ -154,6 +155,55 @@ function MemberLogin({ auth, onAuthenticated }: { auth: MemberAuthResponse; onAu
   );
 }
 
+function MandatoryPinChange({ auth, onChanged }: { auth: MemberAuthResponse; onChanged: (next: MemberAuthResponse) => void }) {
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const valid = currentPin.length === 6 && newPin.length === 6 && newPin === confirmation && newPin !== currentPin;
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!valid) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await changeOwnFinancePin(currentPin, newPin);
+      saveAppsScriptMemberSession(result.sessionToken, result.member.id);
+      onChanged({ ...auth, authenticated: true, member: result.member, sessionToken: result.sessionToken });
+    } catch (pinError) {
+      setError(pinError instanceof Error ? pinError.message : "PIN belum dapat diganti.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return <main className="setup-shell">
+    <section className="setup-copy">
+      <div className="brand setup-brand"><span className="brand-mark">FP</span><span className="brand-copy"><strong>Financial Planner</strong><small>Mode Pasangan</small></span></div>
+      <span className="setup-kicker">LANGKAH KEAMANAN</span>
+      <h1>Buat PIN pribadi Anda</h1>
+      <p>PIN yang diberikan pemilik hanya berlaku untuk login pertama. Ganti sekarang sebelum membuka data keuangan.</p>
+      <div className="setup-benefits"><span>PIN baru terdiri dari 6 angka</span><span>Sesi lama otomatis ditutup</span><span>PIN tidak pernah ditampilkan di spreadsheet</span></div>
+    </section>
+    <section className="setup-card">
+      <h2>Ganti PIN sementara</h2>
+      <p>Anda masuk sebagai <strong>{auth.member?.displayName || "Anggota"}</strong>.</p>
+      {error && <div className="setup-error"><span aria-hidden="true">!</span><span><strong>Belum dapat mengganti PIN</strong><small>{error}</small></span></div>}
+      <form onSubmit={submit}>
+        <div className="form-grid setup-form">
+          <label className="full-field"><span>PIN sementara</span><input value={currentPin} onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="current-password" autoFocus /></label>
+          <label className="full-field"><span>PIN baru</span><input value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="new-password" /></label>
+          <label className="full-field"><span>Ulangi PIN baru</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="new-password" /></label>
+        </div>
+        <button className="primary-button setup-submit" disabled={submitting || !valid}>{submitting ? "Mengamankan…" : "Simpan PIN dan lanjutkan"}</button>
+        <small className="setup-footnote">PIN baru harus berbeda dari PIN sementara.</small>
+      </form>
+    </section>
+  </main>;
+}
+
 function GasHost() {
   const [bridgeState, setBridgeState] = useState<BridgeState>({
     status: "connecting",
@@ -256,6 +306,8 @@ function GasHost() {
       )}
       {memberAuth?.mode === "couple" && !memberAuth.authenticated
         ? <MemberLogin auth={memberAuth} onAuthenticated={setMemberAuth} />
+        : memberAuth?.mode === "couple" && memberAuth.authenticated && memberAuth.member?.mustChangePin
+        ? <MandatoryPinChange auth={memberAuth} onChanged={setMemberAuth} />
         : window.__FINANCE_DEMO__ === true || memberAuth?.authenticated || bridgeState.status === "unavailable" || bridgeState.status === "needs_setup" || bridgeState.status === "error"
         ? <FinanceApp />
         : null}

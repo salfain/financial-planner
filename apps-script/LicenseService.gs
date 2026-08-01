@@ -287,7 +287,7 @@ function requireActionPlan_(action, payload) {
     createSinkingFund: 'planning', updateSinkingFund: 'planning', archiveSinkingFund: 'planning', adjustSinkingFund: 'planning',
     createRecurring: 'recurring', updateRecurring: 'recurring', confirmRecurring: 'recurring', saveReportPdf: 'pdf_reports', updateBackupSchedule: 'scheduled_backup',
     createInvestmentAsset: 'investments', updateInvestmentAsset: 'investments', createInvestmentTrade: 'investments',
-    saveAiKey: 'ai', askAi: 'ai', ocrReceipt: 'ocr'
+    saveAiKey: 'ai', askAi: 'ai', ocrReceipt: 'ocr', createMember: 'couple_mode', updateMember: 'couple_mode'
   };
   if (map[action]) requirePlanCapability_(map[action]);
   if (action === 'updateAiSettings' && payload && (truthy_(payload.enabled) || truthy_(payload.consentAccepted) || payload.apiKey || payload.baseUrl || payload.model)) requirePlanCapability_('ai');

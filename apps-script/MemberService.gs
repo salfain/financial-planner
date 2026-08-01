@@ -152,6 +152,17 @@ function revokeAllMemberSessions_() {
   });
 }
 
+function revokeMemberSessions_(memberId) {
+  const now = new Date().toISOString();
+  rowsAsObjects_(VINN_CONFIG.SHEETS.MEMBER_SESSIONS).forEach(function(session) {
+    if (session.revoked_at || String(session.member_id) !== String(memberId)) return;
+    const rowNumber = session._row;
+    session.revoked_at = now;
+    delete session._row;
+    updateObjectRow_(VINN_CONFIG.SHEETS.MEMBER_SESSIONS, rowNumber, session);
+  });
+}
+
 function cleanupMemberAuth_() {
   if (!getWorkbook_().getSheetByName(VINN_CONFIG.SHEETS.MEMBER_SESSIONS)) return;
   const now = Date.now();
@@ -307,6 +318,185 @@ function apiMemberLogin(payload) {
   } catch (error) {
     setRequestMemberContext_(null);
     return fail_(error, payload && payload.requestId);
+  }
+}
+
+function assertCoupleOwner_(context) {
+  if (!context || context.mode !== 'couple' || !context.member) {
+    throw createError_('AUTH_REQUIRED', 'Silakan masuk sebagai anggota terlebih dahulu.');
+  }
+  if (String(context.member.role) !== 'owner') {
+    throw createError_('OWNER_ONLY', 'Hanya pemilik workspace yang dapat mengelola anggota.');
+  }
+  return context.member;
+}
+
+function memberManagementRow_(member, includeEmail) {
+  const row = memberClientRow_(member);
+  row.active = member.active === '' || member.active === undefined || truthy_(member.active);
+  row.createdAt = String(member.created_at || '');
+  row.updatedAt = String(member.updated_at || '');
+  if (includeEmail) row.email = String(member.email || '');
+  return row;
+}
+
+function normalizedMemberName_(value) {
+  const name = String(value || '').replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || name.length > 80) {
+    throw createError_('INVALID_MEMBER_NAME', 'Nama anggota harus terdiri dari 2 sampai 80 karakter.');
+  }
+  return name;
+}
+
+function normalizedMemberEmail_(value) {
+  const email = String(value || '').trim().toLowerCase();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw createError_('INVALID_MEMBER_EMAIL', 'Alamat email anggota tidak valid.');
+  }
+  return email;
+}
+
+function apiListMembers(payload, context) {
+  try {
+    if (!coupleModeEnabled_()) return ok_({ mode: 'single', currentMember: context && context.member || null, members: [] });
+    const includeEmail = Boolean(context && context.member && String(context.member.role) === 'owner');
+    const members = rowsAsObjects_(VINN_CONFIG.SHEETS.MEMBERS)
+      .sort(function(left, right) {
+        if (String(left.role) !== String(right.role)) return String(left.role) === 'owner' ? -1 : 1;
+        return String(left.created_at || '').localeCompare(String(right.created_at || ''));
+      })
+      .map(function(member) { return memberManagementRow_(member, includeEmail); });
+    return ok_({ mode: 'couple', currentMember: context.member, members: members });
+  } catch (error) {
+    return fail_(error, payload && payload.requestId);
+  }
+}
+
+function apiCreateMember(payload, context) {
+  const requestIdResult = requestIdOrFailure_(payload);
+  if (requestIdResult.error) return requestIdResult.error;
+  const requestId = requestIdResult.value;
+  try {
+    assertCoupleOwner_(context);
+    const displayName = normalizedMemberName_(payload && payload.displayName);
+    const email = normalizedMemberEmail_(payload && payload.email);
+    const pin = assertMemberPin_(payload && payload.initialPin);
+    return withDocumentLock_(function() {
+      const replay = requestAudit_(requestId);
+      if (replay) {
+        if (String(replay.action) !== 'CREATE_MEMBER' || String(replay.module) !== 'members') {
+          throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        }
+        const previous = findById_(VINN_CONFIG.SHEETS.MEMBERS, replay.entity_id);
+        return ok_({ member: previous ? memberManagementRow_(previous, true) : null, duplicate: true }, requestId);
+      }
+      assertRequestUnusedOutsideAudit_(requestId);
+      const members = rowsAsObjects_(VINN_CONFIG.SHEETS.MEMBERS);
+      const activeCount = members.filter(function(member) {
+        return member.active === '' || member.active === undefined || truthy_(member.active);
+      }).length;
+      if (activeCount >= 2) throw createError_('MEMBER_LIMIT_REACHED', 'Mode Pasangan maksimal memiliki 2 anggota aktif.');
+      if (members.some(function(member) { return String(member.display_name || '').trim().toLowerCase() === displayName.toLowerCase(); })) {
+        throw createError_('MEMBER_ALREADY_EXISTS', 'Nama anggota tersebut sudah digunakan.');
+      }
+      if (email && members.some(function(member) { return String(member.email || '').trim().toLowerCase() === email; })) {
+        throw createError_('MEMBER_ALREADY_EXISTS', 'Email anggota tersebut sudah digunakan.');
+      }
+      const now = nowIso_();
+      const salt = randomSecret_();
+      const member = {
+        id: id_('member'), email: email, display_name: displayName, role: 'editor',
+        pin_hash: pinHash_(pin, salt), pin_salt: salt, active: true,
+        must_change_pin: true, created_at: now, updated_at: now
+      };
+      appendObjects_(VINN_CONFIG.SHEETS.MEMBERS, [member]);
+      audit_('CREATE_MEMBER', 'members', member.id, requestId, { role: 'editor', active: true });
+      return ok_({ member: memberManagementRow_(member, true), duplicate: false }, requestId);
+    });
+  } catch (error) {
+    return fail_(error, requestId);
+  }
+}
+
+function apiUpdateMember(payload, context) {
+  const requestIdResult = requestIdOrFailure_(payload);
+  if (requestIdResult.error) return requestIdResult.error;
+  const requestId = requestIdResult.value;
+  try {
+    const owner = assertCoupleOwner_(context);
+    const memberId = String(payload && payload.memberId || '').trim();
+    if (!memberId) throw createError_('MEMBER_NOT_FOUND', 'Anggota tidak ditemukan.');
+    return withDocumentLock_(function() {
+      const replay = assertRequestAudit_(requestId, ['UPDATE_MEMBER'], 'members', memberId);
+      if (replay) {
+        const previous = findById_(VINN_CONFIG.SHEETS.MEMBERS, memberId);
+        return ok_({ member: previous ? memberManagementRow_(previous, true) : null, duplicate: true }, requestId);
+      }
+      assertRequestUnusedOutsideAudit_(requestId);
+      const member = findById_(VINN_CONFIG.SHEETS.MEMBERS, memberId);
+      if (!member) throw createError_('MEMBER_NOT_FOUND', 'Anggota tidak ditemukan.');
+      const nextActive = payload.active === undefined ? (member.active === '' || member.active === undefined || truthy_(member.active)) : truthy_(payload.active);
+      if (String(owner.id) === memberId && !nextActive) {
+        throw createError_('OWNER_SELF_DEACTIVATE', 'Pemilik tidak dapat menonaktifkan dirinya sendiri.');
+      }
+      if (nextActive && !(member.active === '' || member.active === undefined || truthy_(member.active)) && activeMembers_().length >= 2) {
+        throw createError_('MEMBER_LIMIT_REACHED', 'Mode Pasangan maksimal memiliki 2 anggota aktif.');
+      }
+      const displayName = payload.displayName === undefined ? String(member.display_name || '') : normalizedMemberName_(payload.displayName);
+      const email = payload.email === undefined ? String(member.email || '') : normalizedMemberEmail_(payload.email);
+      const duplicate = rowsAsObjects_(VINN_CONFIG.SHEETS.MEMBERS).some(function(item) {
+        if (String(item.id) === memberId) return false;
+        return String(item.display_name || '').trim().toLowerCase() === displayName.toLowerCase()
+          || Boolean(email && String(item.email || '').trim().toLowerCase() === email);
+      });
+      if (duplicate) throw createError_('MEMBER_ALREADY_EXISTS', 'Nama atau email anggota tersebut sudah digunakan.');
+      const rowNumber = member._row;
+      member.display_name = displayName;
+      member.email = email;
+      member.active = nextActive;
+      member.updated_at = nowIso_();
+      delete member._row;
+      updateObjectRow_(VINN_CONFIG.SHEETS.MEMBERS, rowNumber, member);
+      if (!nextActive) revokeMemberSessions_(memberId);
+      audit_('UPDATE_MEMBER', 'members', memberId, requestId, { active: nextActive });
+      return ok_({ member: memberManagementRow_(member, true), duplicate: false }, requestId);
+    });
+  } catch (error) {
+    return fail_(error, requestId);
+  }
+}
+
+function apiChangeOwnPin(payload, context) {
+  const requestIdResult = requestIdOrFailure_(payload);
+  if (requestIdResult.error) return requestIdResult.error;
+  const requestId = requestIdResult.value;
+  try {
+    if (!context || context.mode !== 'couple' || !context.member) throw createError_('AUTH_REQUIRED', 'Silakan masuk sebagai anggota terlebih dahulu.');
+    const currentPin = assertMemberPin_(payload && payload.currentPin);
+    const newPin = assertMemberPin_(payload && payload.newPin);
+    if (currentPin === newPin) throw createError_('PIN_UNCHANGED', 'PIN baru harus berbeda dari PIN saat ini.');
+    return withDocumentLock_(function() {
+      const member = findById_(VINN_CONFIG.SHEETS.MEMBERS, context.member.id);
+      if (!member || (!truthy_(member.active) && member.active !== '')) throw createError_('AUTH_REQUIRED', 'Akun anggota sudah tidak aktif.');
+      if (!constantTimeTextEqual_(member.pin_hash, pinHash_(currentPin, member.pin_salt))) {
+        throw createError_('INVALID_CURRENT_PIN', 'PIN saat ini tidak sesuai.');
+      }
+      const rowNumber = member._row;
+      const salt = randomSecret_();
+      member.pin_salt = salt;
+      member.pin_hash = pinHash_(newPin, salt);
+      member.must_change_pin = false;
+      member.updated_at = nowIso_();
+      delete member._row;
+      updateObjectRow_(VINN_CONFIG.SHEETS.MEMBERS, rowNumber, member);
+      revokeMemberSessions_(member.id);
+      clearLoginFailures_(member.id);
+      const sessionToken = issueMemberSession_(member);
+      audit_('CHANGE_OWN_PIN', 'members', String(member.id), requestId, { forced: truthy_(context.member.mustChangePin) });
+      return ok_({ member: memberClientRow_(member), sessionToken: sessionToken, sessionsRevoked: true }, requestId);
+    });
+  } catch (error) {
+    return fail_(error, requestId);
   }
 }
 

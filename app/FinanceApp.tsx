@@ -223,6 +223,18 @@ import { freeEntitlement, type PlanCapability, type PlanEntitlement } from "../l
 import { FINANCE_SCHEMA_VERSION } from "../lib/schema-version";
 import { customerReadiness } from "../lib/customer-readiness";
 import { searchTransactions } from "../lib/transaction-search";
+import {
+  changeOwnFinancePin,
+  createFinanceMember,
+  listFinanceMembers,
+  updateFinanceMember,
+  type FinanceMember,
+  type FinanceMemberOverview,
+} from "../lib/member-auth";
+import {
+  hasAppsScriptBridge,
+  saveAppsScriptMemberSession,
+} from "../lib/apps-script-client";
 
 type PageKey =
   | "dashboard"
@@ -2824,6 +2836,134 @@ function CustomerReadinessPanel({ configured, accounts, transactions, bills, goa
   </section>;
 }
 
+function MemberEditorModal({ member, saving, onClose, onSubmit }: {
+  member?: FinanceMember;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (value: { displayName: string; email: string; initialPin: string }) => Promise<void>;
+}) {
+  const [displayName, setDisplayName] = useState(member?.displayName || "");
+  const [email, setEmail] = useState(member?.email || "");
+  const [initialPin, setInitialPin] = useState("");
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="member-editor-title">
+      <div className="modal-head"><div><span className="card-kicker">Mode Pasangan</span><h2 id="member-editor-title">{member ? "Edit anggota" : "Tambah anggota"}</h2><p>{member ? "Perbarui nama atau email anggota." : "PIN awal wajib diganti oleh anggota saat login pertama."}</p></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20}/></button></div>
+      <form onSubmit={(event) => { event.preventDefault(); void onSubmit({ displayName: displayName.trim(), email: email.trim(), initialPin }); }}>
+        <div className="form-grid">
+          <label className="full-field"><span>Nama anggota</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} minLength={2} maxLength={80} required autoFocus /></label>
+          <label className="full-field"><span>Email Google (opsional)</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nama@gmail.com" /></label>
+          {!member && <label className="full-field"><span>PIN awal 6 angka</span><input value={initialPin} onChange={(event) => setInitialPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="new-password" placeholder="••••••" required /></label>}
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" disabled={saving || displayName.trim().length < 2 || (!member && initialPin.length !== 6)}><Check size={17}/>{saving ? "Menyimpan…" : "Simpan anggota"}</button></div>
+      </form>
+    </section>
+  </div>;
+}
+
+function OwnPinModal({ saving, onClose, onSubmit }: { saving: boolean; onClose: () => void; onSubmit: (currentPin: string, newPin: string) => Promise<void> }) {
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const valid = currentPin.length === 6 && newPin.length === 6 && newPin === confirmation && newPin !== currentPin;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="member-pin-title">
+      <div className="modal-head"><div><span className="card-kicker">Keamanan anggota</span><h2 id="member-pin-title">Ganti PIN saya</h2><p>Semua sesi lama akan ditutup setelah PIN diganti.</p></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20}/></button></div>
+      <form onSubmit={(event) => { event.preventDefault(); if (valid) void onSubmit(currentPin, newPin); }}>
+        <div className="form-grid">
+          <label className="full-field"><span>PIN saat ini</span><input value={currentPin} onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="current-password" required autoFocus /></label>
+          <label className="full-field"><span>PIN baru</span><input value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="new-password" required /></label>
+          <label className="full-field"><span>Ulangi PIN baru</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="new-password" required /></label>
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" disabled={saving || !valid}><KeyRound size={17}/>{saving ? "Mengganti…" : "Ganti PIN"}</button></div>
+      </form>
+    </section>
+  </div>;
+}
+
+function MemberSettingsPanel({ onToast }: { onToast: (message: string) => void }) {
+  const [supported] = useState(() => hasAppsScriptBridge());
+  const [overview, setOverview] = useState<FinanceMemberOverview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [editor, setEditor] = useState<{ member?: FinanceMember } | null>(null);
+  const [pinOpen, setPinOpen] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try { setOverview(await listFinanceMembers()); }
+    catch (error) { onToast(error instanceof Error ? error.message : "Daftar anggota belum dapat dimuat."); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => {
+    if (supported) void load();
+    // Daftar anggota hanya tersedia pada bundle Google Apps Script.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supported]);
+
+  if (!supported || overview?.mode === "single") return null;
+  const isOwner = overview?.currentMember?.role === "owner";
+  const activeCount = overview?.members.filter((member) => member.active).length || 0;
+
+  const saveMember = async (value: { displayName: string; email: string; initialPin: string }) => {
+    setLoading(true);
+    try {
+      if (editor?.member) await updateFinanceMember({ memberId: editor.member.id, displayName: value.displayName, email: value.email });
+      else await createFinanceMember(value);
+      setEditor(null);
+      await load();
+      onToast(editor?.member ? "Data anggota diperbarui." : "Anggota ditambahkan. PIN awal wajib diganti saat login pertama.");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Anggota belum dapat disimpan.");
+      setLoading(false);
+    }
+  };
+
+  const toggleMember = async (member: FinanceMember) => {
+    if (!window.confirm(`${member.active ? "Nonaktifkan" : "Aktifkan kembali"} ${member.displayName}?`)) return;
+    setLoading(true);
+    try {
+      await updateFinanceMember({ memberId: member.id, active: !member.active });
+      await load();
+      onToast(member.active ? "Anggota dinonaktifkan dan semua sesinya ditutup." : "Anggota diaktifkan kembali.");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Status anggota belum dapat diubah.");
+      setLoading(false);
+    }
+  };
+
+  const changePin = async (currentPin: string, newPin: string) => {
+    setLoading(true);
+    try {
+      const result = await changeOwnFinancePin(currentPin, newPin);
+      saveAppsScriptMemberSession(result.sessionToken, result.member.id);
+      setPinOpen(false);
+      await load();
+      onToast("PIN berhasil diganti. Sesi lama sudah ditutup.");
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "PIN belum dapat diganti.");
+      setLoading(false);
+    }
+  };
+
+  return <>
+    <section className="panel settings-section settings-wide">
+      <div className="settings-title"><span><UserRound size={20}/></span><div><h2>Anggota</h2><p>Kelola dua profil yang dapat menggunakan Mode Pasangan.</p></div>{isOwner && <button className="secondary-button settings-title-action" onClick={() => setEditor({})} disabled={loading || activeCount >= 2}><Plus size={15}/> Tambah anggota</button>}</div>
+      <div className="category-manager">
+        {overview?.members.map((member) => <div className="category-manager-row" key={member.id}>
+          <i style={{ background: member.active ? "var(--primary)" : "var(--text-faint)" }}/>
+          <div><strong>{member.displayName}{member.id === overview.currentMember?.id ? " · Anda" : ""}</strong><small>{member.role === "owner" ? "Pemilik" : "Pasangan"} · {member.active ? member.mustChangePin ? "wajib ganti PIN" : "aktif" : "nonaktif"}{member.email ? ` · ${member.email}` : ""}</small></div>
+          <span>{isOwner && <button className="icon-button small" onClick={() => setEditor({ member })} aria-label={`Edit ${member.displayName}`}><Pencil size={14}/></button>}{isOwner && member.id !== overview.currentMember?.id && <button className={`icon-button small ${member.active ? "danger" : ""}`} onClick={() => void toggleMember(member)} aria-label={`${member.active ? "Nonaktifkan" : "Aktifkan"} ${member.displayName}`}><LockKeyhole size={14}/></button>}</span>
+        </div>)}
+        {!overview && <div className="settings-empty">{loading ? "Memuat anggota…" : "Daftar anggota belum tersedia."}</div>}
+      </div>
+      <div className="settings-actions"><button className="secondary-button" onClick={() => setPinOpen(true)} disabled={loading}><KeyRound size={15}/> Ganti PIN saya</button></div>
+      <div className="settings-footnote"><strong>Privasi di level aplikasi, bukan penyimpanan.</strong> Pemilik spreadsheet dapat membaca semua baris mentah. Spreadsheet tidak perlu dibagikan kepada anggota kedua; pasangan cukup memakai URL web app dan login anggota. Email Google hanya membantu auto-login dan tidak menggantikan perlindungan PIN.</div>
+    </section>
+    {editor && <MemberEditorModal member={editor.member} saving={loading} onClose={() => setEditor(null)} onSubmit={saveMember}/>}
+    {pinOpen && <OwnPinModal saving={loading} onClose={() => setPinOpen(false)} onSubmit={changePin}/>}
+  </>;
+}
+
 function SettingsPage({ profile, entitlement, configured, accounts, transactions, bills, goals, month, lastSyncedAt, syncDurationMs, usingCachedData, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, schemaVersion, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh, onNavigate }: {
   profile: FinanceProfile;
   entitlement: PlanEntitlement;
@@ -2867,6 +3007,7 @@ function SettingsPage({ profile, entitlement, configured, accounts, transactions
     <OwnerProfilePanel key={profile.name} profile={profile} saving={saving} onSave={onSaveProfile} />
     <LicenseCenterPanel entitlement={entitlement} onOpenLicense={onOpenLicense} onToast={onToast} />
     <CustomerReadinessPanel configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} entitlement={entitlement} schemaVersion={schemaVersion} backendLabel={backendLabel} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onNavigate={onNavigate} onToast={onToast} />
+    <MemberSettingsPanel onToast={onToast} />
     <FeaturePreferencesPanel key={JSON.stringify(featurePreferences)} preferences={featurePreferences} saving={saving} onSave={onSaveFeaturePreferences} />
     <SecurityAccessPanel privacy={privacy} />
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
