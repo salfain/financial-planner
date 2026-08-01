@@ -83,9 +83,9 @@ function apiCreateInvestmentAsset(payload) {
   if (requestId.error) return requestId.error;
   try {
     return withDocumentLock_(function() {
-      const replay = rowsAsObjects_(VINN_CONFIG.SHEETS.ASSETS).find(function(row) { return String(row.request_id) === requestId.value; });
+      const replay = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.ASSETS).find(function(row) { return String(row.request_id) === requestId.value; });
       if (replay) return ok_({ asset: investmentAssetClientRow_(replay), duplicate: true }, requestId.value);
-      if (requestAudit_(requestId.value) || rowsAsObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX).some(function(row) { return String(row.request_id) === requestId.value; })) {
+      if (requestAudit_(requestId.value) || rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.INVESTMENT_TX).some(function(row) { return String(row.request_id) === requestId.value; })) {
         throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
       }
       const ticker = String(payload.ticker || '').trim().toUpperCase().slice(0, 24);
@@ -164,7 +164,7 @@ function apiCreateInvestmentTrade(payload) {
   if (requestId.error) return requestId.error;
   try {
     return withDocumentLock_(function() {
-      const replay = rowsAsObjects_(VINN_CONFIG.SHEETS.INVESTMENT_TX).find(function(row) { return String(row.request_id) === requestId.value; });
+      const replay = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.INVESTMENT_TX).find(function(row) { return String(row.request_id) === requestId.value; });
       if (replay) return ok_({ transaction: investmentTransactionClientRow_(replay), asset: investmentAssetClientRow_(findById_(VINN_CONFIG.SHEETS.ASSETS, replay.asset_id)), duplicate: true }, requestId.value);
       if (requestAudit_(requestId.value)) throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
       const type = String(payload.type || '').toLowerCase();

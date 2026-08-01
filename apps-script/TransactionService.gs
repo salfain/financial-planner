@@ -2,7 +2,7 @@ function apiCreateTransaction(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {
     return withDocumentLock_(function() {
-      const existing = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) {
+      const existing = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) {
         return String(row.request_id) === requestId;
       });
       if (existing) return ok_({
@@ -83,7 +83,7 @@ function apiRecordLoanDrawdown(payload) {
           duplicate: true
         }, requestId);
       }
-      if (rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).some(function(row) {
+      if (rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.TRANSACTIONS).some(function(row) {
         return String(row.request_id || '') === requestId;
       })) throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh transaksi lain.');
 

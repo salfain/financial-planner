@@ -177,23 +177,27 @@ context.gasLicenseTestSignature = gasLicenseTestSignature;
 assert.equal(vm.runInContext(`rsaSha256Valid_("financial-planner-license-test-vector", gasLicenseTestSignature)`, context), true);
 assert.equal(vm.runInContext(`rsaSha256Valid_("financial-planner-license-test-vector-tampered", gasLicenseTestSignature)`, context), false);
 vm.runInContext(`
-  rowsAsObjects_ = function(name) {
+  rowsAsObjectsUnscoped_ = function(name) {
     return (sheets[name] || []).map(function(row, index) {
       return Object.assign({ _row: index + 2 }, row);
     });
   };
   appendObjects_ = function(name, objects) {
     if (!sheets[name]) sheets[name] = [];
-    objects.forEach(function(row) { sheets[name].push(Object.assign({}, row)); });
+    objects.forEach(function(row) { sheets[name].push(Object.assign({}, stampMemberAttribution_(name, row))); });
+    if (name === VINN_CONFIG.SHEETS.ACCOUNTS) invalidateAccountScopeIndex_();
   };
-  findById_ = function(name, id) {
-    return rowsAsObjects_(name).find(function(row) { return String(row.id) === String(id); }) || null;
+  findByIdUnscoped_ = function(name, id) {
+    return rowsAsObjectsUnscoped_(name).find(function(row) { return String(row.id) === String(id); }) || null;
   };
   updateObjectRow_ = function(name, rowNumber, object) {
+    assertNotRedactedRow_(object);
     sheets[name][rowNumber - 2] = Object.assign({}, object);
+    if (name === VINN_CONFIG.SHEETS.ACCOUNTS) invalidateAccountScopeIndex_();
   };
   deleteObjectRow_ = function(name, rowNumber) {
     sheets[name].splice(rowNumber - 2, 1);
+    if (name === VINN_CONFIG.SHEETS.ACCOUNTS) invalidateAccountScopeIndex_();
   };
   withDocumentLock_ = function(callback) { return callback(); };
   mockSheet_ = function(name) {
@@ -337,6 +341,140 @@ assert.equal(result.data.members.length, 2);
 assert.equal(result.data.members.some((member) => Object.hasOwn(member, "email")), false);
 assert.equal(sheets.AuditLog.find((row) => row.request_id === "member-create-spouse").actor_email, coupleOwnerId);
 assert.equal(sheets.AuditLog.find((row) => row.request_id === "spouse-pin-change").actor_email, spouseId);
+
+// Fase 2 — pemisahan data pribadi dan bersama.
+result = invoke(`api("createAccount", { sessionToken: coupleSessionToken, requestId: "scope-shared-account", name: "Rekening Bersama", type: "Bank", openingBalance: 1000000 })`);
+assert.equal(result.ok, true);
+const sharedAccountId = result.data.account.id;
+context.sharedAccountId = sharedAccountId;
+assert.equal(sheets.Accounts.find((row) => row.id === sharedAccountId).scope_member_id, "");
+result = invoke(`api("createAccount", { sessionToken: coupleSessionToken, requestId: "scope-owner-private", name: "Dompet Pribadi Pemilik", type: "Cash", openingBalance: 500000, scope: "private" })`);
+assert.equal(result.ok, true);
+const ownerPrivateAccountId = result.data.account.id;
+context.ownerPrivateAccountId = ownerPrivateAccountId;
+assert.equal(sheets.Accounts.find((row) => row.id === ownerPrivateAccountId).scope_member_id, coupleOwnerId);
+result = invoke(`api("createAccount", { sessionToken: spouseSessionToken, requestId: "scope-spouse-private", name: "Dompet Pribadi Pasangan", type: "Cash", openingBalance: 700000, scope: "private" })`);
+assert.equal(result.ok, true);
+const spousePrivateAccountId = result.data.account.id;
+context.spousePrivateAccountId = spousePrivateAccountId;
+
+// Akun pribadi anggota lain tidak pernah muncul pada bootstrap maupun daftar transaksi.
+result = invoke(`api("bootstrap", { sessionToken: coupleSessionToken })`);
+assert.equal(result.ok, true);
+let visibleAccountIds = result.data.accounts.map((account) => account.id);
+assert.equal(visibleAccountIds.includes(sharedAccountId), true);
+assert.equal(visibleAccountIds.includes(ownerPrivateAccountId), true);
+assert.equal(visibleAccountIds.includes(spousePrivateAccountId), false);
+assert.equal(result.data.accounts.find((account) => account.id === sharedAccountId).scope, "shared");
+assert.equal(result.data.accounts.find((account) => account.id === ownerPrivateAccountId).scope, "private");
+result = invoke(`api("bootstrap", { sessionToken: spouseSessionToken })`);
+assert.equal(result.ok, true);
+visibleAccountIds = result.data.accounts.map((account) => account.id);
+assert.equal(visibleAccountIds.includes(spousePrivateAccountId), true);
+assert.equal(visibleAccountIds.includes(ownerPrivateAccountId), false);
+
+// Transaksi pada akun pribadi hanya terlihat oleh pemegang scope-nya.
+result = invoke(`api("createTransaction", { sessionToken: spouseSessionToken, requestId: "scope-spouse-expense", type: "expense", amount: 25000, accountId: spousePrivateAccountId, category: "Makanan", merchant: "Kado Ulang Tahun" })`);
+assert.equal(result.ok, true);
+const spousePrivateTransactionId = result.data.transactionId;
+assert.equal(sheets.Transactions.find((row) => row.id === spousePrivateTransactionId).created_by_member_id, spouseId);
+result = invoke(`api("listTransactions", { sessionToken: coupleSessionToken, pageSize: 100 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.items.some((item) => item.id === spousePrivateTransactionId), false);
+assert.equal(result.data.items.some((item) => String(item.merchant).includes("Kado")), false);
+result = invoke(`api("listTransactions", { sessionToken: spouseSessionToken, pageSize: 100 })`);
+assert.equal(result.data.items.some((item) => item.id === spousePrivateTransactionId), true);
+
+// Transaksi milik anggota lain tidak dapat dibaca atau diubah lewat ID langsung.
+context.spousePrivateTransactionId = spousePrivateTransactionId;
+result = invoke(`api("updateTransaction", { sessionToken: coupleSessionToken, requestId: "scope-cross-update", transactionId: spousePrivateTransactionId, amount: 1 })`);
+assert.equal(result.ok, false);
+result = invoke(`api("deleteTransaction", { sessionToken: coupleSessionToken, requestId: "scope-cross-delete", transactionId: spousePrivateTransactionId })`);
+assert.equal(result.ok, false);
+assert.equal(sheets.Transactions.find((row) => row.id === spousePrivateTransactionId).deleted_at, "");
+
+// Transfer lintas batas tetap menjaga saldo akun bersama, tetapi detailnya disamarkan.
+result = invoke(`api("createTransaction", { sessionToken: spouseSessionToken, requestId: "scope-cross-transfer", type: "transfer", amount: 100000, accountId: spousePrivateAccountId, destinationAccountId: sharedAccountId })`);
+assert.equal(result.ok, true);
+result = invoke(`api("bootstrap", { sessionToken: coupleSessionToken })`);
+assert.equal(result.ok, true);
+const sharedBalanceForOwner = result.data.accounts.find((account) => account.id === sharedAccountId).current_balance;
+result = invoke(`api("bootstrap", { sessionToken: spouseSessionToken })`);
+const sharedBalanceForSpouse = result.data.accounts.find((account) => account.id === sharedAccountId).current_balance;
+assert.equal(sharedBalanceForOwner, 1100000);
+assert.equal(sharedBalanceForSpouse, 1100000);
+const redactedLeg = invoke(`api("listTransactions", { sessionToken: coupleSessionToken, pageSize: 100, accountId: sharedAccountId })`)
+  .data.items.find((item) => item.amount === 100000);
+assert.equal(Boolean(redactedLeg), true);
+assert.equal(redactedLeg.merchant, "Transaksi pribadi anggota lain");
+assert.equal(redactedLeg.destinationAccountId, null);
+assert.equal(invoke(`api("inspectLedger", { sessionToken: coupleSessionToken })`).data.status, "healthy");
+// Kaki tersamar tidak boleh ditulis ulang karena akan menghapus detail milik anggota lain.
+context.redactedLegId = redactedLeg.id;
+result = invoke(`api("updateTransaction", { sessionToken: coupleSessionToken, requestId: "scope-redacted-update", transactionId: redactedLegId, amount: 1 })`);
+assert.equal(result.ok, false);
+result = invoke(`api("deleteTransaction", { sessionToken: coupleSessionToken, requestId: "scope-redacted-delete", transactionId: redactedLegId })`);
+assert.equal(result.ok, false);
+assert.equal(sheets.Transactions.filter((row) => row.request_id === "scope-cross-transfer").every((row) => !row.deleted_at && row.merchant !== "Transaksi pribadi anggota lain"), true);
+
+// Audit log pasangan tidak bocor ke anggota lain.
+result = invoke(`api("listAuditLogs", { sessionToken: coupleSessionToken, pageSize: 100 })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.items.every((item) => item.actor !== spouseId), true);
+
+// Fase 3 — entitas perencanaan mewarisi scope akun yang ditautkannya.
+result = invoke(`api("createBill", { sessionToken: spouseSessionToken, requestId: "scope-private-bill", name: "Langganan Pribadi", amount: 50000, category: "Tagihan", accountId: spousePrivateAccountId, dueDate: "2026-08-10" })`);
+assert.equal(result.ok, true);
+const privateBillId = result.data.bill.id;
+result = invoke(`api("createSinkingFund", { sessionToken: spouseSessionToken, requestId: "scope-private-fund", name: "Kejutan Ulang Tahun", purpose: "Lainnya", targetAmount: 300000, currentAmount: 100000, monthlyContribution: 50000, accountId: spousePrivateAccountId })`);
+assert.equal(result.ok, true);
+const privateFundId = result.data.sinkingFund.id;
+result = invoke(`api("createRecurring", { sessionToken: spouseSessionToken, requestId: "scope-private-recurring", name: "Streaming Pribadi", type: "expense", amount: 60000, category: "Hiburan", accountId: spousePrivateAccountId, frequency: "monthly", startDate: "2026-08-01" })`);
+assert.equal(result.ok, true);
+result = invoke(`api("createGoal", { sessionToken: spouseSessionToken, requestId: "scope-private-goal", name: "Tabungan Pribadi", targetAmount: 1000000, deadline: "2027-01-01", accountId: spousePrivateAccountId })`);
+assert.equal(result.ok, true);
+
+result = invoke(`api("bootstrap", { sessionToken: coupleSessionToken })`);
+assert.equal(result.ok, true);
+assert.equal(result.data.bills.some((bill) => bill.id === privateBillId), false);
+assert.equal(result.data.sinkingFunds.some((fund) => fund.id === privateFundId), false);
+assert.equal(result.data.sinkingFundEntries.some((entry) => entry.fundId === privateFundId), false);
+assert.equal(result.data.recurring.some((row) => row.name === "Streaming Pribadi"), false);
+assert.equal(result.data.goals.some((goal) => goal.name === "Tabungan Pribadi"), false);
+result = invoke(`api("bootstrap", { sessionToken: spouseSessionToken })`);
+assert.equal(result.data.bills.some((bill) => bill.id === privateBillId), true);
+assert.equal(result.data.sinkingFunds.some((fund) => fund.id === privateFundId), true);
+assert.equal(result.data.sinkingFundEntries.some((entry) => entry.fundId === privateFundId), true);
+assert.equal(result.data.goals.some((goal) => goal.name === "Tabungan Pribadi"), true);
+
+// Entitas milik anggota lain tidak dapat disentuh lewat ID langsung.
+context.privateBillId = privateBillId;
+context.privateFundId = privateFundId;
+result = invoke(`api("markBillPaid", { sessionToken: coupleSessionToken, requestId: "scope-cross-bill-pay", billId: privateBillId, period: "2026-08" })`);
+assert.equal(result.ok, false);
+result = invoke(`api("adjustSinkingFund", { sessionToken: coupleSessionToken, requestId: "scope-cross-fund-adjust", fundId: privateFundId, type: "allocate", amount: 10000 })`);
+assert.equal(result.ok, false);
+
+// Entitas baru tidak dapat ditautkan ke akun pribadi anggota lain.
+result = invoke(`api("createBill", { sessionToken: coupleSessionToken, requestId: "scope-cross-bill", name: "Tagihan Curi", amount: 10000, category: "Tagihan", accountId: spousePrivateAccountId, dueDate: "2026-08-10" })`);
+assert.equal(result.ok, false);
+result = invoke(`api("createGoal", { sessionToken: coupleSessionToken, requestId: "scope-cross-goal", name: "Target Curi", targetAmount: 10000, deadline: "2027-01-01", accountId: spousePrivateAccountId })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "ACCOUNT_REQUIRED");
+
+// Aturan perubahan scope.
+result = invoke(`api("updateAccount", { sessionToken: spouseSessionToken, requestId: "scope-hide-shared", accountId: sharedAccountId, scope: "private" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "OWNER_ONLY");
+result = invoke(`api("updateAccount", { sessionToken: coupleSessionToken, requestId: "scope-steal-private", accountId: spousePrivateAccountId, scope: "private" })`);
+assert.equal(result.ok, false);
+assert.equal(result.error.code, "NOT_FOUND");
+result = invoke(`api("updateAccount", { sessionToken: spouseSessionToken, requestId: "scope-share-own", accountId: spousePrivateAccountId, scope: "shared" })`);
+assert.equal(result.ok, true);
+assert.equal(sheets.Accounts.find((row) => row.id === spousePrivateAccountId).scope_member_id, "");
+result = invoke(`api("bootstrap", { sessionToken: coupleSessionToken })`);
+assert.equal(result.data.accounts.map((account) => account.id).includes(spousePrivateAccountId), true);
+
 for (let attempt = 1; attempt <= 5; attempt += 1) {
   result = invoke(`api("memberLogin", { memberId: coupleOwnerId, pin: "000000", requestId: "member-login-wrong-${attempt}" })`);
 }

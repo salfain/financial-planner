@@ -60,7 +60,7 @@ function apiCloseMonthlyBook(payload) {
       const period = monthlyClosingPeriod_(payload && payload.period);
       const current = monthlyClosingRecord_(period);
       if (current.status === 'closed') return ok_({ closing: current, duplicate: true }, requestId);
-      const pendingCount = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(row) {
+      const pendingCount = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(row) {
         return !row.deleted_at && String(row.date || '').slice(0, 7) === period && String(row.status || 'completed') === 'pending';
       }).length;
       if (pendingCount) throw createError_('PENDING_TRANSACTIONS', 'Selesaikan ' + pendingCount + ' transaksi pending sebelum menutup buku.', { pendingCount: pendingCount });

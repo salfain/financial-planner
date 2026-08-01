@@ -55,6 +55,8 @@ export type FinanceSnapshot = {
   investmentAssets: InvestmentAsset[];
   investmentTransactions: InvestmentTransaction[];
   featurePreferences: FeaturePreferences;
+  /** Mode Pasangan aktif untuk sesi ini, sehingga akun dapat ditandai pribadi. */
+  coupleMode: boolean;
 };
 
 export type FinanceDiagnostics = {
@@ -249,6 +251,7 @@ function normalizeAccount(row: Record<string, unknown>): Account {
     mask: text(row.mask),
     color: text(row.color, "#126b59"),
     liability: bool(row.liability ?? row.isLiability ?? row.is_liability),
+    scope: text(row.scope) === "private" ? "private" : "shared",
   };
 }
 
@@ -524,6 +527,7 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
     investmentAssets: ((source.investmentAssets ?? source.investment_assets ?? source.assets ?? []) as Record<string, unknown>[]).map(normalizeInvestmentAsset),
     investmentTransactions: ((source.investmentTransactions ?? source.investment_transactions ?? []) as Record<string, unknown>[]).map(normalizeInvestmentTransaction),
     featurePreferences: normalizeFeaturePreferences(source.featurePreferences ?? source.feature_preferences),
+    coupleMode: bool(((source.coupleMode ?? {}) as Record<string, unknown>).enabled),
   };
 }
 

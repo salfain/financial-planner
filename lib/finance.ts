@@ -31,6 +31,8 @@ export interface Account {
   mask: string;
   color: string;
   liability?: boolean;
+  /** Mode Pasangan: "shared" untuk akun bersama, "private" untuk akun pribadi anggota yang sedang masuk. */
+  scope?: "shared" | "private";
 }
 
 export interface Transaction {

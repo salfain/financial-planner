@@ -312,6 +312,8 @@ function apiCreateAccount(payload) {
       const allowedTypes = ['Bank', 'E-Wallet', 'Cash', 'Investment', 'Credit Card', 'Paylater', 'Loan', 'Mortgage', 'Deposit', 'Receivable', 'Custom'];
       if (allowedTypes.indexOf(type) === -1) throw createError_('INVALID_ACCOUNT_TYPE', 'Jenis akun tidak dikenali.');
       const now = nowIso_();
+      const memberId = currentScopeMemberId_();
+      const requestedScope = normalizedAccountScope_(payload.scope, memberId);
       const account = {
         id: id_('acc'), name: name, type: type,
         institution: String(payload.institution || '').trim().slice(0, 80),
@@ -320,7 +322,8 @@ function apiCreateAccount(payload) {
         opening_balance: Math.round(Number(payload.openingBalance || 0)),
         color: String(payload.color || '#126b59'),
           is_liability: type === 'Credit Card' || type === 'Paylater' || type === 'Loan' || type === 'Mortgage',
-        is_active: true, created_at: now, updated_at: now
+        is_active: true, created_at: now, updated_at: now,
+        scope_member_id: requestedScope === null ? '' : requestedScope
       };
       appendObjects_(VINN_CONFIG.SHEETS.ACCOUNTS, [account]);
       audit_('CREATE', 'accounts', account.id, requestId, { name: account.name, type: account.type });
@@ -343,8 +346,14 @@ function apiUpdateAccount(payload) {
       if (!name) throw createError_('INVALID_ACCOUNT', 'Nama akun wajib diisi.');
       if (allowedTypes.indexOf(type) === -1) throw createError_('INVALID_ACCOUNT_TYPE', 'Jenis akun tidak dikenali.');
       if (!/^#[0-9a-f]{6}$/i.test(color)) throw createError_('INVALID_COLOR', 'Warna akun tidak valid.');
+      const memberId = currentScopeMemberId_();
+      const requestedScope = normalizedAccountScope_(payload.scope, memberId);
+      const nextScope = requestedScope === null
+        ? String(account.scope_member_id || '')
+        : assertAccountScopeChangeAllowed_(account.scope_member_id, requestedScope, currentMemberContext_());
       const before = Object.assign({}, account); delete before._row;
       const rowNumber = account._row;
+      account.scope_member_id = nextScope;
       account.name = name;
       account.type = type;
       account.institution = String(payload.institution === undefined ? account.institution || '' : payload.institution).trim().slice(0, 100);
@@ -365,7 +374,7 @@ function apiCreateReceivable(payload) {
   const requestId = String(payload && payload.requestId || id_('req'));
   try {
     return withDocumentLock_(function() {
-      const replay = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) { return String(row.request_id) === requestId && !row.deleted_at; });
+      const replay = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) { return String(row.request_id) === requestId && !row.deleted_at; });
       if (replay) return ok_({ accountId: String(replay.destination_account_id || ''), transactionId: String(replay.transfer_group_id || replay.id), replayed: true }, requestId);
       const borrower = String(payload.borrower || '').trim().slice(0, 100);
       const name = String(payload.name || '').trim().slice(0, 100);
@@ -377,7 +386,8 @@ function apiCreateReceivable(payload) {
       if (!borrower || !name || !source || truthy_(source.is_liability) || String(source.type) === 'Investment' || String(source.type) === 'Receivable') throw createError_('INVALID_RECEIVABLE', 'Nama, peminjam, dan akun sumber wajib valid.');
       if (accountCurrentBalance_(source, rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS)) < amount) throw createError_('INSUFFICIENT_BALANCE', 'Saldo sumber tidak cukup untuk mencatat piutang.');
       const now = nowIso_();
-      const account = { id: id_('acc'), name: name, type: 'Receivable', institution: borrower, mask: 'JT ' + dueDate, currency: VINN_CONFIG.CURRENCY, opening_balance: 0, color: '#4e79c7', is_liability: false, is_active: true, created_at: now, updated_at: now };
+      // Piutang mewarisi scope akun sumber agar dana pribadi tidak bocor menjadi bersama.
+      const account = { id: id_('acc'), name: name, type: 'Receivable', institution: borrower, mask: 'JT ' + dueDate, currency: VINN_CONFIG.CURRENCY, opening_balance: 0, color: '#4e79c7', is_liability: false, is_active: true, created_at: now, updated_at: now, scope_member_id: String(source.scope_member_id || '') };
       const groupId = id_('trf');
       const base = { id: id_('tx'), transfer_group_id: groupId, request_id: requestId, date: date, time: '', type: 'transfer', account_id: sourceAccountId, destination_account_id: account.id, amount: amount, category: 'Transfer', merchant: borrower, notes: 'Piutang ' + name + '; jatuh tempo ' + dueDate, status: 'completed', direction: 'out', created_at: now, updated_at: now, deleted_at: '', tags_json: '[]', location: '', splits_json: '[]', receipt_file_id: '', receipt_filename: '', receipt_content_type: '', receipt_size_bytes: '' };
       const rows = [base, Object.assign({}, base, { id: id_('tx'), account_id: account.id, destination_account_id: sourceAccountId, direction: 'in' })];
@@ -405,6 +415,7 @@ function apiImportAccounts(payload) {
       const existingNames = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).map(function(account) { return String(account.name || '').trim().toLowerCase(); });
       const incomingNames = {};
       const now = nowIso_();
+      const importScope = normalizedAccountScope_(payload.scope, currentScopeMemberId_()) || '';
       const rows = items.map(function(item, index) {
         const rowNumber = index + 2;
         const name = String(item.name || '').trim();
@@ -424,7 +435,7 @@ function apiImportAccounts(payload) {
           mask: String(item.mask || '').trim().slice(0, 40), currency: VINN_CONFIG.CURRENCY,
           opening_balance: openingBalance, color: color,
           is_liability: ['Credit Card', 'Paylater', 'Loan', 'Mortgage'].indexOf(type) !== -1, is_active: true,
-          created_at: now, updated_at: now
+          created_at: now, updated_at: now, scope_member_id: importScope
         };
       });
       appendObjects_(VINN_CONFIG.SHEETS.ACCOUNTS, rows);
@@ -543,6 +554,11 @@ function apiCreateGoal(payload) {
       const now = nowIso_();
       const goal = { id: id_('goal'), name: String(payload.name || '').trim().slice(0, 100), target_amount: target, current_amount: current, deadline: dateIso_(payload.deadline), account_id: payload.accountId || '', color: payload.color || '#126b59', icon: payload.icon || 'target', status: current >= target ? 'completed' : 'active', created_at: now, updated_at: now };
       if (!goal.name) throw createError_('INVALID_GOAL', 'Nama target wajib diisi.');
+      // Akun penampung divalidasi lewat pembacaan berscope agar target tidak dapat
+      // ditautkan ke akun pribadi anggota lain.
+      if (goal.account_id && !findById_(VINN_CONFIG.SHEETS.ACCOUNTS, goal.account_id)) {
+        throw createError_('ACCOUNT_REQUIRED', 'Akun penampung target tidak ditemukan.');
+      }
       appendObjects_(VINN_CONFIG.SHEETS.GOALS, [goal]);
       audit_('CREATE', 'goals', goal.id, requestId, { name: goal.name, target: target });
       invalidateDashboard_();
@@ -743,7 +759,7 @@ function apiMarkBillPaid(payload) {
       }
       const period = String(payload.period || Utilities.formatDate(new Date(), VINN_CONFIG.TIMEZONE, 'yyyy-MM'));
       if (!/^\d{4}-\d{2}$/.test(period)) throw createError_('INVALID_PERIOD', 'Periode pembayaran harus berformat YYYY-MM.');
-      const existingPayment = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) {
+      const existingPayment = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) {
         return String(row.request_id) === requestId && !row.deleted_at;
       });
       const flexiblePayment = payload.amount !== undefined || payload.fee !== undefined || payload.settlement === true;

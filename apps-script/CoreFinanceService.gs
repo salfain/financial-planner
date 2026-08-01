@@ -142,7 +142,7 @@ function apiReconcileAccount(payload) {
       const existingAudit = assertRequestAudit_(requestId.value, ['RECONCILE', 'RECONCILE_NOOP'], 'accounts', accountId);
       if (existingAudit) return reconcileDuplicateResponse_(existingAudit, requestId.value);
 
-      const transactions = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS);
+      const transactions = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.TRANSACTIONS);
       const partial = transactions.find(function(row) {
         return !row.deleted_at && String(row.status || 'completed') === 'completed' && String(row.request_id) === requestId.value;
       });
@@ -262,6 +262,8 @@ function ledgerHealthReport_() {
       return;
     }
     if (type === 'transfer' || type === 'investment_buy') {
+      // Kaki transfer yang tersamar Mode Pasangan sengaja kehilangan akun tujuan.
+      if (transaction.scope_redacted) return;
       const destinationId = String(transaction.destination_account_id || '');
       if (!accountMap[destinationId] || destinationId === accountId || ['in', 'out'].indexOf(String(transaction.direction || '')) === -1) {
         issues.push({ code: 'MISSING_DESTINATION', transactionId: transactionId, accountId: destinationId, message: 'Pasangan akun transaksi ' + transactionId + ' tidak lengkap.' });
@@ -319,7 +321,7 @@ function apiListAuditLogs(params) {
     params = params || {};
     const page = Math.max(1, Number(params.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(params.pageSize) || 25));
-    let rows = rowsAsObjects_(VINN_CONFIG.SHEETS.AUDIT_LOG);
+    let rows = applyAuditScopeFilter_(rowsAsObjects_(VINN_CONFIG.SHEETS.AUDIT_LOG));
     rows = rows
       .filter(function(row) { return !params.module || String(row.module) === String(params.module); })
       .filter(function(row) { return !params.action || String(row.action) === String(params.action); })
@@ -417,8 +419,10 @@ function validateCategoryCandidate_(candidate, rows) {
   return candidate;
 }
 
+// Kategori adalah data bersama, jadi hitungan dan cascade harus mencakup baris
+// milik anggota lain. Tanpa ini, rename kategori meninggalkan data yatim.
 function categoryReferenceCounts_(categoryName) {
-  const transactions = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(row) {
+  const transactions = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(row) {
     const splits = parseJsonObject_(row.splits_json);
     return String(row.category) === String(categoryName) || (Array.isArray(splits) && splits.some(function(split) { return String(split.category) === String(categoryName); }));
   }).length;
@@ -438,7 +442,7 @@ function cascadeCategoryName_(oldName, newName) {
     { sheet: VINN_CONFIG.SHEETS.BUDGETS, key: 'budgets' },
     { sheet: VINN_CONFIG.SHEETS.BILLS, key: 'bills' }
   ].forEach(function(target) {
-    rowsAsObjects_(target.sheet).forEach(function(row) {
+    rowsAsObjectsUnscoped_(target.sheet).forEach(function(row) {
       const splits = target.sheet === VINN_CONFIG.SHEETS.TRANSACTIONS ? parseJsonObject_(row.splits_json) : [];
       const splitMatch = Array.isArray(splits) && splits.some(function(split) { return String(split.category) === String(oldName); });
       if (String(row.category) !== String(oldName) && !splitMatch) return;
@@ -479,7 +483,7 @@ function assertRequestAudit_(requestId, actions, moduleName, entityId) {
 }
 
 function assertRequestUnusedOutsideAudit_(requestId) {
-  const transaction = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) {
+  const transaction = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.TRANSACTIONS).find(function(row) {
     return String(row.request_id) === String(requestId);
   });
   const category = rowsAsObjects_(VINN_CONFIG.SHEETS.CATEGORIES).find(function(row) {
@@ -528,7 +532,7 @@ function auditClientRow_(row) {
 
 function recentAuditLogs_(limit) {
   const size = Math.max(1, Math.min(100, Number(limit) || 20));
-  return recentAuditRows_(size)
+  return applyAuditScopeFilter_(recentAuditRows_(size * 5))
     .sort(function(a, b) {
       return String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id));
     })

@@ -56,7 +56,7 @@ function apiCreateSinkingFund(payload) {
       payload = payload || {};
       ensureSheet_(VINN_CONFIG.SHEETS.SINKING_FUNDS, VINN_CONFIG.HEADERS.SinkingFunds);
       ensureSheet_(VINN_CONFIG.SHEETS.SINKING_FUND_ENTRIES, VINN_CONFIG.HEADERS.SinkingFundEntries);
-      const existing = rowsAsObjects_(VINN_CONFIG.SHEETS.SINKING_FUNDS).find(function(row) { return String(row.request_id) === requestId; });
+      const existing = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.SINKING_FUNDS).find(function(row) { return String(row.request_id) === requestId; });
       if (existing) return ok_({ sinkingFund: sinkingFundClientRow_(existing) }, requestId);
       const target = assertPositiveMoney_(payload.targetAmount);
       const current = Math.max(0, Math.round(Number(payload.currentAmount || 0)));
@@ -139,7 +139,7 @@ function apiAdjustSinkingFund(payload) {
   try {
     return withDocumentLock_(function() {
       ensureSheet_(VINN_CONFIG.SHEETS.SINKING_FUND_ENTRIES, VINN_CONFIG.HEADERS.SinkingFundEntries);
-      const duplicate = rowsAsObjects_(VINN_CONFIG.SHEETS.SINKING_FUND_ENTRIES).find(function(row) { return String(row.request_id) === requestId; });
+      const duplicate = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.SINKING_FUND_ENTRIES).find(function(row) { return String(row.request_id) === requestId; });
       const fund = findById_(VINN_CONFIG.SHEETS.SINKING_FUNDS, payload.fundId);
       if (!fund || !truthy_(fund.is_active)) throw createError_('NOT_FOUND', 'Pos dana tidak ditemukan.');
       if (duplicate) return ok_({ sinkingFund: sinkingFundClientRow_(fund), entry: sinkingFundEntryClientRow_(duplicate) }, requestId);

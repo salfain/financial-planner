@@ -68,7 +68,9 @@ function ensureSheet_(name, headers) {
   return sheet;
 }
 
-function rowsAsObjects_(sheetName) {
+// Pembacaan mentah tanpa filter Mode Pasangan. Hanya untuk idempotensi, migrasi,
+// dan perawatan internal yang memang harus melihat seluruh workspace.
+function rowsAsObjectsUnscoped_(sheetName) {
   const sheet = getWorkbook_().getSheetByName(sheetName);
   if (!sheet || sheet.getLastRow() < 2) return [];
   const values = sheet.getDataRange().getValues();
@@ -80,6 +82,11 @@ function rowsAsObjects_(sheetName) {
     });
     return result;
   });
+}
+
+// Pembacaan default menolak data di luar scope anggota yang sedang masuk.
+function rowsAsObjects_(sheetName) {
+  return applyScopeFilter_(sheetName, rowsAsObjectsUnscoped_(sheetName));
 }
 
 function sheetCellValue_(header, value) {
@@ -95,27 +102,52 @@ function sheetCellValue_(header, value) {
   return Utilities.formatDate(value, VINN_CONFIG.TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
 }
 
+// Atribusi anggota dicap terpusat agar tidak ada jalur tulis yang terlewat.
+function stampMemberAttribution_(sheetName, object) {
+  if (sheetName !== VINN_CONFIG.SHEETS.TRANSACTIONS) return object;
+  if (object.created_by_member_id) return object;
+  const memberId = currentScopeMemberId_();
+  if (!memberId) return object;
+  return Object.assign({}, object, { created_by_member_id: memberId });
+}
+
 function appendObjects_(sheetName, objects) {
   if (!objects.length) return;
   const headers = VINN_CONFIG.HEADERS[sheetName];
   const sheet = ensureSheet_(sheetName, headers);
   const values = objects.map(function(object) {
-    return headers.map(function(header) { return object[header] === undefined ? '' : object[header]; });
+    const row = stampMemberAttribution_(sheetName, object);
+    return headers.map(function(header) { return row[header] === undefined ? '' : row[header]; });
   });
   sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
+  if (sheetName === VINN_CONFIG.SHEETS.ACCOUNTS) invalidateAccountScopeIndex_();
 }
 
 function findById_(sheetName, id) {
   return rowsAsObjects_(sheetName).find(function(row) { return String(row.id) === String(id); }) || null;
 }
 
+function findByIdUnscoped_(sheetName, id) {
+  return rowsAsObjectsUnscoped_(sheetName).find(function(row) { return String(row.id) === String(id); }) || null;
+}
+
+// Baris tersamar hanya berisi sebagian data asli. Menulisnya kembali akan
+// menghapus detail milik anggota lain, jadi mutasinya ditolak di lapisan ini.
+function assertNotRedactedRow_(object) {
+  if (object && object.scope_redacted) {
+    throw createError_('SCOPE_FORBIDDEN', 'Transaksi ini milik anggota lain dan tidak dapat diubah dari akun Anda.');
+  }
+}
+
 function updateObjectRow_(sheetName, rowNumber, object) {
+  assertNotRedactedRow_(object);
   const headers = VINN_CONFIG.HEADERS[sheetName];
   const sheet = getWorkbook_().getSheetByName(sheetName);
   if (!sheet) throw createError_('SHEET_NOT_FOUND', 'Sheet ' + sheetName + ' belum tersedia.');
   sheet.getRange(rowNumber, 1, 1, headers.length).setValues([headers.map(function(header) {
     return object[header] === undefined ? '' : object[header];
   })]);
+  if (sheetName === VINN_CONFIG.SHEETS.ACCOUNTS) invalidateAccountScopeIndex_();
 }
 
 function deleteObjectRow_(sheetName, rowNumber) {
@@ -123,6 +155,7 @@ function deleteObjectRow_(sheetName, rowNumber) {
   if (!sheet) throw createError_('SHEET_NOT_FOUND', 'Sheet ' + sheetName + ' belum tersedia.');
   if (!rowNumber || rowNumber < 2 || rowNumber > sheet.getLastRow()) throw createError_('ROW_NOT_FOUND', 'Baris data tidak ditemukan.');
   sheet.deleteRow(rowNumber);
+  if (sheetName === VINN_CONFIG.SHEETS.ACCOUNTS) invalidateAccountScopeIndex_();
 }
 
 function assertContiguousObjectRows_(entries) {
@@ -138,6 +171,7 @@ function assertContiguousObjectRows_(entries) {
 
 function updateContiguousObjectRows_(sheetName, entries) {
   const sorted = assertContiguousObjectRows_(entries);
+  sorted.forEach(function(entry) { assertNotRedactedRow_(entry.object); });
   const headers = VINN_CONFIG.HEADERS[sheetName];
   const sheet = getWorkbook_().getSheetByName(sheetName);
   if (!sheet) throw createError_('SHEET_NOT_FOUND', 'Sheet ' + sheetName + ' belum tersedia.');

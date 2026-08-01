@@ -45,7 +45,7 @@ function apiCreateRecurring(payload) {
   const requestId = String(payload && payload.requestId || id_('req'));
   try {
     return withDocumentLock_(function() {
-      const replay = rowsAsObjects_(VINN_CONFIG.SHEETS.RECURRING).find(function(row) { return String(row.request_id) === requestId; });
+      const replay = rowsAsObjectsUnscoped_(VINN_CONFIG.SHEETS.RECURRING).find(function(row) { return String(row.request_id) === requestId; });
       if (replay) return ok_({ template: recurringClientRow_(replay), duplicate: true }, requestId);
       const type = String(payload.type || '').toLowerCase();
       if (['income', 'expense'].indexOf(type) === -1) throw createError_('INVALID_RECURRING_TYPE', 'Jenis transaksi rutin tidak valid.');
