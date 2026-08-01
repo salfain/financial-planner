@@ -47,7 +47,7 @@ const shiftMonth = (period: string, amount: number) => {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 };
 
-function balancesAt(accounts: Account[], transactions: Transaction[], period: string) {
+export function accountBalancesAtPeriod(accounts: Account[], transactions: Transaction[], period: string) {
   const balances = new Map(accounts.map((account) => [account.id, account.openingBalance ?? account.balance]));
   const liabilities = new Map(accounts.map((account) => [account.id, Boolean(account.liability)]));
   const seenTransfers = new Set<string>();
@@ -101,8 +101,8 @@ export function buildMonthlyReview(input: {
   const period = assertPeriod(input.period);
   const monthTransactions = input.transactions.filter((item) => !item.deletedAt && item.date.startsWith(period));
   const completed = monthTransactions.filter((item) => item.status === "completed");
-  const currentAccounts = balancesAt(input.accounts, input.transactions, period);
-  const previousAccounts = balancesAt(input.accounts, input.transactions, shiftMonth(period, -1));
+  const currentAccounts = accountBalancesAtPeriod(input.accounts, input.transactions, period);
+  const previousAccounts = accountBalancesAtPeriod(input.accounts, input.transactions, shiftMonth(period, -1));
   const currentTotals = accountSummary(currentAccounts);
   const previousTotals = accountSummary(previousAccounts);
   const budgetRows = input.budgets

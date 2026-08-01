@@ -15,6 +15,7 @@ import { addMonthsToPeriod, simulateDebtPayoff, type DebtPlan, type DebtPlannerS
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
 import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "./emergency-fund";
 import { buildRecurringOverview, type RecurringTemplate } from "./recurring";
+import { accountBalancesAtPeriod } from "./monthly-review";
 
 export const REPORT_SECTIONS = [
   "summary",
@@ -111,6 +112,10 @@ export function financeReportFilename(storeName: string, period: string) {
   return `${safeFilenamePart(storeName)}_Laporan_${period}.pdf`;
 }
 
+export function financePresentationPdfFilename(storeName: string, period: string) {
+  return `${safeFilenamePart(storeName)}_Presentasi_${period}.pdf`;
+}
+
 export function financeCsvFilename(storeName: string, period: string) {
   return `${safeFilenamePart(storeName)}_Transaksi_${period}.csv`;
 }
@@ -160,7 +165,7 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
   const previousPeriod = previousMonth(input.period);
   const previousSummary = monthlySummary(input.transactions, previousPeriod);
   const investmentValue = input.investmentAssets.reduce((sum, asset) => sum + asset.marketValue, 0);
-  const totals = accountSummary(input.accounts, investmentValue);
+  const totals = accountSummary(accountBalancesAtPeriod(input.accounts, input.transactions, input.period), investmentValue);
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
     const allocations = item.splits?.length ? item.splits : [{ category: item.category, amount: item.amount }];
     allocations.forEach((split) => { result[split.category] = (result[split.category] ?? 0) + split.amount; });
@@ -557,6 +562,242 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
   return {
     bytes: new Uint8Array(doc.output("arraybuffer")),
     filename: financeReportFilename(input.profile.storeName, input.period),
+    pageCount: doc.getNumberOfPages(),
+  };
+}
+
+export function generateFinancePresentationPdf(input: FinanceReportInput): GeneratedFinanceReport {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.period)) throw new Error("Periode presentasi harus berformat YYYY-MM.");
+
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: [960, 540], compress: true, putOnlyUsedFonts: true });
+  const width = doc.internal.pageSize.getWidth();
+  const height = doc.internal.pageSize.getHeight();
+  const margin = 54;
+  const periodTransactions = input.transactions.filter((item) => !item.deletedAt && item.status === "completed" && item.date.startsWith(input.period));
+  const summary = monthlySummary(periodTransactions, input.period);
+  const priorSummary = monthlySummary(input.transactions, previousMonth(input.period));
+  const historicalAccounts = accountBalancesAtPeriod(input.accounts, input.transactions, input.period);
+  const investmentValue = input.investmentAssets.reduce((sum, asset) => sum + asset.marketValue, 0);
+  const totals = accountSummary(historicalAccounts, investmentValue);
+  const expensesByCategory = periodTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
+    const splits = item.splits?.length ? item.splits : [{ category: item.category, amount: item.amount }];
+    splits.forEach((split) => { result[split.category] = (result[split.category] ?? 0) + split.amount; });
+    return result;
+  }, {});
+  const topCategories = Object.entries(expensesByCategory).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topTransactions = periodTransactions.filter((item) => item.type === "expense").sort((a, b) => b.amount - a.amount).slice(0, 5);
+  const liabilityAccounts = historicalAccounts.filter((account) => account.liability).sort((a, b) => b.balance - a.balance).slice(0, 5);
+  const visibleBills = input.bills.filter((bill) => !bill.completed).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 5);
+  const goals = [...input.goals].sort((a, b) => (b.target > 0 ? b.current / b.target : 0) - (a.target > 0 ? a.current / a.target : 0)).slice(0, 4);
+  const investments = [...input.investmentAssets].sort((a, b) => b.marketValue - a.marketValue).slice(0, 4);
+  const generatedAt = input.generatedAt ?? new Date().toISOString();
+  let page = 1;
+
+  const valueText = (value: number) => money(value, input.privacy);
+  const setText = (size: number, color: readonly number[], style: "normal" | "bold" = "normal") => {
+    doc.setFont("helvetica", style);
+    doc.setFontSize(size);
+    doc.setTextColor(color[0], color[1], color[2]);
+  };
+  const text = (value: unknown, x: number, y: number, options: { maxWidth?: number; align?: "left" | "center" | "right" } = {}) => {
+    doc.text(safePdfText(value), x, y, { maxWidth: options.maxWidth, align: options.align });
+  };
+  const fill = (color: readonly number[]) => doc.setFillColor(color[0], color[1], color[2]);
+  const line = (color: readonly number[]) => doc.setDrawColor(color[0], color[1], color[2]);
+  const footer = (dark = false) => {
+    line(dark ? [63, 118, 104] : BORDER);
+    doc.line(margin, height - 28, width - margin, height - 28);
+    setText(8, dark ? [187, 217, 207] : MUTED);
+    text(`${input.profile.storeName} - ${formatMonthLabel(input.period)}`, margin, height - 14);
+    text(`${page} / 7`, width - margin, height - 14, { align: "right" });
+  };
+  const nextPage = (dark = false) => {
+    doc.addPage([960, 540], "landscape");
+    page += 1;
+    fill(dark ? [13, 50, 43] : [248, 250, 249]);
+    doc.rect(0, 0, width, height, "F");
+  };
+  const slideTitle = (eyebrow: string, titleValue: string, subtitle: string) => {
+    setText(10, BRAND, "bold");
+    text(eyebrow.toUpperCase(), margin, 54);
+    setText(36, INK, "bold");
+    text(titleValue, margin, 96, { maxWidth: width - margin * 2 });
+    setText(14, MUTED);
+    text(subtitle, margin, 122, { maxWidth: width - margin * 2 });
+  };
+  const metric = (label: string, value: string, x: number, y: number, metricWidth: number, accent: readonly number[] = BRAND) => {
+    fill([255, 255, 255]);
+    line(BORDER);
+    doc.roundedRect(x, y, metricWidth, 102, 12, 12, "FD");
+    fill(accent);
+    doc.roundedRect(x, y, 6, 102, 3, 3, "F");
+    setText(10, MUTED, "bold");
+    text(label.toUpperCase(), x + 22, y + 29);
+    setText(23, INK, "bold");
+    text(value, x + 22, y + 64, { maxWidth: metricWidth - 36 });
+  };
+  const recommendationRows: Array<{ title: string; detail: string }> = [];
+  if (summary.cashflow < 0) recommendationRows.push({ title: "Pulihkan arus kas", detail: `Kurangi pengeluaran terbesar pada ${topCategories[0]?.[0] ?? "kategori utama"} dan tetapkan batas mingguan.` });
+  else recommendationRows.push({ title: "Pertahankan surplus", detail: `Arus kas positif ${valueText(summary.cashflow)} dapat diarahkan ke target prioritas atau dana darurat.` });
+  if (summary.savingsRate < 20) recommendationRows.push({ title: "Naikkan savings rate", detail: "Mulai dari target 20% pemasukan dan otomatisasi alokasi setelah pendapatan masuk." });
+  else recommendationRows.push({ title: "Savings rate sehat", detail: `Tingkat ${summary.savingsRate.toFixed(1)}% sudah memberi ruang untuk mempercepat tujuan keuangan.` });
+  if (totals.liabilities > 0) recommendationRows.push({ title: "Kendalikan kewajiban", detail: `Pantau sisa ${valueText(totals.liabilities)} dan prioritaskan bunga atau biaya tertinggi.` });
+  if (!input.goals.length) recommendationRows.push({ title: "Tetapkan tujuan", detail: "Tambahkan satu target bernominal dan deadline agar surplus memiliki arah yang jelas." });
+  while (recommendationRows.length < 3) recommendationRows.push({ title: "Jaga konsistensi", detail: "Lakukan review mingguan singkat dan rekonsiliasi saldo sebelum tutup buku berikutnya." });
+
+  // 1 - Cover
+  fill([13, 50, 43]);
+  doc.rect(0, 0, width, height, "F");
+  fill([19, 112, 92]);
+  doc.circle(width - 110, 75, 210, "F");
+  fill([29, 133, 111]);
+  doc.circle(width - 45, 510, 235, "F");
+  setText(11, [106, 220, 185], "bold");
+  text("MONTHLY FINANCIAL REVIEW", margin, 72);
+  setText(52, [255, 255, 255], "bold");
+  text(formatMonthLabel(input.period), margin, 145);
+  setText(20, [198, 226, 217]);
+  text(input.profile.storeName, margin, 180);
+  setText(13, [178, 211, 201]);
+  text("Ringkasan visual untuk memahami posisi, perubahan, dan keputusan bulan ini.", margin, 220, { maxWidth: 560 });
+  setText(10, [157, 200, 187]);
+  text(`Disiapkan ${new Intl.DateTimeFormat("id-ID", { dateStyle: "long", timeZone: input.profile.timezone }).format(new Date(generatedAt))}`, margin, 438);
+  footer(true);
+
+  // 2 - Executive summary
+  nextPage();
+  slideTitle("01 - Ringkasan", summary.cashflow >= 0 ? "Bulan ditutup dengan arus kas positif" : "Pengeluaran melampaui pemasukan", "Empat angka utama yang menentukan kondisi keuangan bulan ini.");
+  metric("Pemasukan", valueText(summary.income), margin, 164, 195, [37, 154, 123]);
+  metric("Pengeluaran", valueText(summary.expense), 273, 164, 195, NEGATIVE);
+  metric("Arus kas bersih", valueText(summary.cashflow), 492, 164, 195, summary.cashflow >= 0 ? BRAND : NEGATIVE);
+  metric("Kekayaan bersih", valueText(totals.netWorth), 711, 164, 195, [55, 97, 168]);
+  setText(18, INK, "bold");
+  text(`${summary.savingsRate.toFixed(1)}% savings rate`, margin, 320);
+  setText(13, MUTED);
+  text(`Pemasukan ${percentageDifference(summary.income, priorSummary.income)} dan pengeluaran ${percentageDifference(summary.expense, priorSummary.expense)} dibanding bulan sebelumnya.`, margin, 348, { maxWidth: 800 });
+  fill(summary.cashflow >= 0 ? [230, 246, 239] : [251, 235, 233]);
+  doc.roundedRect(margin, 380, width - margin * 2, 58, 10, 10, "F");
+  setText(15, summary.cashflow >= 0 ? BRAND : NEGATIVE, "bold");
+  text(summary.cashflow >= 0 ? "Surplus memberi ruang untuk memperkuat tujuan keuangan." : "Defisit perlu ditangani sebelum menambah komitmen baru.", margin + 18, 414);
+  footer();
+
+  // 3 - Cash flow
+  nextPage();
+  slideTitle("02 - Arus kas", "Dari mana uang masuk dan ke mana uang pergi", "Perbandingan nilai bulan pilihan dengan periode sebelumnya.");
+  const flowMax = Math.max(1, summary.income, summary.expense, priorSummary.income, priorSummary.expense);
+  const bars = [
+    { label: "Pemasukan bulan ini", value: summary.income, color: [37, 154, 123] as const },
+    { label: "Pemasukan sebelumnya", value: priorSummary.income, color: [128, 196, 177] as const },
+    { label: "Pengeluaran bulan ini", value: summary.expense, color: NEGATIVE },
+    { label: "Pengeluaran sebelumnya", value: priorSummary.expense, color: [220, 154, 148] as const },
+  ];
+  bars.forEach((bar, index) => {
+    const y = 170 + index * 64;
+    setText(12, INK, "bold");
+    text(bar.label, margin, y);
+    fill([226, 233, 230]);
+    doc.roundedRect(230, y - 13, 500, 16, 8, 8, "F");
+    fill(bar.color);
+    doc.roundedRect(230, y - 13, Math.max(5, 500 * bar.value / flowMax), 16, 8, 8, "F");
+    setText(13, INK, "bold");
+    text(valueText(bar.value), width - margin, y, { align: "right" });
+  });
+  setText(14, summary.cashflow >= 0 ? BRAND : NEGATIVE, "bold");
+  text(`Selisih bulan ini: ${valueText(summary.cashflow)}`, margin, 445);
+  footer();
+
+  // 4 - Spending
+  nextPage();
+  slideTitle("03 - Pengeluaran", topCategories.length ? `${topCategories[0][0]} menjadi kategori terbesar` : "Belum ada pengeluaran tercatat", "Fokus pada pengeluaran yang paling memengaruhi hasil bulan ini.");
+  const categoryMax = Math.max(1, ...topCategories.map((item) => item[1]));
+  topCategories.forEach(([category, amount], index) => {
+    const y = 172 + index * 50;
+    setText(12, INK, "bold");
+    text(`${index + 1}. ${category}`, margin, y, { maxWidth: 190 });
+    fill([227, 237, 233]);
+    doc.roundedRect(250, y - 12, 285, 14, 7, 7, "F");
+    fill(index === 0 ? NEGATIVE : BRAND);
+    doc.roundedRect(250, y - 12, Math.max(5, 285 * amount / categoryMax), 14, 7, 7, "F");
+    setText(12, INK, "bold");
+    text(valueText(amount), 620, y, { align: "right" });
+  });
+  fill([255, 255, 255]); line(BORDER);
+  doc.roundedRect(640, 150, 266, 262, 12, 12, "FD");
+  setText(12, BRAND, "bold"); text("TRANSAKSI TERBESAR", 662, 178);
+  topTransactions.forEach((item, index) => {
+    const y = 215 + index * 39;
+    setText(11, INK, "bold"); text(item.merchant || item.title, 662, y, { maxWidth: 150 });
+    setText(10, MUTED); text(valueText(item.amount), 884, y, { align: "right" });
+  });
+  if (!topTransactions.length) { setText(12, MUTED); text("Belum ada data pada bulan ini.", 662, 220); }
+  footer();
+
+  // 5 - Liabilities
+  nextPage();
+  slideTitle("04 - Kewajiban", totals.liabilities > 0 ? "Kewajiban perlu dilihat bersama jadwal bayar" : "Tidak ada kewajiban aktif", "Saldo historis dihitung sampai akhir bulan pilihan; jadwal memakai data terakhir yang tersimpan.");
+  setText(13, MUTED, "bold"); text("TOTAL KEWAJIBAN", margin, 172);
+  setText(38, totals.liabilities > 0 ? NEGATIVE : BRAND, "bold"); text(valueText(totals.liabilities), margin, 218);
+  setText(12, MUTED); text(`${liabilityAccounts.length} akun kewajiban teratas`, margin, 244);
+  liabilityAccounts.forEach((account, index) => {
+    const y = 292 + index * 34;
+    setText(12, INK, "bold"); text(account.name, margin, y, { maxWidth: 220 });
+    setText(12, NEGATIVE, "bold"); text(valueText(account.balance), 360, y, { align: "right" });
+  });
+  fill([255, 255, 255]); line(BORDER);
+  doc.roundedRect(455, 150, 451, 290, 12, 12, "FD");
+  setText(12, BRAND, "bold"); text("JADWAL BERIKUTNYA", 478, 179);
+  visibleBills.forEach((bill, index) => {
+    const y = 220 + index * 42;
+    setText(11, INK, "bold"); text(bill.name, 478, y, { maxWidth: 210 });
+    setText(9, MUTED); text(displayDate(bill.dueDate), 478, y + 15);
+    setText(11, INK, "bold"); text(valueText(bill.amount), 882, y, { align: "right" });
+  });
+  if (!visibleBills.length) { setText(12, MUTED); text("Tidak ada jadwal aktif.", 478, 224); }
+  footer();
+
+  // 6 - Goals and investments
+  nextPage();
+  slideTitle("05 - Pertumbuhan", "Surplus menjadi berarti ketika diberi tujuan", "Lihat kemajuan target dan aset investasi dalam satu pandangan.");
+  setText(12, BRAND, "bold"); text("TARGET FINANSIAL", margin, 162);
+  goals.forEach((goal, index) => {
+    const progress = goal.target > 0 ? Math.min(100, goal.current / goal.target * 100) : 0;
+    const y = 200 + index * 62;
+    setText(12, INK, "bold"); text(goal.name, margin, y, { maxWidth: 200 });
+    setText(10, MUTED); text(`${progress.toFixed(0)}% - ${valueText(goal.current)}`, margin, y + 18);
+    fill([226, 234, 231]); doc.roundedRect(280, y - 10, 170, 12, 6, 6, "F");
+    fill(BRAND); doc.roundedRect(280, y - 10, Math.max(4, 170 * progress / 100), 12, 6, 6, "F");
+  });
+  if (!goals.length) { setText(13, MUTED); text("Belum ada target aktif.", margin, 210); }
+  fill([255, 255, 255]); line(BORDER);
+  doc.roundedRect(510, 146, 396, 292, 12, 12, "FD");
+  setText(12, BRAND, "bold"); text("PORTOFOLIO INVESTASI", 534, 177);
+  investments.forEach((asset, index) => {
+    const y = 220 + index * 48;
+    setText(11, INK, "bold"); text(`${asset.name}${asset.ticker ? ` (${asset.ticker})` : ""}`, 534, y, { maxWidth: 210 });
+    setText(9, asset.unrealizedPl >= 0 ? BRAND : NEGATIVE); text(`P/L ${valueText(asset.unrealizedPl)}`, 534, y + 15);
+    setText(11, INK, "bold"); text(valueText(asset.marketValue), 882, y, { align: "right" });
+  });
+  if (!investments.length) { setText(13, MUTED); text("Belum ada aset investasi.", 534, 224); }
+  footer();
+
+  // 7 - Actions
+  nextPage(true);
+  setText(10, [106, 220, 185], "bold"); text("06 - PRIORITAS BULAN BERIKUTNYA", margin, 66);
+  setText(42, [255, 255, 255], "bold"); text("Tiga keputusan berdampak besar", margin, 116, { maxWidth: 800 });
+  setText(14, [184, 215, 205]); text("Gunakan hasil review ini sebagai dasar tindakan, bukan sekadar arsip.", margin, 145);
+  recommendationRows.slice(0, 3).forEach((item, index) => {
+    const y = 198 + index * 88;
+    fill(index === 0 ? [20, 117, 96] : [20, 70, 59]);
+    doc.roundedRect(margin, y, width - margin * 2, 68, 10, 10, "F");
+    setText(20, [115, 229, 194], "bold"); text(String(index + 1).padStart(2, "0"), margin + 18, y + 42);
+    setText(16, [255, 255, 255], "bold"); text(item.title, margin + 70, y + 28);
+    setText(11, [190, 220, 211]); text(item.detail, margin + 70, y + 48, { maxWidth: width - margin * 2 - 100 });
+  });
+  footer(true);
+
+  return {
+    bytes: new Uint8Array(doc.output("arraybuffer")),
+    filename: financePresentationPdfFilename(input.profile.storeName, input.period),
     pageCount: doc.getNumberOfPages(),
   };
 }

@@ -304,10 +304,10 @@ test("UI laporan, backup, dan migrasi memakai storage serta preview nyata", asyn
     source("../.openai/hosting.json"),
   ]);
   assert.match(app, /Buat, simpan & unduh PDF/);
-  assert.match(app, /Export PPT/);
-  assert.match(app, /buildMonthlyFinancePowerPoint/);
-  assert.match(app, /outputType: "blob"/);
-  assert.match(app, /PPT dibuat langsung di browser/);
+  assert.match(app, /PDF Presentasi/);
+  assert.match(app, /generateFinancePresentationPdf/);
+  assert.match(app, /halaman horizontal 16:9/);
+  assert.doesNotMatch(app, /Export PPT/);
   assert.match(app, /Backup lengkap/);
   assert.match(app, /Preview siap diterapkan/);
   assert.match(app, /Backup pra-migrasi akan dibuat otomatis/);
@@ -366,6 +366,8 @@ test("review dan tutup buku bulanan memakai snapshot persisten serta mengunci le
     source("../app/api/finance/investments/transactions/route.ts"),
   ]);
   assert.match(app, /Review & tutup buku/);
+  assert.match(app, /Arsip review bulanan/);
+  assert.match(app, /type="month"/);
   assert.match(app, /Tutup bulan & simpan snapshot/);
   assert.match(app, /Buka kembali bulan/);
   assert.match(client, /monthlyClosingStatus/);
@@ -378,6 +380,17 @@ test("review dan tutup buku bulanan memakai snapshot persisten serta mengunci le
   assert.match(gasValidation, /assertMonthlyPeriodsOpen_/);
   assert.match(undo, /assertMonthlyPeriodOpen/);
   assert.match(investment, /assertMonthlyPeriodOpen/);
+});
+
+test("loading awal berhenti dengan pesan pemulihan jika Apps Script tidak merespons", async () => {
+  const [app, client] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../lib/finance-client.ts"),
+  ]);
+  assert.match(client, /withTimeout\(transport, 30_000\)/);
+  assert.match(app, /Financial Planner belum berhasil dimuat/);
+  assert.match(app, /Data Google Sheets tetap aman/);
+  assert.match(app, /Coba lagi/);
 });
 
 test("aturan kategori otomatis tersimpan dan diterapkan saat preview impor CSV", async () => {

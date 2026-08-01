@@ -566,11 +566,12 @@ export function loadFinanceSnapshot(month: string) {
   const existing = snapshotRequests.get(requestKey);
   if (existing) return existing;
   const request = (async () => {
-    const raw = isFinanceDemoMode()
+    const transport = isFinanceDemoMode()
       ? demoRequest<unknown>("bootstrap", { month })
       : hasAppsScriptBridge()
-      ? await callAppsScript<unknown>("bootstrap", { month })
-      : await webRequest<unknown>(`/api/finance/bootstrap?month=${encodeURIComponent(month)}`);
+      ? callAppsScript<unknown>("bootstrap", { month })
+      : webRequest<unknown>(`/api/finance/bootstrap?month=${encodeURIComponent(month)}`);
+    const raw = await withTimeout(transport, 30_000);
     return normalizeSnapshot(raw, month);
   })();
   snapshotRequests.set(requestKey, request);

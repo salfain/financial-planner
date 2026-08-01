@@ -36,7 +36,6 @@ import {
   Paperclip,
   Pencil,
   Plus,
-  Presentation,
   ReceiptText,
   Repeat2,
   Route,
@@ -925,6 +924,10 @@ export function FinanceApp() {
   if (activePage === "settings") title.eyebrow = `Workspace ${profile.storeName}`;
 
   if (loading) return <LoadingWorkspace />;
+  if (!configured && dataError) return <WorkspaceLoadError message={dataError} onRetry={() => {
+    setLoading(true);
+    refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data.")).finally(() => setLoading(false));
+  }} />;
   if (!configured) return <SetupWizard error={dataError} saving={saving} onRetry={() => {
     setLoading(true);
     refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data.")).finally(() => setLoading(false));
@@ -1051,7 +1054,7 @@ export function FinanceApp() {
           {activePage === "recurring" && <RecurringPage accounts={accounts} categories={categories} privacy={privacy} onRefresh={refreshData} onToast={showToast} />}
           {activePage === "investments" && <InvestmentsPage assets={investmentAssets} transactions={investmentTransactions} accounts={accounts} privacy={privacy} onAddAsset={() => setInvestmentAssetModal({})} onEditAsset={(asset) => setInvestmentAssetModal({ asset })} onTrade={(type, asset) => setInvestmentTradeModal({ type, asset })} />}
           {activePage === "review" && <MonthlyReviewPage period={month} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} privacy={privacy} onToast={showToast} />}
-          {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} monthly={monthly} accountTotals={accountTotals} privacy={privacy} onToast={showToast} />}
+          {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
           {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} schemaVersion={schemaVersion} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} onNavigate={selectPage} />}
         </div>
@@ -2139,7 +2142,7 @@ const fileSizeLabel = (value: number) => value >= 1024 * 1024
   ? `${(value / 1024 / 1024).toFixed(1)} MB`
   : `${Math.max(1, Math.round(value / 1024))} KB`;
 
-function MonthlyReviewPage({ period, transactions, accounts, budgets, goals, bills, privacy, onToast }: {
+function MonthlyReviewPage({ period: currentPeriod, transactions, accounts, budgets, goals, bills, privacy, onToast }: {
   period: string;
   transactions: Transaction[];
   accounts: Account[];
@@ -2149,6 +2152,7 @@ function MonthlyReviewPage({ period, transactions, accounts, budgets, goals, bil
   privacy: boolean;
   onToast: (message: string) => void;
 }) {
+  const [period, setPeriod] = useState(currentPeriod);
   const review = useMemo(() => buildMonthlyReview({ period, transactions, accounts, budgets, goals, bills }), [period, transactions, accounts, budgets, goals, bills]);
   const [closing, setClosing] = useState<MonthlyClosing>({ period, status: "open", closedAt: null, snapshot: null });
   const [loadingClosing, setLoadingClosing] = useState(true);
@@ -2167,7 +2171,8 @@ function MonthlyReviewPage({ period, transactions, accounts, budgets, goals, bil
     return () => { active = false; };
   }, [period]);
 
-  const displayed = closing.status === "closed" && closing.snapshot ? closing.snapshot : review;
+  const visibleClosing: MonthlyClosing = closing.period === period ? closing : { period, status: "open", closedAt: null, snapshot: null };
+  const displayed = visibleClosing.status === "closed" && visibleClosing.snapshot ? visibleClosing.snapshot : review;
   const budgetPercent = displayed.budgetLimit > 0 ? displayed.budgetSpent / displayed.budgetLimit * 100 : 0;
   const closeBook = async () => {
     if (!balanceConfirmed || review.pendingCount || savingClosing) return;
@@ -2194,9 +2199,13 @@ function MonthlyReviewPage({ period, transactions, accounts, budgets, goals, bil
   };
 
   return <div className="monthly-review-layout">
-    <section className={`monthly-review-hero ${closing.status}`}>
-      <div><span className="card-kicker light">{closing.status === "closed" ? "Snapshot tersimpan" : "Review berjalan"}</span><h2>{monthLabel(period)}</h2><p>{closing.status === "closed" ? "Ledger periode ini terkunci. Nilai di bawah berasal dari snapshot saat tutup buku." : "Periksa arus kas, anggaran, kewajiban, dan transaksi tidak biasa sebelum menutup bulan."}</p></div>
-      <span className="monthly-close-status">{closing.status === "closed" ? <LockKeyhole size={18} /> : <ShieldCheck size={18} />}<span><strong>{closing.status === "closed" ? "Bulan ditutup" : "Bulan masih terbuka"}</strong><small>{closing.closedAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(closing.closedAt)) : `${displayed.transactionCount} transaksi selesai`}</small></span></span>
+    <section className="panel period-archive-toolbar">
+      <div><span className="period-archive-icon"><History size={19} /></span><span><strong>Arsip review bulanan</strong><small>Pilih bulan aktif atau buka kembali snapshot bulan yang sudah ditutup.</small></span></div>
+      <label><span>Periode review</span><input type="month" value={period} max={currentPeriod} disabled={savingClosing} onChange={(event) => event.target.value && setPeriod(event.target.value)} /></label>
+    </section>
+    <section className={`monthly-review-hero ${visibleClosing.status}`}>
+      <div><span className="card-kicker light">{visibleClosing.status === "closed" ? "Snapshot tersimpan" : "Review berjalan"}</span><h2>{monthLabel(period)}</h2><p>{visibleClosing.status === "closed" ? "Ledger periode ini terkunci. Nilai di bawah berasal dari snapshot saat tutup buku." : "Periksa arus kas, anggaran, kewajiban, dan transaksi tidak biasa sebelum menutup bulan."}</p></div>
+      <span className="monthly-close-status">{visibleClosing.status === "closed" ? <LockKeyhole size={18} /> : <ShieldCheck size={18} />}<span><strong>{visibleClosing.status === "closed" ? "Bulan ditutup" : "Bulan masih terbuka"}</strong><small>{visibleClosing.closedAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(visibleClosing.closedAt)) : `${displayed.transactionCount} transaksi selesai`}</small></span></span>
     </section>
 
     <section className="monthly-review-metrics">
@@ -2227,7 +2236,7 @@ function MonthlyReviewPage({ period, transactions, accounts, budgets, goals, bil
 
     <aside className="panel monthly-closing-panel">
       <div className="settings-title"><span><LockKeyhole size={20} /></span><div><h2>Tutup buku bulanan</h2><p>Simpan snapshot dan hentikan perubahan ledger pada {monthLabel(period)}.</p></div></div>
-      {closing.status === "closed" ? <>
+      {visibleClosing.status === "closed" ? <>
         <div className="monthly-closed-notice"><CheckCircle2 size={20} /><span><strong>Snapshot aman</strong><small>Transaksi, impor, cicilan, rekonsiliasi, dan transaksi investasi pada bulan ini sudah dikunci.</small></span></div>
         <button className="secondary-button full" onClick={reopenBook} disabled={savingClosing}>{savingClosing ? "Membuka…" : "Buka kembali bulan"}</button>
       </> : <>
@@ -2244,7 +2253,7 @@ function MonthlyReviewPage({ period, transactions, accounts, budgets, goals, bil
   </div>;
 }
 
-function ReportsPage({ period, profile, transactions, accounts, budgets, goals, bills, categories, investmentAssets, investmentTransactions, monthly, accountTotals, privacy, onToast }: {
+function ReportsPage({ period: currentPeriod, profile, transactions, accounts, budgets, goals, bills, categories, investmentAssets, investmentTransactions, privacy, onToast }: {
   period: string;
   profile: FinanceProfile;
   transactions: Transaction[];
@@ -2255,15 +2264,14 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
   categories: FinanceCategory[];
   investmentAssets: InvestmentAsset[];
   investmentTransactions: InvestmentTransaction[];
-  monthly: ReturnType<typeof monthlySummary>;
-  accountTotals: ReturnType<typeof accountSummary>;
   privacy: boolean;
   onToast: (message: string) => void;
 }) {
+  const [period, setPeriod] = useState(currentPeriod);
   const [sections, setSections] = useState<ReportSection[]>(reportSectionOptions.map((item) => item.key));
   const [maskPdf, setMaskPdf] = useState(privacy);
   const [generating, setGenerating] = useState(false);
-  const [generatingPpt, setGeneratingPpt] = useState(false);
+  const [generatingPresentation, setGeneratingPresentation] = useState(false);
   const [reports, setReports] = useState<ExportRecord[]>([]);
   const [roadmapReportSettings, setRoadmapReportSettings] = useState<RoadmapSettings>(DEFAULT_ROADMAP_SETTINGS);
   const [debtReportPlanner, setDebtReportPlanner] = useState<{ settings: DebtPlannerSettings; debts: DebtPlan[] }>({ settings: DEFAULT_DEBT_SETTINGS, debts: [] });
@@ -2271,6 +2279,15 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
   const [emergencyReportSettings, setEmergencyReportSettings] = useState<EmergencyFundSettings>(DEFAULT_EMERGENCY_FUND_SETTINGS);
   const [recurringReportTemplates, setRecurringReportTemplates] = useState<RecurringTemplate[]>([]);
   const [error, setError] = useState("");
+  const periodReview = useMemo(() => buildMonthlyReview({ period, transactions, accounts, budgets, goals, bills }), [period, transactions, accounts, budgets, goals, bills]);
+  const monthly = periodReview.summary;
+  const accountTotals = useMemo(() => ({
+    assets: Math.max(0, periodReview.netWorth + periodReview.liabilities),
+    liabilities: periodReview.liabilities,
+    liquid: 0,
+    investment: 0,
+    netWorth: periodReview.netWorth,
+  }), [periodReview]);
   const monthTransactions = transactions.filter((item) => item.date.startsWith(period) && item.status === "completed");
   const expensesByCategory = monthTransactions.filter((item) => item.type === "expense").reduce<Record<string, number>>((result, item) => {
     result[item.category] = (result[item.category] ?? 0) + item.amount;
@@ -2354,13 +2371,13 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
     }
   };
 
-  const exportPowerPoint = async () => {
-    if (generatingPpt) return;
-    setGeneratingPpt(true);
+  const exportPresentationPdf = async () => {
+    if (generatingPresentation) return;
+    setGeneratingPresentation(true);
     setError("");
     try {
-      const powerPoint = await import("../lib/powerpoint-report");
-      const result = powerPoint.buildMonthlyFinancePowerPoint({
+      const report = await import("../lib/report");
+      const result = report.generateFinancePresentationPdf({
         period,
         profile,
         transactions,
@@ -2371,21 +2388,27 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
         investmentAssets,
         investmentTransactions,
         privacy: maskPdf,
+        sections,
+        roadmapSettings: roadmapReportSettings,
+        debtPlanner: debtReportPlanner,
+        forecastSettings: forecastReportSettings,
+        emergencyFundSettings: emergencyReportSettings,
+        recurringTemplates: recurringReportTemplates,
       });
-      const output = await result.presentation.write({ outputType: "blob", compression: true });
-      const blob = output instanceof Blob
-        ? output
-        : new Blob([output as BlobPart], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" });
-      downloadBrowserFile(blob, result.filename);
-      onToast(`PowerPoint ${result.slideCount} slide untuk ${monthLabel(period)} berhasil diunduh.`);
+      downloadBrowserFile(new Blob([result.bytes as BlobPart], { type: "application/pdf" }), result.filename);
+      onToast(`PDF Presentasi ${result.pageCount} halaman untuk ${monthLabel(period)} berhasil diunduh.`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "PowerPoint tidak dapat dibuat.");
+      setError(reason instanceof Error ? reason.message : "PDF Presentasi tidak dapat dibuat.");
     } finally {
-      setGeneratingPpt(false);
+      setGeneratingPresentation(false);
     }
   };
 
   return <div className="report-layout">
+    <section className="panel period-archive-toolbar report-period-toolbar">
+      <div><span className="period-archive-icon"><CalendarDays size={19} /></span><span><strong>Periode laporan</strong><small>PDF biasa dan PDF Presentasi akan memakai data bulan yang dipilih.</small></span></div>
+      <label><span>Bulan laporan</span><input type="month" value={period} max={currentPeriod} disabled={generating || generatingPresentation} onChange={(event) => event.target.value && setPeriod(event.target.value)} /></label>
+    </section>
     <section className="report-sheet">
       <div className="report-brand"><BrandMark /><span><strong>{profile.storeName}</strong><small>Personal Finance</small></span><div><small>LAPORAN BULANAN</small><strong>{monthLabel(period)}</strong></div></div>
       <div className="report-title"><span>Ringkasan eksekutif</span><h2>{reportHeadline}</h2><p>Savings rate tercatat {monthly.savingsRate.toFixed(1)}% dan rasio kewajiban terhadap aset {liabilityRatio.toFixed(1)}%.</p></div>
@@ -2393,7 +2416,7 @@ function ReportsPage({ period, profile, transactions, accounts, budgets, goals, 
       <div className="report-section"><span className="card-kicker">Arus kas bulanan</span><div className="report-bars"><div><span>Pemasukan</span><i style={{ width: `${monthly.income / chartMax * 100}%` }} /><Amount value={monthly.income} privacy={privacy} /></div><div><span>Pengeluaran</span><i className="expense-bar" style={{ width: `${monthly.expense / chartMax * 100}%` }} /><Amount value={monthly.expense} privacy={privacy} /></div><div><span>Tabungan</span><i className="saving-bar" style={{ width: `${Math.max(0, monthly.cashflow) / chartMax * 100}%` }} /><Amount value={monthly.cashflow} privacy={privacy} /></div></div></div>
       <div className="report-note"><Sparkles size={18} /><p><strong>Catatan:</strong> {reportNote}</p></div>
     </section>
-    <aside className="report-actions panel"><span className="card-kicker">Ekspor laporan</span><h2>Buat laporan lengkap</h2><p>PDF cocok untuk arsip, sedangkan PowerPoint menyusun presentasi visual dari data bulan yang sedang dipilih.</p><div className="report-section-picker">{reportSectionOptions.map((item) => <label key={item.key}><input type="checkbox" checked={sections.includes(item.key)} onChange={() => toggleSection(item.key)} /><span>{item.label}</span></label>)}</div><label className="report-privacy-option"><input type="checkbox" checked={maskPdf} onChange={(event) => setMaskPdf(event.target.checked)} /><span>Samarkan semua nominal pada PDF &amp; PPT</span></label><button className="primary-button full" onClick={exportPdf} disabled={generating || !sections.length}><FileText size={17} /> {generating ? "Membuat PDF…" : "Buat, simpan & unduh PDF"}</button><button className="secondary-button full report-ppt-button" onClick={exportPowerPoint} disabled={generatingPpt}><Presentation size={17} /> {generatingPpt ? "Menyusun presentasi…" : `Export PPT ${monthLabel(period)}`}</button><button className="secondary-button full" onClick={exportCsv}><Download size={17} /> Unduh CSV transaksi</button>{error && <div className="portability-error" role="alert">{error}</div>}<div className="security-note"><ShieldCheck size={18} /><span><strong>Diproses aman di perangkat</strong><small>PPT dibuat langsung di browser dan tidak mengirim data ke layanan presentasi lain.</small></span></div>{reports.length > 0 && <div className="export-history"><strong>Riwayat PDF</strong>{reports.slice(0, 5).map((report) => <a key={report.id} href={report.downloadUrl} target="_blank" rel="noreferrer"><span><FileText size={15} /><span><b>{report.period ? monthLabel(report.period) : "Laporan"}</b><small>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(report.createdAt))}</small></span></span><small>{fileSizeLabel(report.sizeBytes)}</small></a>)}</div>}</aside>
+    <aside className="report-actions panel"><span className="card-kicker">Ekspor laporan</span><h2>Dua format untuk kebutuhan berbeda</h2><p>PDF laporan tetap lengkap untuk arsip. PDF Presentasi memakai halaman horizontal 16:9 dengan ringkasan visual yang lebih menarik.</p><div className="report-section-picker">{reportSectionOptions.map((item) => <label key={item.key}><input type="checkbox" checked={sections.includes(item.key)} onChange={() => toggleSection(item.key)} /><span>{item.label}</span></label>)}</div><label className="report-privacy-option"><input type="checkbox" checked={maskPdf} onChange={(event) => setMaskPdf(event.target.checked)} /><span>Samarkan semua nominal pada kedua PDF</span></label><button className="primary-button full" onClick={exportPdf} disabled={generating || !sections.length}><FileText size={17} /> {generating ? "Membuat PDF…" : "Buat, simpan & unduh PDF"}</button><button className="secondary-button full report-ppt-button" onClick={exportPresentationPdf} disabled={generatingPresentation}><FileText size={17} /> {generatingPresentation ? "Menyusun PDF Presentasi…" : `PDF Presentasi ${monthLabel(period)}`}</button><button className="secondary-button full" onClick={exportCsv}><Download size={17} /> Unduh CSV transaksi</button>{error && <div className="portability-error" role="alert">{error}</div>}<div className="security-note"><ShieldCheck size={18} /><span><strong>Diproses aman di perangkat</strong><small>Kedua PDF dibuat langsung di browser tanpa mengirim data ke layanan presentasi lain.</small></span></div>{reports.length > 0 && <div className="export-history"><strong>Riwayat PDF</strong>{reports.slice(0, 5).map((report) => <a key={report.id} href={report.downloadUrl} target="_blank" rel="noreferrer"><span><FileText size={15} /><span><b>{report.period ? monthLabel(report.period) : "Laporan"}</b><small>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(report.createdAt))}</small></span></span><small>{fileSizeLabel(report.sizeBytes)}</small></a>)}</div>}</aside>
   </div>;
 }
 
@@ -3438,6 +3461,10 @@ function LoadingWorkspace() {
     return () => window.clearTimeout(timer);
   }, []);
   return <main className="workspace-state"><BrandMark /><div className="workspace-spinner" /><h1>Menyiapkan Financial Planner</h1><p>{slow ? "Google Apps Script sedang memulai sesi. Data tetap aman dan halaman akan terbuka otomatis." : "Membaca akun, ledger, anggaran, target, dan tagihan dari penyimpanan utama."}</p>{slow && <small className="workspace-slow-note"><Clock3 size={14}/> Cold start Google biasanya hanya terjadi pada pembukaan pertama.</small>}</main>;
+}
+
+function WorkspaceLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <main className="workspace-state workspace-load-error"><BrandMark /><span className="workspace-error-icon"><TriangleAlert size={22} /></span><h1>Financial Planner belum berhasil dimuat</h1><p>{message}</p><small>Data Google Sheets tetap aman. Periksa koneksi lalu coba muat kembali.</small><button className="primary-button" onClick={onRetry}><Repeat2 size={17} /> Coba lagi</button></main>;
 }
 
 function SetupWizard({ error, saving, onRetry, onSubmit }: { error: string | null; saving: boolean; onRetry: () => void; onSubmit: (input: SetupWorkspaceInput) => Promise<void> }) {

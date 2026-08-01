@@ -29,7 +29,7 @@ import {
   normalizeOcrReceipt,
   receiptNeedsRetake,
 } from "../lib/ai";
-import { buildFinanceCsv, generateFinancePdf } from "../lib/report";
+import { buildFinanceCsv, financePresentationPdfFilename, generateFinancePdf, generateFinancePresentationPdf } from "../lib/report";
 import { nextBackupAt, parsePortableBackup } from "../lib/portability";
 import { buildFinanceNotifications, DEFAULT_NOTIFICATION_SETTINGS, recurringBillDueDate } from "../lib/notifications";
 
@@ -467,6 +467,13 @@ test("laporan bulanan menghasilkan PDF nyata dan CSV melindungi formula spreadsh
   assert.ok(pdf.bytes.length > 5_000);
   assert.ok(pdf.pageCount >= 2);
   assert.equal(pdf.filename, "Financial-Planner_Laporan_2026-07.pdf");
+
+  const presentation = generateFinancePresentationPdf({ ...input, sections: [...input.sections] });
+  assert.equal(new TextDecoder().decode(presentation.bytes.slice(0, 5)), "%PDF-");
+  assert.ok(presentation.bytes.length > 5_000);
+  assert.equal(presentation.pageCount, 7);
+  assert.equal(presentation.filename, "Financial-Planner_Presentasi_2026-07.pdf");
+  assert.equal(financePresentationPdfFilename("My Financial / Planner", "2026-07"), "My-Financial-Planner_Presentasi_2026-07.pdf");
 
   const csv = buildFinanceCsv(input);
   assert.ok(csv.includes("'=HYPERLINK"));
