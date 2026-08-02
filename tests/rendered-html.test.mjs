@@ -387,7 +387,8 @@ test("loading awal berhenti dengan pesan pemulihan jika Apps Script tidak meresp
     source("../app/FinanceApp.tsx"),
     source("../lib/finance-client.ts"),
   ]);
-  assert.match(client, /withTimeout\(transport, 30_000\)/);
+  assert.match(client, /const SNAPSHOT_LOAD_TIMEOUT_MS = 90_000/);
+  assert.match(client, /withTimeout\(transport, SNAPSHOT_LOAD_TIMEOUT_MS\)/);
   assert.match(app, /Financial Planner belum berhasil dimuat/);
   assert.match(app, /Data Google Sheets tetap aman/);
   assert.match(app, /Coba lagi/);

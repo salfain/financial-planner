@@ -533,6 +533,10 @@ function normalizeSnapshot(raw: unknown, month: string): FinanceSnapshot {
 
 const snapshotRequests = new Map<string, Promise<FinanceSnapshot>>();
 const SNAPSHOT_CACHE_TTL_MS = 15 * 60_000;
+// Bootstrap Apps Script membaca beberapa sheet sekaligus. Profil anggota yang
+// baru login belum mempunyai cache scoped, sehingga cold start dapat melewati
+// 30 detik meski proses server tetap sehat.
+const SNAPSHOT_LOAD_TIMEOUT_MS = 90_000;
 
 type SnapshotCacheStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -575,7 +579,7 @@ export function loadFinanceSnapshot(month: string) {
       : hasAppsScriptBridge()
       ? callAppsScript<unknown>("bootstrap", { month })
       : webRequest<unknown>(`/api/finance/bootstrap?month=${encodeURIComponent(month)}`);
-    const raw = await withTimeout(transport, 30_000);
+    const raw = await withTimeout(transport, SNAPSHOT_LOAD_TIMEOUT_MS);
     return normalizeSnapshot(raw, month);
   })();
   snapshotRequests.set(requestKey, request);
