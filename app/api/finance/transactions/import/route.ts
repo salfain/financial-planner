@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       `SELECT id, keyword, category, transaction_type AS transactionType, match_type AS matchType,
               priority, active, created_at AS createdAt, updated_at AS updatedAt
        FROM category_rules WHERE workspace_id = ? AND active = 1 ORDER BY priority DESC, keyword`,
-    ).bind(workspaceId).all<CategoryRule & { active: number }>();
+    ).bind(workspaceId).all<Omit<CategoryRule, "active"> & { active: number }>();
     const rules: CategoryRule[] = ruleRows.results.map((rule) => ({ ...rule, active: Boolean(rule.active) }));
     const transactions = payload.transactions.map((row, index): TransactionInput => {
       if (!row || typeof row !== "object" || Array.isArray(row)) {

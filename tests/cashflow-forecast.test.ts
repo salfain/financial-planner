@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS } from "../lib/cashflow-forecast";
+import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "../lib/cashflow-forecast";
 import type { Account, Bill, Transaction } from "../lib/finance";
 
 const accounts: Account[] = [{ id: "cash", name: "Bank", type: "Bank", institution: "", balance: 5_000_000, mask: "", color: "#000", liability: false }];
@@ -84,7 +84,7 @@ test("forecast stops a Paylater installment after its configured duration", () =
 
 test("forecast only projects the remaining months of a historical installment", () => {
   const result = buildCashflowForecast({
-    accounts: [{ id: "cash", name: "Kas", type: "Bank", institution: "", mask: "", currency: "IDR", balance: 20_000_000, color: "#126b59" }],
+    accounts: [{ id: "cash", name: "Kas", type: "Bank", institution: "", mask: "", balance: 20_000_000, color: "#126b59", liability: false }],
     transactions: [],
     bills: [{
       id: "historical-installment",
@@ -100,7 +100,8 @@ test("forecast only projects the remaining months of a historical installment", 
       remainingMonths: 7,
       paid: false,
     }],
-    settings: { ...DEFAULT_CASHFLOW_FORECAST_SETTINGS, horizonDays: 365 },
+    // Horizon sengaja melewati pilihan UI (30/60/90) agar batas sisa cicilan benar-benar teruji.
+    settings: { ...DEFAULT_CASHFLOW_FORECAST_SETTINGS, horizonDays: 365 as CashflowForecastSettings["horizonDays"] },
     asOfDate: "2026-07-01",
   });
   assert.equal(result.projectedBills, 7_000_000);

@@ -1378,9 +1378,6 @@ function TransactionsPage({ transactions, accounts, categories, privacy, month, 
     total: filteredTransactions.length,
     totalPages,
   };
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
   const monthTransactions = transactions.filter((item) => item.date.startsWith(month));
   const monthlyTotals = monthlySummary(monthTransactions, month);
   const updateFilter = (setter: (value: string) => void, value: string) => { setter(value); setPage(1); };
@@ -1405,7 +1402,7 @@ function TransactionsPage({ transactions, accounts, categories, privacy, month, 
         <label><span>Sampai</span><input type="date" min={dateFrom || undefined} value={dateTo} onChange={(event) => updateFilter(setDateTo, event.target.value)} /></label>
       </div>
       {listing.transactions.length > 0 ? <TransactionTable transactions={listing.transactions} accounts={accounts} privacy={privacy} onEdit={onEdit} onDuplicate={onDuplicate} onDelete={onDelete} /> : <div className="empty-state"><Search size={28} /><h3>Transaksi tidak ditemukan</h3><p>Coba gunakan kata kunci atau filter yang berbeda.</p></div>}
-      <div className="transaction-pagination"><span>{`${listing.total} transaksi · halaman ${listing.page} dari ${listing.totalPages}`}</span><div><button className="secondary-button" disabled={listing.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Sebelumnya</button><button className="secondary-button" disabled={listing.page >= listing.totalPages} onClick={() => setPage((value) => value + 1)}>Berikutnya</button></div></div>
+      <div className="transaction-pagination"><span>{`${listing.total} transaksi · halaman ${listing.page} dari ${listing.totalPages}`}</span><div><button className="secondary-button" disabled={listing.page <= 1} onClick={() => setPage(Math.max(1, listing.page - 1))}>Sebelumnya</button><button className="secondary-button" disabled={listing.page >= listing.totalPages} onClick={() => setPage(Math.min(listing.totalPages, listing.page + 1))}>Berikutnya</button></div></div>
     </section>
   </div>;
 }
@@ -2386,6 +2383,7 @@ function ReportsPage({ period: currentPeriod, profile, transactions, accounts, b
         budgets,
         goals,
         bills,
+        categories,
         investmentAssets,
         investmentTransactions,
         privacy: maskPdf,
@@ -3642,13 +3640,12 @@ function SinkingFundModal({ fund, accounts, funds, saving, onClose, onSubmit }: 
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
 }) {
   const eligibleAccounts = accounts.filter((account) => !account.liability && ["Bank", "E-Wallet", "Cash", "Deposit"].includes(account.type));
-  const defaultTargetDate = new Date(Date.now() + 365 * 86_400_000).toISOString().slice(0, 10);
   const [name, setName] = useState(fund?.name ?? "");
   const [purpose, setPurpose] = useState<SinkingFundPurpose>(fund?.purpose ?? "Kendaraan");
   const [targetAmount, setTargetAmount] = useState(fund ? String(fund.targetAmount) : "");
   const [initialAmount, setInitialAmount] = useState(fund ? String(fund.currentAmount) : "");
   const [monthlyContribution, setMonthlyContribution] = useState(fund?.monthlyContribution ? String(fund.monthlyContribution) : "");
-  const [targetDate, setTargetDate] = useState(fund?.targetDate ?? defaultTargetDate);
+  const [targetDate, setTargetDate] = useState(() => fund?.targetDate ?? new Date(Date.now() + 365 * 86_400_000).toISOString().slice(0, 10));
   const [accountId, setAccountId] = useState(fund?.accountId ?? eligibleAccounts[0]?.id ?? "");
   const [color, setColor] = useState(fund?.color ?? "#16876f");
   const targetValue = moneyInputNumber(targetAmount);
@@ -3880,46 +3877,6 @@ function BillModal({ bill, accounts, categories, saving, onClose, onSubmit }: { 
       <fieldset className="bill-reminder-field"><legend>Jadwal reminder</legend><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={reminderDays.includes(day)} onChange={() => toggleReminder(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></fieldset>
     </div>
     {invalidPlan && <div className="ocr-message"><TriangleAlert size={15}/>Minimal dua fase wajib lengkap dan total tenor maksimal 120 bulan.</div>}
-    {!reminderDays.length && <div className="ocr-message"><Bell size={15} />Pilih minimal satu jadwal reminder.</div>}
-    {!paymentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bank, e-wallet, atau cash untuk membayar tagihan.</div>}
-    {liabilityAccountId && <div className="ocr-message"><CreditCard size={15} />Pembayaran menjadi transfer ke akun utang, sehingga tidak dihitung sebagai pengeluaran dua kali.</div>}
-    {paidCountValue > 0 && <div className="ocr-message bill-history-note"><History size={15} /><span><strong>Progress awal saja.</strong> {paidCountValue} pembayaran lama tidak dibuat ulang sebagai transaksi. Pastikan saldo akun utang saat ini sudah sesuai.</span></div>}
-    {!expenseCategories.length && <div className="ocr-message"><Tags size={15} />Tambahkan kategori pengeluaran di Pengaturan terlebih dahulu.</div>}
-  </SimpleModal>;
-}
-
-function LegacyBillModal({ bill, accounts, categories, saving, onClose, onSubmit }: { bill?: Bill; accounts: Account[]; categories: FinanceCategory[]; saving: boolean; onClose: () => void; onSubmit: (payload: Record<string, unknown>) => Promise<void> }) {
-  const paymentAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
-  const liabilityAccounts = accounts.filter((account) => account.liability);
-  const expenseCategories = categories.filter((item) => item.active && item.type === "expense");
-  const [name, setName] = useState(bill?.name ?? "");
-  const [amount, setAmount] = useState(bill ? String(bill.amount) : "");
-  const [category, setCategory] = useState(bill?.category ?? expenseCategories.find((item) => item.name === "Tagihan")?.name ?? expenseCategories[0]?.name ?? "");
-  const [dueDate, setDueDate] = useState(bill?.dueDate ?? today());
-  const [accountId, setAccountId] = useState(bill?.accountId ?? paymentAccounts[0]?.id ?? "");
-  const [liabilityAccountId, setLiabilityAccountId] = useState(bill?.liabilityAccountId ?? "");
-  const [durationMonths, setDurationMonths] = useState(bill?.durationMonths ? String(bill.durationMonths) : "");
-  const [paidCount, setPaidCount] = useState(String(bill?.paidCount ?? 0));
-  const [reminderDays, setReminderDays] = useState(bill?.reminderDays ?? [7, 3, 1, 0]);
-  const durationValue = Number(durationMonths || 0);
-  const paidCountValue = Number(paidCount || 0);
-  const remainingMonths = durationValue ? Math.max(0, durationValue - paidCountValue) : null;
-  const progressPct = durationValue ? Math.min(100, paidCountValue / durationValue * 100) : 0;
-  const toggleReminder = (day: number) => setReminderDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day].sort((a, b) => b - a));
-  return <SimpleModal title={bill ? "Edit tagihan rutin" : "Tagihan rutin"} kicker="Reminder & cicilan" saving={saving} onClose={onClose} onSubmit={(event) => { event.preventDefault(); if (durationValue && paidCountValue > durationValue) return; return onSubmit({ name: name.trim(), amount: Number(amount || 0), category, dueDate, accountId, liabilityAccountId: liabilityAccountId || null, durationMonths: durationValue || null, paidCount: durationValue ? paidCountValue : 0, frequency: "monthly", reminderDays, ...(bill ? { paid: bill.paid } : {}) }); }}>
-    <div className="form-grid">
-      <label><span>Nama tagihan / cicilan</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Cicilan HP" required autoFocus /></label>
-      <label><span>Nominal per bulan</span><input value={formatMoneyInput(amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" required /></label>
-      <label><span>Kategori</span><select value={category} onChange={(event) => setCategory(event.target.value)} required><option value="" disabled>Pilih kategori</option>{expenseCategories.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label>
-      <label><span>{paidCountValue > 0 ? "Jatuh tempo berikutnya" : "Jatuh tempo pertama"}</span><input type="date" min={bill ? undefined : today()} value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></label>
-      <label><span>Akun pembayaran</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required><option value="" disabled>Pilih akun kas</option>{paymentAccounts.map((account) => <option value={account.id} key={account.id}>{account.name}</option>)}</select><ChevronDown size={15} /></label>
-      <label><span>Akun Paylater / utang</span><select value={liabilityAccountId} onChange={(event) => setLiabilityAccountId(event.target.value)}><option value="">Tagihan biasa (bukan cicilan utang)</option>{liabilityAccounts.map((account) => <option value={account.id} key={account.id}>{account.name} · {account.type}</option>)}</select><ChevronDown size={15} /></label>
-      <label><span>Total tenor (bulan)</span><input type="number" min={1} max={120} value={durationMonths} onChange={(event) => { const next = event.target.value.replace(/\D/g, "").slice(0, 3); setDurationMonths(next); if (!next) setPaidCount("0"); else if (Number(paidCount) > Number(next)) setPaidCount(next); }} inputMode="numeric" placeholder="Contoh: 9" /><small>Kosongkan jika tagihan berulang tanpa batas.</small></label>
-      <label><span>Sudah dibayar</span><input type="number" min={0} max={durationValue || 0} value={paidCount} onChange={(event) => setPaidCount(event.target.value.replace(/\D/g, "").slice(0, 3))} inputMode="numeric" disabled={!durationValue} required={Boolean(durationValue)} /><small>Isi 2 jika sebelumnya sudah membayar dua kali.</small></label>
-      <label><span>Frekuensi</span><input value="Bulanan" readOnly aria-label="Frekuensi tagihan bulanan" /></label>
-      {durationValue > 0 && <div className="bill-progress-preview full-field"><small>Progress cicilan</small><strong>{paidCountValue} dari {durationValue} cicilan sudah dibayar</strong><span>{remainingMonths} bulan tersisa</span><ProgressBar value={progressPct} color="var(--primary)" label={`Progress cicilan ${paidCountValue} dari ${durationValue}`} /></div>}
-      <fieldset className="bill-reminder-field"><legend>Jadwal reminder</legend><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={reminderDays.includes(day)} onChange={() => toggleReminder(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></fieldset>
-    </div>
     {!reminderDays.length && <div className="ocr-message"><Bell size={15} />Pilih minimal satu jadwal reminder.</div>}
     {!paymentAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun bank, e-wallet, atau cash untuk membayar tagihan.</div>}
     {liabilityAccountId && <div className="ocr-message"><CreditCard size={15} />Pembayaran menjadi transfer ke akun utang, sehingga tidak dihitung sebagai pengeluaran dua kali.</div>}

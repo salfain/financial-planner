@@ -11,7 +11,7 @@ declare global {
   }
 }
 
-type DemoSnapshot = {
+export type DemoSnapshot = {
   configured: true;
   entitlement: PlanEntitlement;
   profile: { name: string; storeName: string; currency: string; timezone: string };

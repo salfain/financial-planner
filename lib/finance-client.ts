@@ -567,7 +567,7 @@ export function loadFinanceSnapshot(month: string) {
   if (existing) return existing;
   const request = (async () => {
     const transport = isFinanceDemoMode()
-      ? demoRequest<unknown>("bootstrap", { month })
+      ? Promise.resolve(demoRequest<unknown>("bootstrap", { month }))
       : hasAppsScriptBridge()
       ? callAppsScript<unknown>("bootstrap", { month })
       : webRequest<unknown>(`/api/finance/bootstrap?month=${encodeURIComponent(month)}`);

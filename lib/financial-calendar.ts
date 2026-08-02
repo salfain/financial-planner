@@ -21,8 +21,6 @@ export type FinancialCalendarEvent = {
   countsTowardNeed: boolean;
 };
 
-const DAY_MS = 86_400_000;
-
 const parseDate = (value: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new RangeError("Tanggal kalender tidak valid.");
   const date = new Date(`${value}T12:00:00.000Z`);

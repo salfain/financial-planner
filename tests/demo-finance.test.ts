@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { demoRequest, financeDemoWhatsAppUrl, isFinanceDemoMode } from "../lib/demo-finance";
+import { demoRequest, financeDemoWhatsAppUrl, isFinanceDemoMode, type DemoSnapshot } from "../lib/demo-finance";
 
 function installDemoWindow(whatsappUrl = "https://wa.me/628123456789") {
   Object.defineProperty(globalThis, "window", {
@@ -17,7 +17,7 @@ test("mode demo membuka Premium dan memakai data contoh read-only", () => {
   installDemoWindow();
   assert.equal(isFinanceDemoMode(), true);
   assert.equal(financeDemoWhatsAppUrl(), "https://wa.me/628123456789");
-  const snapshot = demoRequest<any>("bootstrap", { month: "2026-07" });
+  const snapshot = demoRequest<DemoSnapshot>("bootstrap", { month: "2026-07" });
   assert.equal(snapshot.configured, true);
   assert.equal(snapshot.entitlement.tier, "premium");
   assert.equal(snapshot.entitlement.capabilities.investments, true);
@@ -36,7 +36,7 @@ test("query demo tidak dapat mengaktifkan mode pada build pelanggan", () => {
 
 test("setiap mutasi demo ditolak tanpa mengubah fixture", () => {
   installDemoWindow();
-  const before = demoRequest<any>("bootstrap", { month: "2026-07" });
+  const before = demoRequest<DemoSnapshot>("bootstrap", { month: "2026-07" });
   const actions = [
     "setupWorkspace", "createGoal", "updateTransaction", "deleteBill", "importAccounts",
     "askAi", "ocrReceipt", "createBackup", "previewMigration", "updateNotificationSettings",
@@ -44,7 +44,7 @@ test("setiap mutasi demo ditolak tanpa mengubah fixture", () => {
   for (const action of actions) {
     assert.throws(() => demoRequest(action, {}), /Mode demo hanya-baca/);
   }
-  const after = demoRequest<any>("bootstrap", { month: "2026-07" });
+  const after = demoRequest<DemoSnapshot>("bootstrap", { month: "2026-07" });
   assert.equal(JSON.stringify(after), JSON.stringify(before));
 });
 
