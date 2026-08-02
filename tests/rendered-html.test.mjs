@@ -42,6 +42,18 @@ test("sidebar dikelompokkan tanpa menyembunyikan menu", async () => {
   assert.match(css, /\.sidebar-card-copy/);
 });
 
+test("Mode Pasangan menampilkan identitas anggota aktif setelah ganti PIN", async () => {
+  const [app, gasShell] = await Promise.all([
+    source("../app/FinanceApp.tsx"),
+    source("../gas-frontend/main.tsx"),
+  ]);
+  assert.match(gasShell, /<FinanceApp memberIdentity=\{memberAuth\?\.mode === "couple" \? memberAuth\.member : null\}/);
+  assert.match(app, /const activeMemberName = memberIdentity\?\.displayName\?\.trim\(\) \|\| profile\.name/);
+  assert.match(app, /Selamat datang, \$\{activeMemberName\}/);
+  assert.match(app, /Profil aktif \$\{activeMemberName\}, \$\{activeMemberRole\}/);
+  assert.match(app, /memberIdentity\?\.role !== "editor" && <OwnerProfilePanel/);
+});
+
 test("UI pengaturan menyediakan pemeriksaan dan repair ledger terkonfirmasi", async () => {
   const [app, client, route] = await Promise.all([
     source("../app/FinanceApp.tsx"),

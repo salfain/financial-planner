@@ -438,7 +438,14 @@ function NotificationIcon({ notification }: { notification: FinanceNotification 
   return <CalendarDays size={17} />;
 }
 
-export function FinanceApp() {
+export type FinanceMemberIdentity = {
+  id: string;
+  displayName: string;
+  role: "owner" | "editor";
+  mustChangePin?: boolean;
+};
+
+export function FinanceApp({ memberIdentity = null }: { memberIdentity?: FinanceMemberIdentity | null } = {}) {
   const [activePage, setActivePage] = useState<PageKey>("dashboard");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -920,9 +927,18 @@ export function FinanceApp() {
   const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "receivables" ? "Catat piutang" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "funds" ? "Buat pos dana" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
   const notifications = notificationOverview?.notifications ?? [];
   const unreadNotifications = notificationOverview?.unreadCount ?? 0;
+  const activeMemberName = memberIdentity?.displayName?.trim() || profile.name;
+  const activeMemberRole = memberIdentity?.role === "editor" ? "Pasangan" : "Pemilik";
+  const activeMemberInitials = activeMemberName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "FP";
 
   const title = { ...pageTitles[activePage] };
-  if (activePage === "dashboard") { title.eyebrow = monthLabel(month); title.title = `Selamat datang, ${profile.name}`; }
+  if (activePage === "dashboard") { title.eyebrow = monthLabel(month); title.title = `Selamat datang, ${activeMemberName}`; }
   if (activePage === "roadmap") title.eyebrow = `Proyeksi mulai ${monthLabel(month)}`;
   if (activePage === "forecast") title.eyebrow = "Proyeksi dari hari ini";
   if (activePage === "emergency") title.eyebrow = "Perlindungan finansial";
@@ -994,9 +1010,9 @@ export function FinanceApp() {
           <span className="sidebar-card-icon"><Database size={17} /></span>
           <span className="sidebar-card-copy"><strong>{financeBackendLabel()}</strong><small className="status-pill"><span /> {demoMode ? "Demo read-only" : "Terhubung"}</small></span>
         </div>
-        <button className="profile-row" onClick={() => demoMode ? showToast("Semua fitur Premium sudah terbuka selama mode demo.") : setLicenseOpen(true)} aria-label={`Paket aktif ${entitlement.label}`}>
-          <div className="avatar">{profile.name.slice(0, 2).toUpperCase()}</div>
-          <div><strong>{profile.name}</strong><small>Owner · <b className={`plan-badge ${entitlement.tier}`}>{entitlement.label}</b></small></div>
+        <button className="profile-row" onClick={() => memberIdentity?.role === "editor" ? selectPage("settings") : demoMode ? showToast("Semua fitur Premium sudah terbuka selama mode demo.") : setLicenseOpen(true)} aria-label={`Profil aktif ${activeMemberName}, ${activeMemberRole}`}>
+          <div className="avatar">{activeMemberInitials}</div>
+          <div><strong>{activeMemberName}</strong><small>{activeMemberRole} · <b className={`plan-badge ${entitlement.tier}`}>{entitlement.label}</b></small></div>
           <MoreHorizontal size={18} />
         </button>
       </aside>
@@ -1070,7 +1086,7 @@ export function FinanceApp() {
           {activePage === "review" && <MonthlyReviewPage period={month} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
-          {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} schemaVersion={schemaVersion} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} onNavigate={selectPage} />}
+          {activePage === "settings" && <SettingsPage profile={profile} memberIdentity={memberIdentity} entitlement={entitlement} configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} schemaVersion={schemaVersion} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} onNavigate={selectPage} />}
         </div>
       </main>
 
@@ -2966,8 +2982,9 @@ function MemberSettingsPanel({ onToast }: { onToast: (message: string) => void }
   </>;
 }
 
-function SettingsPage({ profile, entitlement, configured, accounts, transactions, bills, goals, month, lastSyncedAt, syncDurationMs, usingCachedData, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, schemaVersion, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh, onNavigate }: {
+function SettingsPage({ profile, memberIdentity, entitlement, configured, accounts, transactions, bills, goals, month, lastSyncedAt, syncDurationMs, usingCachedData, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, schemaVersion, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh, onNavigate }: {
   profile: FinanceProfile;
+  memberIdentity?: FinanceMemberIdentity | null;
   entitlement: PlanEntitlement;
   configured: boolean;
   accounts: Account[];
@@ -3006,12 +3023,12 @@ function SettingsPage({ profile, entitlement, configured, accounts, transactions
 }) {
   const editableCategories = categories.filter((category) => category.active && (category.type === "income" || category.type === "expense"));
   return <div className="settings-layout">
-    <OwnerProfilePanel key={profile.name} profile={profile} saving={saving} onSave={onSaveProfile} />
+    {memberIdentity?.role !== "editor" && <OwnerProfilePanel key={profile.name} profile={profile} saving={saving} onSave={onSaveProfile} />}
     <LicenseCenterPanel entitlement={entitlement} onOpenLicense={onOpenLicense} onToast={onToast} />
     <CustomerReadinessPanel configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} entitlement={entitlement} schemaVersion={schemaVersion} backendLabel={backendLabel} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onNavigate={onNavigate} onToast={onToast} />
     <MemberSettingsPanel onToast={onToast} />
     <FeaturePreferencesPanel key={JSON.stringify(featurePreferences)} preferences={featurePreferences} saving={saving} onSave={onSaveFeaturePreferences} />
-    <SecurityAccessPanel privacy={privacy} />
+    <SecurityAccessPanel privacy={privacy} memberIdentity={memberIdentity} />
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
     <UpdateCenterPanel schemaVersion={schemaVersion} backendLabel={backendLabel} onRefresh={onRefresh} onToast={onToast}/>
@@ -3093,7 +3110,7 @@ function LicenseModal({ entitlement, onClose, onChanged }: { entitlement: PlanEn
   return <div className="modal-backdrop" role="presentation"><section className="modal license-modal" role="dialog" aria-modal="true" aria-labelledby="license-title"><div className="modal-head"><div><span className="eyebrow">Paket produk</span><h2 id="license-title">Aktivasi lisensi</h2><p>Lisensi offline terikat ke satu instalasi. Kirim ID instalasi ke penjual untuk memperoleh kode Pro atau Premium.</p></div><button className="icon-button" onClick={onClose} aria-label="Tutup aktivasi lisensi"><X size={20}/></button></div><div className="license-current"><span><ShieldCheck size={20}/></span><div><small>Paket aktif</small><strong>{entitlement.label}</strong><p>{entitlement.expiresAt ? `Berlaku hingga ${new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(new Date(entitlement.expiresAt))}` : entitlement.status === "active" ? "Lisensi jual-putus tanpa tanggal berakhir." : "Fitur inti tersedia tanpa kode lisensi."}</p></div><b className={`plan-badge ${entitlement.tier}`}>{entitlement.label}</b></div><label className="license-installation"><span>ID instalasi</span><div><input value={entitlement.installationId} readOnly/><button className="secondary-button" type="button" onClick={() => void copyInstallation()}><Copy size={15}/> Salin</button></div><small>Token untuk instalasi lain akan ditolak.</small></label><label><span>Kode lisensi</span><textarea rows={4} value={token} onChange={(event) => setToken(event.target.value)} placeholder="FP1..." autoComplete="off" spellCheck={false}/></label>{error && <div className="portability-error" role="alert">{error}</div>}<div className="modal-actions"><button className="primary-button" onClick={() => void activate()} disabled={working || !token.trim()}>{working ? "Memproses…" : "Aktifkan lisensi"}</button>{entitlement.tier !== "free" && <button className="secondary-button danger" onClick={() => void deactivate()} disabled={working}>Nonaktifkan</button>}<button className="secondary-button" onClick={onClose} disabled={working}>Tutup</button></div><small className="license-limit-note">Lisensi lokal mengatur akses produk, bukan proteksi anti-tamper. Transfer instalasi memerlukan kode baru.</small></section></div>;
 }
 
-function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
+function SecurityAccessPanel({ privacy, memberIdentity }: { privacy: boolean; memberIdentity?: FinanceMemberIdentity | null }) {
   const [status, setStatus] = useState<FinanceSecurityStatus | null>(null);
   const [error, setError] = useState("");
 
@@ -3105,11 +3122,14 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
     return () => { active = false; };
   }, []);
 
-  const accountLabel = status?.email
+  const accountLabel = memberIdentity?.displayName || (status?.email
     ? privacy
       ? status.email.replace(/^(.{1,2}).*(@.*)$/, "$1••••$2")
       : status.email
-    : status?.displayName ?? "Sesi pemilik";
+    : status?.displayName ?? "Sesi pemilik");
+  const identityDetail = memberIdentity
+    ? `Mode Pasangan · ${memberIdentity.role === "editor" ? "Pasangan" : "Pemilik"}`
+    : status ? `${status.provider} · ${status.sessionState === "local_preview" ? "mode pengembangan" : "sesi terverifikasi"}` : "";
 
   return <section className="panel settings-section settings-wide security-access-panel">
     <div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Keamanan & akses</h2><p>Identitas, isolasi workspace, dan perlindungan respons aplikasi.</p></div><span className="security-badge"><CheckCircle2 size={13} /> Terlindungi</span></div>
@@ -3117,7 +3137,7 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
     {!status && !error && <div className="settings-empty">Memeriksa keamanan sesi…</div>}
     {status && <>
       <div className="security-status-grid">
-        <article><span><KeyRound size={18} /></span><div><small>Identitas aktif</small><strong>{accountLabel}</strong><p>{status.provider} · {status.sessionState === "local_preview" ? "mode pengembangan" : "sesi terverifikasi"}</p></div></article>
+        <article><span><KeyRound size={18} /></span><div><small>Identitas aktif</small><strong>{accountLabel}</strong><p>{identityDetail}</p></div></article>
         <article><span><UserRound size={18} /></span><div><small>Kontrol akses</small><strong>{status.accessMode === "owner_only" ? "Hanya pemilik" : "Dikelola deployment"}</strong><p>{status.accessMode === "owner_only" ? "Pengunjung lain tidak dapat membuka workspace privat ini." : "Akses mengikuti pengguna yang diizinkan pada deployment Google Apps Script."}</p></div></article>
         <article><span><Database size={18} /></span><div><small>Isolasi data</small><strong>Dikunci di server</strong><p>ID workspace dari browser tidak dapat mengalihkan akses data.</p></div></article>
       </div>

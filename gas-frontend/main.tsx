@@ -309,7 +309,7 @@ function GasHost() {
         : memberAuth?.mode === "couple" && memberAuth.authenticated && memberAuth.member?.mustChangePin
         ? <MandatoryPinChange auth={memberAuth} onChanged={setMemberAuth} />
         : window.__FINANCE_DEMO__ === true || memberAuth?.authenticated || bridgeState.status === "unavailable" || bridgeState.status === "needs_setup" || bridgeState.status === "error"
-        ? <FinanceApp />
+        ? <FinanceApp memberIdentity={memberAuth?.mode === "couple" ? memberAuth.member : null} />
         : null}
     </>
   );

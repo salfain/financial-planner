@@ -3,6 +3,7 @@
 // memigrasi, atau mengunci data anggota lain tanpa pernah melihatnya di layar.
 const OWNER_ONLY_ACTIONS = Object.freeze({
   setup: true, setupWorkspace: true, upgradeWorkspace: true,
+  updateProfile: true,
   activateLicense: true, deactivateLicense: true,
   backup: true, createBackup: true, backupOverview: true, updateBackupSchedule: true,
   migrationHistory: true, previewMigration: true, applyMigration: true, cancelMigration: true,

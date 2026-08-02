@@ -59,6 +59,7 @@ test("sheet yang membawa data anggota disaring oleh ScopeService", () => {
 test("aksi tingkat workspace tetap terkunci untuk pemilik", () => {
   for (const action of [
     "setup", "setupWorkspace", "upgradeWorkspace",
+    "updateProfile",
     "activateLicense", "deactivateLicense",
     "backup", "createBackup", "backupOverview", "updateBackupSchedule",
     "migrationHistory", "previewMigration", "applyMigration", "cancelMigration",
