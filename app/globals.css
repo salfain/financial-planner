@@ -365,11 +365,21 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 
 /* Waterfall: batang pemasukan, potongan kategori melayang, lalu sisa. */
 .waterfall-chart { display: flex; align-items: flex-end; gap: 18px; height: 250px; margin-top: 30px; padding-bottom: 2px; border-bottom: 1px solid var(--border); }
-.waterfall-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 8px; }
+/* Posisi absolut supaya tinggi (--bar-h) dan jarak dari dasar (--bar-b)
+   sama-sama dihitung terhadap TINGGI kolom, sehingga tangga waterfall menyambung. */
+.waterfall-col { position: relative; flex: 1; height: 100%; }
 .waterfall-col.wide { flex: 1.2; }
-.waterfall-col strong { font-size: 13px; letter-spacing: -.02em; white-space: nowrap; }
-.waterfall-col.wide strong { font-size: 14px; }
-.waterfall-bar { width: 100%; border-radius: 8px; }
+.waterfall-value {
+  position: absolute; left: 0; right: 0;
+  bottom: calc(var(--bar-b) + var(--bar-h) + 7px);
+  text-align: center; font-size: 13px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap;
+}
+.waterfall-col.wide .waterfall-value { font-size: 14px; }
+.waterfall-bar {
+  position: absolute; left: 0; right: 0;
+  bottom: var(--bar-b); height: var(--bar-h);
+  border-radius: 8px;
+}
 /* Batang potongan kategori bisa sangat pendek (nilai kecil dibanding pemasukan).
    Radius 8px pada batang setinggi 7px membuatnya jadi lonjong, bukan batang —
    jadi radiusnya dikecilkan dan diberi tinggi minimum agar tetap terbaca. */

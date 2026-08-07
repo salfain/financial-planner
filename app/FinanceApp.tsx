@@ -1315,13 +1315,22 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
               <button className="text-button" onClick={() => onNavigate("transactions")}>Detail <ArrowRight size={16} /></button>
             </div>
             {monthly.income > 0 || waterfallSteps.length ? <div className="waterfall-scroll">
+              {/* Tinggi & posisi batang dipasang lewat custom property lalu diposisikan
+                  absolut terhadap kolom. Margin persen tidak bisa dipakai di sini karena
+                  persen pada margin dihitung dari LEBAR container, bukan tinggi. */}
               <div className="waterfall-chart" aria-label="Grafik waterfall pemasukan hingga sisa">
-                <div className="waterfall-col wide"><strong>{privacy ? "••••" : formatIDR(monthly.income, true).replace("Rp ", "")}</strong><span className="waterfall-bar income" style={{ height: `${monthly.income / waterfallMax * 100}%` }} /></div>
-                {waterfallSteps.map((item) => <div className="waterfall-col" key={item.id}>
-                  <strong style={{ color: item.color }}>−{privacy ? "••••" : formatIDR(item.value, true).replace("Rp ", "")}</strong>
-                  <span className="waterfall-bar step" style={{ height: `${Math.max(1.5, item.height)}%`, marginBottom: `${item.offset}%`, background: item.color }} />
+                <div className="waterfall-col wide" style={{ "--bar-h": `${monthly.income / waterfallMax * 100}%`, "--bar-b": "0%" } as React.CSSProperties}>
+                  <span className="waterfall-value">{privacy ? "••••" : formatIDR(monthly.income, true).replace("Rp ", "")}</span>
+                  <span className="waterfall-bar income" />
+                </div>
+                {waterfallSteps.map((item) => <div className="waterfall-col" key={item.id} style={{ "--bar-h": `${Math.max(1.5, item.height)}%`, "--bar-b": `${item.offset}%` } as React.CSSProperties}>
+                  <span className="waterfall-value" style={{ color: item.color }}>−{privacy ? "••••" : formatIDR(item.value, true).replace("Rp ", "")}</span>
+                  <span className="waterfall-bar step" style={{ background: item.color }} />
                 </div>)}
-                <div className="waterfall-col wide"><strong className={monthly.cashflow >= 0 ? "positive-text" : "negative-text"}>{privacy ? "••••" : formatIDR(monthly.cashflow, true).replace("Rp ", "")}</strong><span className="waterfall-bar remainder" style={{ height: `${Math.max(0, monthly.cashflow) / waterfallMax * 100}%` }} /></div>
+                <div className="waterfall-col wide" style={{ "--bar-h": `${Math.max(0, monthly.cashflow) / waterfallMax * 100}%`, "--bar-b": "0%" } as React.CSSProperties}>
+                  <span className={`waterfall-value ${monthly.cashflow >= 0 ? "positive-text" : "negative-text"}`}>{privacy ? "••••" : formatIDR(monthly.cashflow, true).replace("Rp ", "")}</span>
+                  <span className="waterfall-bar remainder" />
+                </div>
               </div>
               <div className="waterfall-labels">
                 <span className="wide">Pemasukan</span>
