@@ -1079,7 +1079,10 @@ export function FinanceApp() {
       </main>
 
       <nav className="mobile-nav" aria-label="Navigasi seluler">
-        {navPrimary.filter((item) => ["dashboard", "transactions", "budgets", "goals"].includes(item.key) && isOptionalFeatureEnabled(featurePreferences, item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
+        {/* Urutan mengikuti desain 5a: dua tab, FAB tengah, dua tab. */}
+        {navPrimary.filter((item) => ["dashboard", "transactions"].includes(item.key) && isOptionalFeatureEnabled(featurePreferences, item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
+        <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={24} /></button>
+        {navPrimary.filter((item) => item.key === "budgets" && isOptionalFeatureEnabled(featurePreferences, item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
         <button className="mobile-nav-more nav-item" onClick={() => setSidebarOpen(true)} aria-label="Menu lainnya"><MoreHorizontal size={21} /><span>Lainnya</span></button>
       </nav>
 
@@ -1235,6 +1238,12 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
             </div>
           </div>
 
+          {/* Hanya mobile (desain 5a): dua kartu masuk/keluar tepat di bawah hero. */}
+          <div className="mobile-inout">
+            <div><span className="mobile-inout-icon in"><ArrowDownLeft size={16} /></span><small>Masuk</small><Amount value={monthly.income} privacy={privacy} /></div>
+            <div><span className="mobile-inout-icon out"><ArrowUpRight size={16} /></span><small>Keluar</small><Amount value={monthly.expense} privacy={privacy} /></div>
+          </div>
+
           <div className="now-cell">
             <span className="now-kicker">Arus kas {monthLabel(month).split(" ")[0]}</span>
             <div>
@@ -1262,7 +1271,35 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
             <span className="now-kicker">Skor kesehatan</span>
             <div className="now-health-ring" style={{ "--score": `${healthScore * 3.6}deg` } as React.CSSProperties}><div><strong>{healthScore}</strong><small>/100</small></div></div>
             <button className="now-health-pill" onClick={() => onNavigate("reports")}>{healthLabel}</button>
+            <p className="now-health-note">Skor kesehatan finansial dari savings rate &amp; likuiditas.</p>
           </div>
+        </div>
+
+      </section>
+
+      {/* Hanya mobile (desain 5a): daftar ringkas menggantikan kartu aksi & waterfall. */}
+      <section className="mobile-dash-lists">
+        <div className="panel mobile-dash-card">
+          <div className="mobile-dash-head"><strong>Tagihan terdekat</strong><button className="text-button" onClick={() => onNavigate("bills")}>Semua</button></div>
+          {upcomingBills.length ? upcomingBills.map((bill, index) => {
+            const days = Math.ceil((new Date(`${bill.dueDate}T12:00:00`).getTime() - new Date().getTime()) / 86_400_000);
+            return <div className="mobile-bill-row" key={bill.id}>
+              <span className={`date-box ${index === 0 ? "urgent" : ""}`}><small>{shortMonth(bill.dueDate)}</small><strong>{validDate(bill.dueDate) ? bill.dueDate.slice(-2) : "—"}</strong></span>
+              <span><strong>{bill.name}</strong><small className={index === 0 ? "negative-text" : ""}>{days < 0 ? "Terlambat" : days === 0 ? "Hari ini" : `${days} hari lagi`}</small></span>
+              <Amount value={bill.amount} privacy={privacy} compact />
+            </div>;
+          }) : <p className="dashboard-empty">Tidak ada tagihan menunggu.</p>}
+        </div>
+
+        <div className="panel mobile-dash-card">
+          <div className="mobile-dash-head"><strong>Target aktif</strong><button className="text-button" onClick={() => onNavigate("goals")}>Kelola</button></div>
+          {goals.length ? goals.slice(0, 3).map((goal) => {
+            const percent = goal.target > 0 ? goal.current / goal.target * 100 : 0;
+            return <div className="mobile-goal-row" key={goal.id}>
+              <span><strong>{goal.name}</strong><b style={{ color: goal.color }}>{percent.toFixed(0)}%</b></span>
+              <div className="mobile-goal-track"><span style={{ width: `${Math.min(100, percent)}%`, background: goal.color }} /></div>
+            </div>;
+          }) : <p className="dashboard-empty">Belum ada target finansial.</p>}
         </div>
       </section>
 
