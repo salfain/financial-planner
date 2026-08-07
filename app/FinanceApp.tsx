@@ -1139,12 +1139,39 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
     };
   }, []);
 
+  const visibleBudgets = budgets.length ? budgets : [...new Set(transactions.filter((item) => item.type === "expense").map((item) => item.category))].map((category, index) => ({ id: `category-${index}`, category, limit: 0, color: Object.values(categoryColors)[index % Object.values(categoryColors).length] }));
+  const expenseByCategory = visibleBudgets.map((budget) => ({ ...budget, value: budgetSpent(transactions, budget.category, month) }));
+  const categoryTotal = expenseByCategory.reduce((sum, item) => sum + item.value, 0);
+  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const endDay = Math.max(1, Math.min(daysInMonth, Number(today().slice(-2))));
+  const startDay = Math.max(1, endDay - 13);
+  const dailySeries = Array.from({ length: endDay - startDay + 1 }, (_, index) => {
+    const day = startDay + index;
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    const items = transactions.filter((item) => item.date === date && item.status === "completed");
+    return {
+      day,
+      date,
+      income: items.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amount, 0),
+      expense: items.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.amount, 0),
+    };
+  });
+  const chartMax = Math.max(1, ...dailySeries.flatMap((item) => [item.income, item.expense]));
+  let gradientCursor = 0;
+  const donutGradient = categoryTotal > 0 ? `conic-gradient(${expenseByCategory.filter((item) => item.value > 0).map((item) => {
+    const start = gradientCursor;
+    gradientCursor += item.value / categoryTotal * 100;
+    return `${item.color} ${start.toFixed(2)}% ${gradientCursor.toFixed(2)}%`;
+  }).join(", ")})` : "conic-gradient(var(--surface-strong) 0 100%)";
   const dashboardBills = calendarBillsForActiveAccounts(bills, accounts.map((account) => account.id));
   const unpaidDashboardBills = dashboardBills.filter((bill) => !bill.paid && !bill.completed);
   const upcomingBills = [...unpaidDashboardBills].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 3);
   const recent = [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
   const healthLabel = healthScore >= 80 ? "Sehat" : healthScore >= 60 ? "Baik" : healthScore >= 40 ? "Cukup" : "Perlu perhatian";
+  const consumerLiabilities = accounts.filter((account) => account.liability && ["Paylater", "Credit Card"].includes(account.type));
+  const longTermLiabilities = accounts.filter((account) => account.liability && ["Loan", "Mortgage"].includes(account.type));
   const liabilityInstallments = unpaidDashboardBills.filter((bill) => bill.liabilityAccountId);
+  const activeInstallments = liabilityInstallments.filter((bill) => bill.dueDate.slice(0, 7) <= month);
   const nearestInstallment = [...liabilityInstallments].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
   const wealthHistory = Array.from({ length: 7 }, (_, index) => {
     const period = addMonthsToPeriod(month, index - 6);
@@ -1168,302 +1195,164 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   const wealthArea = `${wealthChartStart},88 ${wealthPolyline} ${wealthChartEnd},88`;
   const wealthChange = wealthHistory.at(-1)!.netWorth - wealthHistory[0].netWorth;
 
-  // "Sekarang" — runway kas: berapa bulan saldo likuid menutup biaya hidup bulanan.
-  const runwayMonths = monthly.expense > 0 ? accountTotals.liquid / monthly.expense : 0;
-  const runwayBars = Array.from({ length: 6 }, (_, index) => {
-    const filled = runwayMonths - index;
-    return filled >= 1 ? 1 : filled > 0 ? filled : 0;
-  });
-
-  // "Bulan ini" — waterfall: pemasukan → potongan kategori terbesar → sisa.
-  // Ambil dari seluruh pengeluaran bulan ini, bukan hanya kategori yang punya anggaran.
-  const waterfallCategories = [...new Set(transactions.filter((item) => item.type === "expense" && item.date.startsWith(month)).map((item) => item.category))]
-    .map((category) => ({ id: `wf-${category}`, category, value: budgetSpent(transactions, category, month), color: budgets.find((item) => item.category === category)?.color ?? categoryColors[category] ?? "#89918d" }))
-    .filter((item) => item.value > 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 4);
-  const waterfallMax = Math.max(1, monthly.income, monthly.expense);
-  const waterfallSteps = waterfallCategories.map((item, index) => {
-    // Sisa setelah kategori ini dipotong menentukan seberapa tinggi batang "melayang".
-    const consumed = waterfallCategories.slice(0, index + 1).reduce((sum, step) => sum + step.value, 0);
-    return {
-      ...item,
-      height: item.value / waterfallMax * 100,
-      offset: Math.max(0, (monthly.income - consumed) / waterfallMax * 100),
-    };
-  });
-  const budgetedCategoryNames = new Set(budgets.map((item) => item.category));
-  const dashboardBudgetRows = budgets.slice(0, 3).map((budget) => ({
-    ...budget,
-    spent: budgetSpent(transactions, budget.category, month),
-  }));
-  const dashboardUnbudgeted = [...new Set(transactions.filter((item) => item.type === "expense" && item.date.startsWith(month) && !budgetedCategoryNames.has(item.category)).map((item) => item.category))]
-    .map((category) => ({ category, spent: budgetSpent(transactions, category, month), color: categoryColors[category] ?? "#89918d" }))
-    .sort((a, b) => b.spent - a.spent)[0];
-  const monthExpenseTotal = transactions.filter((item) => item.type === "expense" && item.date.startsWith(month) && item.status === "completed").reduce((sum, item) => sum + item.amount, 0);
-
-  // "Perlu tindakan" — tagihan terdekat, cicilan berjalan, target prioritas.
-  const actionBill = upcomingBills.find((bill) => !bill.liabilityAccountId) ?? upcomingBills[0] ?? null;
-  const actionBillDays = actionBill ? Math.ceil((new Date(`${actionBill.dueDate}T12:00:00`).getTime() - new Date().getTime()) / 86_400_000) : 0;
-  const actionInstallment = nearestInstallment ?? unpaidDashboardBills.find((bill) => bill.durationMonths) ?? null;
-  const actionGoal = [...goals].sort((a, b) => (a.deadline || "").localeCompare(b.deadline || ""))[0] ?? null;
-  const actionGoalPercent = actionGoal && actionGoal.target > 0 ? actionGoal.current / actionGoal.target * 100 : 0;
-  const actionCount = [actionBill, actionInstallment, actionGoal].filter(Boolean).length;
-
   return (
     <div className="dashboard-grid">
-      {transactions.length === 0 && <div className="onboarding-banner">
+      {transactions.length === 0 && <section className="onboarding-banner">
         <span><Sparkles size={20} /></span>
         <div><small>Langkah berikutnya</small><strong>Catat transaksi pertama</strong><p>Saldo awal sudah siap. Tambahkan pemasukan atau pengeluaran agar ringkasan, anggaran, dan analisis mulai bekerja.</p></div>
         <button className="primary-button" onClick={onAdd}><Plus size={17} /> Tambah transaksi</button>
-      </div>}
-
-      <section className="dashboard-section">
-        <div className="dashboard-section-header">
-          <h2>Sekarang</h2>
-          <span className="divider"></span>
+      </section>}
+      <section className="hero-card">
+        <div className="hero-copy">
+          <span className="card-kicker"><span className="live-dot" /> Kekayaan bersih</span>
+          <Amount value={accountTotals.netWorth} privacy={privacy} className="hero-value" />
+          <div className="positive-change"><ShieldCheck size={15} /> Ledger aktif <span>saldo dapat dihitung ulang</span></div>
         </div>
-        <div className="tier-now">
-          <div className="now-cell now-networth">
-            <span className="now-kicker">Kekayaan bersih</span>
-            <Amount value={accountTotals.netWorth} privacy={privacy} className="now-networth-value" />
-            <div className="now-change">
-              <span className={wealthChange >= 0 ? "now-change-pill" : "now-change-pill negative"}>{wealthChange >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}{wealthChange >= 0 ? "+" : ""}{privacy ? "Rp ••••" : formatIDR(wealthChange, true)}</span>
-              <small>sejak {shortMonth(`${wealthHistory[0].period}-01`)}</small>
-            </div>
-            <div className="now-networth-stats">
-              <div><small>Aset</small><Amount value={accountTotals.assets} privacy={privacy} compact /></div>
-              <div><small>Kewajiban</small><Amount value={accountTotals.liabilities} privacy={privacy} compact className="negative-text" /></div>
-              <div><small>Investasi</small><Amount value={accountTotals.investment} privacy={privacy} compact /></div>
-            </div>
-          </div>
-
-          {/* Hanya mobile (desain 5a): dua kartu masuk/keluar tepat di bawah hero. */}
-          <div className="mobile-inout">
-            <div><span className="mobile-inout-icon in"><ArrowDownLeft size={16} /></span><small>Masuk</small><Amount value={monthly.income} privacy={privacy} /></div>
-            <div><span className="mobile-inout-icon out"><ArrowUpRight size={16} /></span><small>Keluar</small><Amount value={monthly.expense} privacy={privacy} /></div>
-          </div>
-
-          <div className="now-cell">
-            <span className="now-kicker">Arus kas {monthLabel(month).split(" ")[0]}</span>
-            <div>
-              <div className={`now-big ${monthly.cashflow >= 0 ? "positive-text" : "negative-text"}`}>{monthly.cashflow >= 0 ? "+" : ""}{privacy ? "Rp ••••" : formatIDR(monthly.cashflow, true)}</div>
-              <small className="now-sub">masuk {privacy ? "••••" : formatIDR(monthly.income, true).replace("Rp ", "")} · keluar {privacy ? "••••" : formatIDR(monthly.expense, true).replace("Rp ", "")}</small>
-            </div>
-            <div className="now-savings">
-              <div><span>Savings rate</span><strong>{monthly.savingsRate.toFixed(1)}%</strong></div>
-              <div className="now-savings-track"><span style={{ width: `${Math.max(0, Math.min(100, monthly.savingsRate))}%` }} /></div>
-            </div>
-          </div>
-
-          <div className="now-cell">
-            <span className="now-kicker">Runway kas</span>
-            <div>
-              <div className="now-big">{runwayMonths > 0 ? runwayMonths.toFixed(1) : "—"} <span>bulan</span></div>
-              <small className="now-sub">kas {privacy ? "••••" : formatIDR(accountTotals.liquid, true).replace("Rp ", "")} ÷ biaya {privacy ? "••••" : formatIDR(monthly.expense, true).replace("Rp ", "")}</small>
-            </div>
-            <div className="now-runway-bars" aria-hidden="true">
-              {runwayBars.map((fill, index) => <span key={index}><i style={{ height: `${fill * 100}%`, background: fill >= 1 ? "var(--primary-dark, #0f5949)" : fill > 0 ? "#7fc9b1" : "transparent" }} /></span>)}
-            </div>
-          </div>
-
-          <div className="now-cell now-health">
-            <span className="now-kicker">Skor kesehatan</span>
-            <div className="now-health-ring" style={{ "--score": `${healthScore * 3.6}deg` } as React.CSSProperties}><div><strong>{healthScore}</strong><small>/100</small></div></div>
-            <button className="now-health-pill" onClick={() => onNavigate("reports")}>{healthLabel}</button>
-            <p className="now-health-note">Skor kesehatan finansial dari savings rate &amp; likuiditas.</p>
-          </div>
+        <div className="hero-mini-stats">
+          <div><span>Total aset</span><Amount value={accountTotals.assets} privacy={privacy} /><small>{accounts.filter((item) => !item.liability).length} akun aset</small></div>
+          <div><span>Total kewajiban</span><Amount value={accountTotals.liabilities} privacy={privacy} /><small className="muted-change">{accounts.filter((item) => item.liability).length} akun kewajiban</small></div>
         </div>
-
+        <div className="hero-liability-details" aria-label="Rincian kewajiban">
+          <button type="button" onClick={() => onNavigate("bills")}>
+            <span>Paylater & kartu</span>
+            <Amount value={consumerLiabilities.reduce((sum, account) => sum + account.balance, 0)} privacy={privacy} />
+            <small>{consumerLiabilities.length} akun</small>
+          </button>
+          <button type="button" onClick={() => onNavigate("bills")}>
+            <span>Kredit & pinjaman</span>
+            <Amount value={longTermLiabilities.reduce((sum, account) => sum + account.balance, 0)} privacy={privacy} />
+            <small>{longTermLiabilities.length} kontrak</small>
+          </button>
+          <button type="button" onClick={() => onNavigate("bills")}>
+            <span>Cicilan bulan ini</span>
+            <Amount value={activeInstallments.reduce((sum, bill) => sum + bill.amount, 0)} privacy={privacy} />
+            <small>{activeInstallments.length} jadwal belum dibayar</small>
+          </button>
+          <button type="button" onClick={() => onNavigate("bills")}>
+            <span>Jatuh tempo terdekat</span>
+            <strong>{nearestInstallment ? shortDate(nearestInstallment.dueDate) : "Tidak ada"}</strong>
+            <small>{nearestInstallment?.name ?? "Belum ada cicilan"}</small>
+          </button>
+        </div>
+        <div className="hero-pattern" aria-hidden="true"><span /><span /><span /><span /><span /></div>
       </section>
 
-      {/* Hanya mobile (desain 5a): daftar ringkas menggantikan kartu aksi & waterfall. */}
-      <section className="mobile-dash-lists">
-        <div className="panel mobile-dash-card">
-          <div className="mobile-dash-head"><strong>Tagihan terdekat</strong><button className="text-button" onClick={() => onNavigate("bills")}>Semua</button></div>
-          {upcomingBills.length ? upcomingBills.map((bill, index) => {
-            const days = Math.ceil((new Date(`${bill.dueDate}T12:00:00`).getTime() - new Date().getTime()) / 86_400_000);
-            return <div className="mobile-bill-row" key={bill.id}>
-              <span className={`date-box ${index === 0 ? "urgent" : ""}`}><small>{shortMonth(bill.dueDate)}</small><strong>{validDate(bill.dueDate) ? bill.dueDate.slice(-2) : "—"}</strong></span>
-              <span><strong>{bill.name}</strong><small className={index === 0 ? "negative-text" : ""}>{days < 0 ? "Terlambat" : days === 0 ? "Hari ini" : `${days} hari lagi`}</small></span>
-              <Amount value={bill.amount} privacy={privacy} compact />
-            </div>;
-          }) : <p className="dashboard-empty">Tidak ada tagihan menunggu.</p>}
-        </div>
-
-        <div className="panel mobile-dash-card">
-          <div className="mobile-dash-head"><strong>Target aktif</strong><button className="text-button" onClick={() => onNavigate("goals")}>Kelola</button></div>
-          {goals.length ? goals.slice(0, 3).map((goal) => {
-            const percent = goal.target > 0 ? goal.current / goal.target * 100 : 0;
-            return <div className="mobile-goal-row" key={goal.id}>
-              <span><strong>{goal.name}</strong><b style={{ color: goal.color }}>{percent.toFixed(0)}%</b></span>
-              <div className="mobile-goal-track"><span style={{ width: `${Math.min(100, percent)}%`, background: goal.color }} /></div>
-            </div>;
-          }) : <p className="dashboard-empty">Belum ada target finansial.</p>}
+      <section className="health-card">
+        <div className="card-title-row"><div><span className="card-kicker">Skor kesehatan</span><h2>Kondisi finansial</h2></div></div>
+        <div className="health-content">
+          <div className="score-ring" style={{ "--score": `${healthScore * 3.6}deg` } as React.CSSProperties}><div><strong>{healthScore}</strong><small>/100</small></div></div>
+          <div><span className="health-label">{healthLabel}</span><p>Skor dihitung deterministik dari savings rate, likuiditas, utang, dan kepatuhan anggaran.</p><button className="text-button" onClick={() => onNavigate("reports")}>Lihat analisis <ArrowRight size={15} /></button></div>
         </div>
       </section>
 
-      <section className="dashboard-section">
-        <div className="dashboard-section-header">
-          <h2>Bulan ini</h2>
-          <span className="divider"></span>
-        </div>
-        <div className="tier-month">
-          <section className="panel waterfall-panel">
-            <div className="panel-head">
-              <div><h3>Ke mana uangnya pergi</h3><p>Dari pemasukan sampai sisa — waterfall {monthLabel(month)}.</p></div>
-              <button className="text-button" onClick={() => onNavigate("transactions")}>Detail <ArrowRight size={16} /></button>
-            </div>
-            {monthly.income > 0 || waterfallSteps.length ? <div className="waterfall-scroll">
-              {/* Tinggi & posisi batang dipasang lewat custom property lalu diposisikan
-                  absolut terhadap kolom. Margin persen tidak bisa dipakai di sini karena
-                  persen pada margin dihitung dari LEBAR container, bukan tinggi. */}
-              <div className="waterfall-chart" aria-label="Grafik waterfall pemasukan hingga sisa">
-                <div className="waterfall-col wide" style={{ "--bar-h": `${monthly.income / waterfallMax * 100}%`, "--bar-b": "0%" } as React.CSSProperties}>
-                  <span className="waterfall-value">{privacy ? "••••" : formatIDR(monthly.income, true).replace("Rp ", "")}</span>
-                  <span className="waterfall-bar income" />
-                </div>
-                {waterfallSteps.map((item) => <div className="waterfall-col" key={item.id} style={{ "--bar-h": `${Math.max(1.5, item.height)}%`, "--bar-b": `${item.offset}%` } as React.CSSProperties}>
-                  <span className="waterfall-value" style={{ color: item.color }}>−{privacy ? "••••" : formatIDR(item.value, true).replace("Rp ", "")}</span>
-                  <span className="waterfall-bar step" style={{ background: item.color }} />
-                </div>)}
-                <div className="waterfall-col wide" style={{ "--bar-h": `${Math.max(0, monthly.cashflow) / waterfallMax * 100}%`, "--bar-b": "0%" } as React.CSSProperties}>
-                  <span className={`waterfall-value ${monthly.cashflow >= 0 ? "positive-text" : "negative-text"}`}>{privacy ? "••••" : formatIDR(monthly.cashflow, true).replace("Rp ", "")}</span>
-                  <span className="waterfall-bar remainder" />
-                </div>
-              </div>
-              <div className="waterfall-labels">
-                <span className="wide">Pemasukan</span>
-                {waterfallSteps.map((item) => <span key={item.id}>{item.category}</span>)}
-                <span className="wide accent">Sisa</span>
-              </div>
-            </div> : <div className="dashboard-empty">Belum ada pemasukan atau pengeluaran bulan ini.</div>}
-          </section>
-
-          <section className="panel budget-compare-panel">
-            <div className="panel-head">
-              <div><h3>Kategori vs anggaran</h3><p>Realisasi diukur terhadap batas yang kamu set.</p></div>
-              <button className="text-button" onClick={() => onNavigate("budgets")}>Detail <ArrowRight size={16} /></button>
-            </div>
-            <div className="budget-compare-list">
-              {dashboardBudgetRows.map((budget) => {
-                const percent = budget.limit > 0 ? budget.spent / budget.limit * 100 : 0;
-                const remaining = Math.max(0, budget.limit - budget.spent);
-                const state = percent > 100 ? "Terlampaui" : percent >= 90 ? "Hampir penuh" : percent >= 75 ? "Waspada" : "Aman";
-                return <div key={budget.id}>
-                  <div className="budget-compare-top">
-                    <span><i style={{ background: budget.color }} />{budget.category}</span>
-                    <span><strong>{privacy ? "••••" : formatIDR(budget.spent, true)}</strong> / {privacy ? "••••" : formatIDR(budget.limit, true).replace("Rp ", "")}</span>
-                  </div>
-                  <div className="budget-compare-track"><span style={{ width: `${Math.min(100, percent)}%`, background: percent > 100 ? "var(--negative)" : budget.color }} /></div>
-                  <small className={percent > 100 ? "negative-text" : percent >= 75 ? "warning-text" : "positive-text"}>{state} · sisa {privacy ? "••••" : formatIDR(remaining, true)}</small>
-                </div>;
-              })}
-              {dashboardUnbudgeted && <div className="budget-compare-unbudgeted">
-                <div className="budget-compare-top">
-                  <span><i style={{ background: dashboardUnbudgeted.color }} />{dashboardUnbudgeted.category}</span>
-                  <span className="muted">belum dianggarkan</span>
-                </div>
-                <div className="budget-compare-track hatch" />
-                <small className="warning-text">{privacy ? "••••" : formatIDR(dashboardUnbudgeted.spent, true)} — {monthExpenseTotal > 0 ? Math.round(dashboardUnbudgeted.spent / monthExpenseTotal * 100) : 0}% pengeluaran tanpa batas anggaran</small>
-              </div>}
-              {!dashboardBudgetRows.length && !dashboardUnbudgeted && <div className="dashboard-empty">Belum ada anggaran atau pengeluaran bulan ini.</div>}
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section className="dashboard-section">
-        <div className="dashboard-section-header">
-          <h2>Perlu tindakan</h2>
-          <span className="divider"></span>
-          <span className="count">{actionCount} hal</span>
-        </div>
-        <div className="tier-action">
-          {actionBill ? <article className={`action-card ${actionBillDays <= 7 ? "urgent" : ""}`}>
-            <div className="action-card-head">
-              <span className="action-icon danger"><CalendarClock size={21} /></span>
-              <div><small>{actionBillDays < 0 ? "Terlambat" : actionBillDays === 0 ? "Jatuh tempo hari ini" : `Jatuh tempo ${actionBillDays} hari`}</small><strong>{actionBill.name}</strong></div>
-            </div>
-            <Amount value={actionBill.amount} privacy={privacy} className="action-amount" />
-            <p>{accounts.find((item) => item.id === actionBill.accountId)?.name ?? actionBill.category} · {shortDate(actionBill.dueDate)}.</p>
-            <button className="action-cta danger" onClick={() => onNavigate("bills")}>Bayar sekarang</button>
-          </article> : <article className="action-card">
-            <div className="action-card-head"><span className="action-icon"><CalendarClock size={21} /></span><div><small>Tagihan</small><strong>Semua aman</strong></div></div>
-            <p>Tidak ada tagihan yang menunggu pembayaran bulan ini.</p>
-            <button className="action-cta ghost" onClick={() => onNavigate("bills")}>Kelola tagihan</button>
-          </article>}
-
-          {actionInstallment ? <article className="action-card">
-            <div className="action-card-head">
-              <span className="action-icon warning"><CreditCard size={21} /></span>
-              <div><small>{actionInstallment.durationMonths ? `Cicilan ${actionInstallment.paidCount ?? 0} dari ${actionInstallment.durationMonths}` : "Cicilan berjalan"}</small><strong>{actionInstallment.name}</strong></div>
-            </div>
-            <Amount value={actionInstallment.amount} privacy={privacy} className="action-amount" />
-            <p>{shortDate(actionInstallment.dueDate)}{actionInstallment.remainingMonths ? ` · sisa ${actionInstallment.remainingMonths} bulan` : ""}{actionInstallment.liabilityAccountId ? ` · ${accounts.find((item) => item.id === actionInstallment.liabilityAccountId)?.name ?? "kewajiban"}` : ""}.</p>
-            {actionInstallment.durationMonths ? <div className="action-dots" aria-hidden="true">{Array.from({ length: Math.min(24, actionInstallment.durationMonths) }, (_, index) => <i key={index} className={index < (actionInstallment.paidCount ?? 0) ? "paid" : index === (actionInstallment.paidCount ?? 0) ? "current" : ""} />)}</div> : null}
-            <button className="action-cta ghost" onClick={() => onNavigate("bills")}>Lihat jadwal</button>
-          </article> : <article className="action-card">
-            <div className="action-card-head"><span className="action-icon"><CreditCard size={21} /></span><div><small>Cicilan</small><strong>Tidak ada cicilan</strong></div></div>
-            <p>Cicilan aktif akan tampil di sini beserta progres pembayarannya.</p>
-            <button className="action-cta ghost" onClick={() => onNavigate("debts")}>Kelola utang</button>
-          </article>}
-
-          {actionGoal ? <article className="action-card">
-            <div className="action-card-head">
-              <span className="action-icon success"><Umbrella size={21} /></span>
-              <div><small>Target aktif</small><strong>{actionGoal.name} {actionGoalPercent.toFixed(0)}%</strong></div>
-            </div>
-            <div className="action-goal-amount"><Amount value={actionGoal.current} privacy={privacy} className="action-amount" /><span>/ {privacy ? "••••" : formatIDR(actionGoal.target, true).replace("Rp ", "")}</span></div>
-            <div className="action-goal-track"><span style={{ width: `${Math.min(100, actionGoalPercent)}%` }} /></div>
-            <p>Target <b>{shortDate(actionGoal.deadline)}</b> · sisa {privacy ? "••••" : formatIDR(Math.max(0, actionGoal.target - actionGoal.current), true)}.</p>
-            <button className="action-cta ghost" onClick={() => onNavigate("goals")}>Tambah kontribusi</button>
-          </article> : <article className="action-card">
-            <div className="action-card-head"><span className="action-icon success"><Umbrella size={21} /></span><div><small>Target</small><strong>Belum ada target</strong></div></div>
-            <p>Tentukan satu tujuan finansial agar progresnya bisa dipantau di sini.</p>
-            <button className="action-cta ghost" onClick={() => onNavigate("goals")}>Buat target</button>
-          </article>}
-        </div>
-      </section>
-
-      <section className="dashboard-section">
-        <div className="dashboard-section-header">
-          <h2>Ledger & riwayat</h2>
-          <span className="divider"></span>
-        </div>
-        <div className="tier-ledger">
-          <div>
-            <section className="panel recent-panel">
-              <div className="card-title-row"><div><span className="card-kicker">Aktivitas</span><h2>Transaksi terbaru</h2></div><button className="primary-button compact" onClick={onAdd}><Plus size={16} /> Tambah</button></div>
-              <TransactionTable transactions={recent} accounts={accounts} privacy={privacy} compact />
-              {!recent.length && <div className="dashboard-empty">Belum ada aktivitas. Tambahkan transaksi pertamamu.</div>}
-            </section>
-
-            <section className="panel wealth-trend-panel">
-              <div className="card-title-row"><div><span className="card-kicker">Riwayat kekayaan</span><h2>Perkembangan 7 bulan</h2></div><span className={`wealth-trend-change ${wealthChange >= 0 ? "positive-text" : "negative-text"}`}>{wealthChange >= 0 ? "+" : ""}{privacy ? "••••" : formatIDR(wealthChange)}</span></div>
-              <div className="wealth-trend-chart">
-                <div className="wealth-trend-plot" ref={wealthPlotRef}>
-                  <svg viewBox={`0 0 ${wealthPlotWidth} 100`} preserveAspectRatio="none" role="img" aria-label="Grafik perkembangan kekayaan bersih tujuh bulan">
-                    <line x1={wealthChartStart} y1="18" x2={wealthChartEnd} y2="18" />
-                    <line x1={wealthChartStart} y1="52" x2={wealthChartEnd} y2="52" />
-                    <line x1={wealthChartStart} y1="86" x2={wealthChartEnd} y2="86" />
-                    <polygon points={wealthArea} fill="var(--primary-soft)" />
-                    <polyline points={wealthPolyline} fill="none" stroke="var(--primary)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                  </svg>
-                  {wealthChartPoints.map((point) => <i key={point.period} className="wealth-trend-point" style={{ left: `${point.x}px`, top: `${point.y}%` }} aria-hidden="true" />)}
-                </div>
-                <div className="wealth-trend-labels">{wealthHistory.map((point, index) => <span className={index === 0 ? "wealth-label-key wealth-label-start" : index === 3 ? "wealth-label-key wealth-label-middle" : index === wealthHistory.length - 1 ? "wealth-label-key wealth-label-end" : ""} key={point.period}><small>{shortMonth(`${point.period}-01`)}</small><strong>{privacy ? "••••" : formatIDR(point.netWorth, true)}</strong></span>)}</div>
-              </div>
-            </section>
+      <section className="panel wealth-trend-panel">
+        <div className="card-title-row"><div><span className="card-kicker">Riwayat kekayaan</span><h2>Perkembangan 7 bulan</h2></div><span className={`wealth-trend-change ${wealthChange >= 0 ? "positive-text" : "negative-text"}`}>{wealthChange >= 0 ? "+" : ""}{privacy ? "••••" : formatIDR(wealthChange)}</span></div>
+        <div className="wealth-trend-chart">
+          <div className="wealth-trend-plot" ref={wealthPlotRef}>
+            <svg viewBox={`0 0 ${wealthPlotWidth} 100`} preserveAspectRatio="none" role="img" aria-label="Grafik perkembangan kekayaan bersih tujuh bulan">
+              <line x1={wealthChartStart} y1="18" x2={wealthChartEnd} y2="18" />
+              <line x1={wealthChartStart} y1="52" x2={wealthChartEnd} y2="52" />
+              <line x1={wealthChartStart} y1="86" x2={wealthChartEnd} y2="86" />
+              <polygon points={wealthArea} fill="var(--primary-soft)" />
+              <polyline points={wealthPolyline} fill="none" stroke="var(--primary)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            </svg>
+            {wealthChartPoints.map((point) => <i key={point.period} className="wealth-trend-point" style={{ left: `${point.x}px`, top: `${point.y}%` }} aria-hidden="true" />)}
           </div>
-
-          <section className="insight-card">
-            <div className="insight-top"><span><Sparkles size={18} /></span><small>FINANCIAL INSIGHT</small></div>
-            <h2>Arus kas bulan ini <strong>{monthly.cashflow >= 0 ? "positif" : "perlu perhatian"}</strong>.</h2>
-            <p>{monthly.income > 0 ? `Savings rate berada di ${monthly.savingsRate.toFixed(1)}%. Insight ini dihitung langsung dari transaksi yang tersimpan.` : "Tambahkan pemasukan dan pengeluaran agar sistem dapat menyusun insight berdasarkan ledger-mu."}</p>
-            <button onClick={() => onNavigate("assistant")}>Buka Financial Insight <ArrowRight size={15} /></button>
-          </section>
+          <div className="wealth-trend-labels">{wealthHistory.map((point, index) => <span className={index === 0 ? "wealth-label-key wealth-label-start" : index === 3 ? "wealth-label-key wealth-label-middle" : index === wealthHistory.length - 1 ? "wealth-label-key wealth-label-end" : ""} key={point.period}><small>{shortMonth(`${point.period}-01`)}</small><strong>{privacy ? "••••" : formatIDR(point.netWorth, true)}</strong></span>)}</div>
         </div>
+      </section>
+
+      <section className="metric-card income">
+        <span className="metric-icon"><ArrowDownLeft size={19} /></span>
+        <div><span>Pemasukan bulan ini</span><Amount value={monthly.income} privacy={privacy} className="metric-value" /><small>Di luar transfer internal</small></div>
+      </section>
+      <section className="metric-card expense">
+        <span className="metric-icon"><ArrowUpRight size={19} /></span>
+        <div><span>Pengeluaran bulan ini</span><Amount value={monthly.expense} privacy={privacy} className="metric-value" /><small>Refund sudah dikurangkan</small></div>
+      </section>
+      <section className="metric-card cashflow">
+        <span className="metric-icon"><TrendingUp size={19} /></span>
+        <div><span>Arus kas bersih</span><Amount value={monthly.cashflow} privacy={privacy} className="metric-value" /><small><strong>{monthly.savingsRate.toFixed(1)}%</strong> savings rate</small></div>
+      </section>
+
+      <section className="panel cashflow-panel">
+        <div className="card-title-row"><div><span className="card-kicker">Arus kas</span><h2>Pemasukan vs pengeluaran</h2></div><div className="chart-legend"><span className="legend-income" /> Masuk <span className="legend-expense" /> Keluar</div></div>
+        <div className="bar-chart" aria-label="Grafik arus kas dua minggu terakhir">
+          {dailySeries.map((item, index) => {
+            const tooltipId = `cashflow-tooltip-${item.date}`;
+            const incomeLabel = privacy ? "nominal disembunyikan" : formatIDR(item.income);
+            const expenseLabel = privacy ? "nominal disembunyikan" : formatIDR(item.expense);
+            return <button
+              type="button"
+              className="bar-column"
+              key={item.day}
+              aria-describedby={tooltipId}
+              aria-label={`${shortDate(item.date)}. Pemasukan ${incomeLabel}. Pengeluaran ${expenseLabel}.`}
+            >
+              <span className="bar-income" aria-hidden="true" style={{ height: `${item.income ? Math.max(4, item.income / chartMax * 100) : 0}%` }} />
+              <span className="bar-expense" aria-hidden="true" style={{ height: `${item.expense ? Math.max(4, item.expense / chartMax * 100) : 0}%` }} />
+              <span className="bar-tooltip" id={tooltipId} role="tooltip">
+                <strong>{shortDate(item.date)}</strong>
+                <span><i className="green-dot" />Masuk <b>{privacy ? "Rp â€¢â€¢â€¢â€¢" : formatIDR(item.income)}</b></span>
+                <span><i className="red-dot" />Keluar <b>{privacy ? "Rp â€¢â€¢â€¢â€¢" : formatIDR(item.expense)}</b></span>
+              </span>
+              <small aria-hidden="true">{index % 2 === 0 ? item.day : ""}</small>
+            </button>;
+          })}
+        </div>
+        <div className="chart-summary"><span><i className="green-dot" /> Total masuk <strong>{privacy ? "Rp ••••" : formatIDR(monthly.income)}</strong></span><span><i className="red-dot" /> Total keluar <strong>{privacy ? "Rp ••••" : formatIDR(monthly.expense)}</strong></span></div>
+      </section>
+
+      <section className="panel category-panel">
+        <div className="card-title-row"><div><span className="card-kicker">Pengeluaran</span><h2>Per kategori</h2></div><button className="text-button" onClick={() => onNavigate("budgets")}>Detail <ArrowRight size={14} /></button></div>
+        <div className="donut-wrap">
+          <div className="donut" style={{ background: donutGradient }}><div><small>Total</small><Amount value={categoryTotal} privacy={privacy} compact /></div></div>
+          <div className="category-list">
+            {expenseByCategory.filter((item) => item.value > 0).map((item) => <div key={item.id}><span className="category-name"><i style={{ background: item.color }} />{item.category}</span><strong>{privacy ? "••••" : formatIDR(item.value, true)}</strong></div>)}
+            {!categoryTotal && <p className="dashboard-empty">Belum ada pengeluaran bulan ini.</p>}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel accounts-panel">
+        <div className="card-title-row"><div><span className="card-kicker">Likuiditas</span><h2>Saldo akun</h2></div><button className="text-button" onClick={() => onNavigate("accounts")}>Semua akun <ArrowRight size={14} /></button></div>
+        <div className="account-list">
+          {accounts.filter((account) => account.type !== "Investment").slice(0, 4).map((account) => <div className="account-row" key={account.id}>
+            <span className="account-logo" style={{ background: `${account.color}18`, color: account.color }}>{account.type === "Bank" ? <Landmark size={19} /> : account.liability ? <CreditCard size={19} /> : <WalletCards size={19} />}</span>
+            <span><strong>{account.name}</strong><small>{[account.institution, account.mask].filter(Boolean).join(" · ") || account.type}</small></span>
+            <Amount value={account.balance} privacy={privacy} className={account.liability ? "negative-text" : ""} />
+          </div>)}
+          {!accounts.length && <button className="dashboard-empty action" onClick={() => onNavigate("accounts")}>Tambahkan akun pertama</button>}
+        </div>
+      </section>
+
+      <section className="panel bills-panel">
+        <div className="card-title-row"><div><span className="card-kicker">Mendatang</span><h2>Tagihan terdekat</h2></div><button className="text-button" onClick={() => onNavigate("bills")}>Lihat semua <ArrowRight size={14} /></button></div>
+        <div className="bill-list">
+          {upcomingBills.map((bill, index) => <button key={bill.id} onClick={() => onNavigate("bills")}><span className={`date-box ${index === 0 ? "urgent" : ""}`}><small>{shortMonth(bill.dueDate)}</small><strong>{validDate(bill.dueDate) ? bill.dueDate.slice(-2) : "—"}</strong></span><span><strong>{bill.name}</strong><small>{bill.category}</small></span><Amount value={bill.amount} privacy={privacy} /></button>)}
+          {!upcomingBills.length && <button className="dashboard-empty action bill-empty-action" onClick={() => onNavigate("bills")}>Belum ada tagihan mendatang</button>}
+        </div>
+      </section>
+
+      <section className="panel goals-panel">
+        <div className="card-title-row"><div><span className="card-kicker">Target</span><h2>Progress tujuanmu</h2></div><button className="text-button" onClick={() => onNavigate("goals")}>Kelola <ArrowRight size={14} /></button></div>
+        <div className="mini-goals">
+          {goals.slice(0, 2).map((goal) => { const percent = goal.target > 0 ? goal.current / goal.target * 100 : 0; return <div key={goal.id}><span className="goal-icon" style={{ color: goal.color, background: `${goal.color}16` }}><Target size={18} /></span><div><span><strong>{goal.name}</strong><b>{percent.toFixed(0)}%</b></span><ProgressBar value={percent} color={goal.color} label={`Progress ${goal.name}`} /><small><Amount value={goal.current} privacy={privacy} /> dari <Amount value={goal.target} privacy={privacy} /></small></div></div>; })}
+          {!goals.length && <button className="dashboard-empty action" onClick={() => onNavigate("goals")}>Belum ada target finansial</button>}
+        </div>
+      </section>
+
+      <section className="panel recent-panel">
+        <div className="card-title-row"><div><span className="card-kicker">Aktivitas</span><h2>Transaksi terbaru</h2></div><button className="primary-button compact" onClick={onAdd}><Plus size={16} /> Tambah</button></div>
+        <TransactionTable transactions={recent} accounts={accounts} privacy={privacy} compact />
+        {!recent.length && <div className="dashboard-empty">Belum ada aktivitas. Tambahkan transaksi pertamamu.</div>}
+      </section>
+
+      <section className="insight-card">
+        <div className="insight-top"><span><Sparkles size={18} /></span><small>FINANCIAL INSIGHT</small></div>
+        <h2>Arus kas bulan ini <strong>{monthly.cashflow >= 0 ? "positif" : "perlu perhatian"}</strong>.</h2>
+        <p>{monthly.income > 0 ? `Savings rate berada di ${monthly.savingsRate.toFixed(1)}%. Insight ini dihitung langsung dari transaksi yang tersimpan.` : "Tambahkan pemasukan dan pengeluaran agar sistem dapat menyusun insight berdasarkan ledger-mu."}</p>
+        <button onClick={() => onNavigate("assistant")}>Buka Financial Insight <ArrowRight size={15} /></button>
       </section>
     </div>
   );
