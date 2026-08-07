@@ -370,6 +370,10 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .waterfall-col strong { font-size: 13px; letter-spacing: -.02em; white-space: nowrap; }
 .waterfall-col.wide strong { font-size: 14px; }
 .waterfall-bar { width: 100%; border-radius: 8px; }
+/* Batang potongan kategori bisa sangat pendek (nilai kecil dibanding pemasukan).
+   Radius 8px pada batang setinggi 7px membuatnya jadi lonjong, bukan batang —
+   jadi radiusnya dikecilkan dan diberi tinggi minimum agar tetap terbaca. */
+.waterfall-bar.step { border-radius: 4px; min-height: 10px; }
 .waterfall-bar.income { border-radius: 8px 8px 0 0; background: linear-gradient(180deg, #3fae8d, var(--primary-dark, #0f5949)); }
 .waterfall-bar.remainder { border-radius: 8px 8px 0 0; background: repeating-linear-gradient(135deg, var(--primary-dark, #0f5949) 0 6px, #17705c 6px 12px); }
 .waterfall-labels { display: flex; gap: 18px; margin-top: 12px; color: var(--text-soft); font-size: 12.5px; text-align: center; }
