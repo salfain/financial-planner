@@ -44,6 +44,16 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="id" suppressHydrationWarning>
+      <head>
+        {/* Plus Jakarta Sans sesuai design handoff. Rentang variabel 200..800 dipakai
+            agar bobot pecahan pada desain (650/750/760) tidak dibulatkan ke instans statis. */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap"
+        />
+      </head>
       <body>{children}</body>
     </html>
   );
