@@ -352,7 +352,12 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .now-health-ring small { color: var(--text-faint); font-size: 11px; }
 .now-health-pill { padding: 6px 12px; border: 0; border-radius: 999px; background: var(--primary-soft); color: var(--primary-dark); font-size: 12px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; cursor: pointer; }
 
-.tier-month { display: grid; grid-template-columns: 1.35fr 1fr; gap: 22px; align-items: start; }
+.tier-month { display: grid; grid-template-columns: 1.35fr 1fr; gap: 22px; align-items: stretch; }
+/* Kedua kartu "Bulan ini" disamakan tingginya; grafik waterfall mengisi sisa ruang
+   supaya tidak ada celah kosong dan garis dasarnya sejajar dengan kartu sebelah. */
+.waterfall-panel { display: flex; flex-direction: column; }
+.waterfall-scroll { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.waterfall-chart { flex: 1; height: auto; min-height: 210px; }
 .tier-action { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
 .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .panel-head h3 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
