@@ -1978,3 +1978,101 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .recent-panel { display: none; }
   .tier-ledger { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   Tagihan — desain 3b: urutan urgensi + kalender mini di kanan.
+   ============================================================ */
+.bills-layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 24px; align-items: start; }
+.bills-main { min-width: 0; display: grid; gap: 18px; }
+.bills-side { min-width: 0; display: grid; gap: 18px; }
+
+/* Kartu tagihan berdiri sendiri (desain 3b), bukan kartu di dalam kartu. */
+.bills-full-panel, .installment-groups {
+  padding: 0; border: 0; background: transparent; box-shadow: none;
+}
+.bills-full-panel > .card-title-row, .installment-groups > .card-title-row { padding: 0 2px; }
+.installment-group-card { border: 1px solid var(--border); border-radius: 22px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 22px 24px; }
+.bills-full-panel .bill-cards { gap: 18px; }
+.bills-full-panel .bill-cards article {
+  grid-template-columns: 56px minmax(0,1fr) auto auto;
+  align-items: center; gap: 20px; padding: 26px 28px; border-radius: 22px;
+  background: var(--surface); box-shadow: var(--shadow-sm);
+}
+.bills-full-panel .bill-cards article.urgent {
+  background: linear-gradient(120deg, #fdf2f2, var(--surface));
+  border-color: rgba(201,82,91,.28); box-shadow: none;
+}
+[data-theme="dark"] .bills-full-panel .bill-cards article.urgent {
+  background: linear-gradient(120deg, color-mix(in srgb, var(--negative) 12%, var(--surface)), var(--surface));
+}
+/* Yang sudah lunas mundur ke latar: garis putus-putus, tanpa penekanan. */
+.bills-full-panel .bill-cards article.paid {
+  border-style: dashed; border-color: var(--border); background: transparent;
+  box-shadow: none; opacity: .7; padding: 24px 28px;
+}
+.bills-full-panel .date-box {
+  width: 56px; height: 60px; border-radius: 15px; gap: 2px;
+  background: var(--surface-soft); color: var(--text-soft);
+}
+.bills-full-panel .date-box small { font-size: 11px; font-weight: 800; }
+.bills-full-panel .date-box strong { margin-top: 0; font-size: 24px; line-height: 1; letter-spacing: -.03em; }
+.bills-full-panel .date-box.urgent {
+  color: var(--negative-soft, #c9525b); background: var(--surface);
+  box-shadow: 0 4px 12px rgba(201,82,91,.14);
+}
+.bills-full-panel .bill-card-main > span { gap: 10px; }
+.bills-full-panel .bill-card-main strong { font-size: 17px; }
+.bills-full-panel .bill-card-main small { font-size: 13.5px; }
+.bills-full-panel .bill-amount { font-size: 24px; font-weight: 750; letter-spacing: -.03em; white-space: nowrap; }
+.bills-full-panel .installment-dots { max-width: 280px; margin-top: 4px; }
+.bills-full-panel .installment-dots i { height: 7px; border-radius: 3px; }
+.bills-full-panel .bill-card-actions .primary-button { height: 46px; padding: 0 20px; border-radius: 13px; }
+.bills-full-panel .bill-cards article.urgent .bill-card-actions .primary-button {
+  background: var(--negative-soft, #c9525b); box-shadow: none;
+}
+
+/* Kalender mini. */
+.bills-calendar-card { padding: 26px 28px; }
+.bills-calendar-card h3 { margin: 0 0 4px; font-size: 19px; letter-spacing: -.02em; }
+.bills-calendar-weekdays,
+.bills-calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.bills-calendar-weekdays {
+  margin: 18px 0 8px; color: var(--text-faint);
+  font-size: 11px; font-weight: 700; text-align: center;
+}
+.bills-calendar-day {
+  aspect-ratio: 1; display: grid; place-items: center;
+  border-radius: 9px; color: var(--text-soft); font-size: 12.5px;
+}
+.bills-calendar-day.urgent { background: var(--negative-soft, #c9525b); color: #fff; font-size: 13px; font-weight: 800; }
+.bills-calendar-day.due { background: var(--warning); color: #fff; font-size: 13px; font-weight: 800; }
+
+/* Kartu "siap bayar". */
+.bills-ready-card {
+  padding: 26px 28px; border-radius: 22px;
+  color: #f2fbf7; background: linear-gradient(150deg, #164a3f, #0d221c);
+}
+.bills-ready-head { display: flex; align-items: center; gap: 10px; }
+.bills-ready-head > span {
+  width: 36px; height: 36px; display: grid; place-items: center;
+  color: #7fe3c2; border-radius: 12px; background: rgba(255,255,255,.09);
+}
+.bills-ready-head small { color: #7fe3c2; font-weight: 800; letter-spacing: .13em; font-size: 11.5px; }
+.bills-ready-card p { margin: 20px 0 0; font-size: 17px; line-height: 1.5; letter-spacing: -.01em; }
+
+@media (max-width: 1100px) {
+  .bills-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .bills-layout, .bills-main, .bills-side { gap: 14px; }
+  .bills-full-panel .bill-cards article,
+  .bills-full-panel .bill-cards article.paid {
+    grid-template-columns: 56px minmax(0,1fr) auto; padding: 18px; border-radius: 16px; gap: 12px;
+  }
+  .bills-full-panel .bill-card-main strong { font-size: 15px; }
+  .bills-full-panel .bill-card-main small { font-size: 12px; }
+  .bills-full-panel .bill-amount { font-size: 16px; }
+  .bills-calendar-card { padding: 18px; }
+  .bills-ready-card { padding: 20px; border-radius: 18px; }
+  .bills-ready-card p { font-size: 14.5px; }
+}

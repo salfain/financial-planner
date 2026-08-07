@@ -2238,7 +2238,22 @@ function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onSyncLi
       groups: longTermInstallmentGroups,
     },
   ].filter((section) => section.groups.length);
-  return <div className="content-stack">
+  // Kalender mini (desain 3b): tandai tanggal jatuh tempo pada bulan berjalan.
+  const calendarMonth = currentMonth();
+  const calendarDaysInMonth = new Date(Number(calendarMonth.slice(0, 4)), Number(calendarMonth.slice(5, 7)), 0).getDate();
+  const calendarFirstWeekday = new Date(`${calendarMonth}-01T12:00:00`).getDay();
+  const dueByDay = new Map<number, "urgent" | "due">();
+  activeBills.filter((bill) => !bill.paid && bill.dueDate.startsWith(calendarMonth)).forEach((bill) => {
+    const day = Number(bill.dueDate.slice(-2));
+    const days = Math.ceil((new Date(`${bill.dueDate}T12:00:00`).getTime() - new Date().getTime()) / 86_400_000);
+    if (days <= 7 || dueByDay.get(day) === "urgent") dueByDay.set(day, "urgent");
+    else if (!dueByDay.has(day)) dueByDay.set(day, "due");
+  });
+  const monthDueTotal = activeBills.filter((bill) => !bill.paid && bill.dueDate.startsWith(calendarMonth)).reduce((sum, bill) => sum + bill.amount, 0);
+  const liquidBalance = accounts.filter((account) => !account.liability && ["Bank", "E-Wallet", "Cash"].includes(account.type)).reduce((sum, account) => sum + account.balance, 0);
+
+  return <div className="bills-layout">
+    <div className="bills-main">
     <div className="summary-strip">
       <div><span>Belum dibayar</span><strong>{pending.length} tagihan</strong><small>{monthLabel(currentMonth())}</small></div>
       <div><span>Total mendatang</span><Amount value={pending.reduce((sum, bill) => sum + bill.amount, 0)} privacy={privacy} /><small>Menurut jatuh tempo</small></div>
@@ -2288,6 +2303,29 @@ function BillsPage({ bills, accounts, privacy, saving, onPay, onPayAll, onSyncLi
         {!ordinaryBills.length && <div className="empty-state compact"><CalendarDays size={28} /><h3>Belum ada tagihan biasa</h3><p>Listrik, internet, sewa, dan kebutuhan rutin lain akan tampil di sini.</p><button className="primary-button" onClick={onAdd}><Plus size={16} /> Tambah tagihan</button></div>}
       </div>
     </section>
+    </div>
+
+    {/* Kolom kanan (desain 3b): kalender mini jatuh tempo + ringkasan kesiapan bayar. */}
+    <aside className="bills-side">
+      <section className="panel bills-calendar-card">
+        <h3>{monthLabel(calendarMonth)}</h3>
+        <p className="card-subtitle">{dueByDay.size ? `${dueByDay.size} tanggal jatuh tempo bulan ini.` : "Tidak ada jatuh tempo bulan ini."}</p>
+        <div className="bills-calendar-weekdays">{["M", "S", "S", "R", "K", "J", "S"].map((day, index) => <span key={index}>{day}</span>)}</div>
+        <div className="bills-calendar-grid">
+          {Array.from({ length: calendarFirstWeekday }, (_, index) => <span key={`pad-${index}`} />)}
+          {Array.from({ length: calendarDaysInMonth }, (_, index) => {
+            const day = index + 1;
+            const state = dueByDay.get(day);
+            return <span key={day} className={state ? `bills-calendar-day ${state}` : "bills-calendar-day"}>{day}</span>;
+          })}
+        </div>
+      </section>
+
+      <section className="bills-ready-card">
+        <div className="bills-ready-head"><span><WalletCards size={19} /></span><small>SIAP BAYAR</small></div>
+        <p>Total tagihan bulan ini <b>{privacy ? "Rp ••••" : formatIDR(monthDueTotal)}</b> — {monthDueTotal === 0 ? "tidak ada yang perlu dibayar." : liquidBalance >= monthDueTotal ? "saldo likuid cukup untuk menutup semuanya tanpa mengganggu anggaran." : `saldo likuid ${privacy ? "" : formatIDR(liquidBalance)} belum menutup seluruhnya — sisihkan ${privacy ? "dana tambahan" : formatIDR(monthDueTotal - liquidBalance)} lagi.`}</p>
+      </section>
+    </aside>
   </div>;
 }
 
