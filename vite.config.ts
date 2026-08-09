@@ -1,4 +1,5 @@
 import vinext from "vinext";
+import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
@@ -10,6 +11,7 @@ const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
+const isCoolifyNodeBuild = process.env.VINN_BUILD_TARGET === "coolify-node";
 
 const localBindingConfig = {
   main: "./worker/index.ts",
@@ -40,16 +42,34 @@ export default defineConfig(async () => {
   process.env.WRANGLER_LOG_PATH ??= ".wrangler/logs";
   process.env.MINIFLARE_REGISTRY_PATH ??= ".wrangler/registry";
 
-  // Wrangler snapshots its log path while the Cloudflare plugin is imported.
-  const { cloudflare } = await import("@cloudflare/vite-plugin");
-
-  return {
+  const sharedConfig = {
     define: {
       "process.env.NEXT_PUBLIC_FINANCE_BACKEND": JSON.stringify(process.env.NEXT_PUBLIC_FINANCE_BACKEND ?? ""),
     },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
+  };
+
+  if (isCoolifyNodeBuild) {
+    return {
+      ...sharedConfig,
+      resolve: {
+        alias: {
+          "cloudflare:workers": fileURLToPath(
+            new URL("./lib/cloudflare-workers-node.ts", import.meta.url),
+          ),
+        },
+      },
+      plugins: [vinext()],
+    };
+  }
+
+  // Wrangler snapshots its log path while the Cloudflare plugin is imported.
+  const { cloudflare } = await import("@cloudflare/vite-plugin");
+
+  return {
+    ...sharedConfig,
     plugins: [
       vinext(),
       sites(),

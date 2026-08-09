@@ -13,6 +13,7 @@ COPY . .
 # build time; Apps Script credentials are runtime-only variables below.
 ARG NEXT_PUBLIC_FINANCE_BACKEND=apps-script
 ENV NEXT_PUBLIC_FINANCE_BACKEND=$NEXT_PUBLIC_FINANCE_BACKEND
+ENV VINN_BUILD_TARGET=coolify-node
 
 RUN npm run build
 
