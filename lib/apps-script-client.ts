@@ -9,8 +9,10 @@ const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 function publicBackendMode() {
   if (typeof window === "undefined") return "";
-  const publicEnv = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_FINANCE_BACKEND : undefined;
-  return String(publicEnv || "").trim().toLowerCase();
+  // Vite replaces this exact expression at build time. Keeping a runtime
+  // `typeof process` guard prevents the inlined value from being used in the
+  // browser, where Node's `process` global does not exist.
+  return String(process.env.NEXT_PUBLIC_FINANCE_BACKEND || "").trim().toLowerCase();
 }
 
 type GoogleScriptRunner = {
