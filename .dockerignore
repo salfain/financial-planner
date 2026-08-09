@@ -1,0 +1,12 @@
+node_modules
+dist
+.vinext
+.next
+.git
+.wrangler
+.openai/*
+!.openai/hosting.json
+*.log
+.env*
+outputs
+work

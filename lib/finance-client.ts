@@ -13,7 +13,12 @@ import type { MonthlyClosing, MonthlyReview } from "./monthly-review";
 import type { CategoryRule } from "./category-rules";
 import type { SinkingFund, SinkingFundEntry } from "./sinking-funds";
 import { normalizeFeaturePreferences, type FeaturePreferences } from "./feature-preferences";
-import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
+import {
+  callAppsScript as callAppsScriptBridge,
+  callAppsScriptHttp,
+  hasAppsScriptBridge as hasNativeAppsScriptBridge,
+  hasAppsScriptHttp,
+} from "./apps-script-client";
 import { freeEntitlement, type PlanCapability, type PlanEntitlement, type PlanTier } from "./plans";
 import { demoRequest, demoSecurityStatus, isFinanceDemoMode } from "./demo-finance";
 import { installmentAmountAt, normalizeInstallmentPhases } from "./installment-phases";
@@ -100,6 +105,12 @@ export type LoanDrawdownInput = {
 
 const jsonHeaders = { "content-type": "application/json" };
 
+// Keep the rest of the finance client transport-agnostic. The same functions
+// work inside Apps Script (google.script.run) and on a VPS (same-origin proxy).
+const hasAppsScriptBridge = () => hasNativeAppsScriptBridge() || hasAppsScriptHttp();
+const callAppsScript = <T,>(action: string, payload: Record<string, unknown> = {}) =>
+  hasNativeAppsScriptBridge() ? callAppsScriptBridge<T>(action, payload) : callAppsScriptHttp<T>(action, payload);
+
 export class FinanceApiError extends Error {
   constructor(
     public status: number,
@@ -170,7 +181,10 @@ async function webRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function mutation<T>(action: string, path: string, payload: Record<string, unknown>, method = "POST") {
-  const requestPayload = { ...payload, requestId: payload.requestId ?? crypto.randomUUID() };
+  const requestPayload: Record<string, unknown> = { ...payload, requestId: payload.requestId ?? crypto.randomUUID() };
+  if (hasAppsScriptHttp() && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(requestPayload.requestId))) {
+    requestPayload.__mobileRequestId = crypto.randomUUID();
+  }
   const requestId = String(requestPayload.requestId);
   const startedAt = Date.now();
   const slowTimer = typeof window === "undefined" ? null : window.setTimeout(() => {
@@ -186,7 +200,9 @@ async function mutation<T>(action: string, path: string, payload: Record<string,
         if (!(error instanceof FinanceMutationTimeoutError)) throw error;
         for (let attempt = 0; attempt < 3; attempt += 1) {
           const status = await withTimeout(
-            callAppsScript<{ completed: boolean }>("mutationStatus", { requestId: requestPayload.requestId }),
+            callAppsScript<{ completed: boolean }>("mutationStatus", {
+              requestId: requestPayload.__mobileRequestId ?? requestPayload.requestId,
+            }),
             8_000,
           ).catch(() => ({ completed: false }));
           if (status.completed) {
