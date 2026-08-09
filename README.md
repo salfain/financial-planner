@@ -23,6 +23,18 @@ Untuk verifikasi lengkap:
 npm test
 ```
 
+## Aplikasi mobile Android dan iOS
+
+Implementasi React Native + Expo SDK 57 berada di folder `mobile/`. Aplikasi mobile memakai backend Google Apps Script dan dataset Google Sheets yang sama dengan web melalui endpoint JSON owner-only dengan Personal Access Key; bridge `google.script.run` tidak dipakai pada native.
+
+```powershell
+cd mobile
+npm install
+npm run check
+```
+
+Tidak diperlukan Google OAuth atau file `.env`. Buat key pribadi melalui `npm run mobile:access-key`, deploy paket API-only, lalu masukkan URL `/exec` dan key satu kali pada aplikasi. Pengujian awal dapat memakai Expo Go. Panduan backend tersedia di `docs/PANDUAN-MOBILE-API.md` dan langkah release pada `docs/CHECKLIST-RILIS-MOBILE.md`.
+
 ## Fitur yang sudah berfungsi
 
 - Dashboard dengan net worth, income, expense, cashflow, savings rate, dan financial health score.

@@ -3,8 +3,8 @@ function apiGetBootstrap(month) {
     month = month || Utilities.formatDate(new Date(), VINN_CONFIG.TIMEZONE, 'yyyy-MM');
     const cache = CacheService.getDocumentCache();
     const cacheKey = dashboardCacheKey_(month);
-    const cached = cache.get(cacheKey);
-    if (cached) return ok_(JSON.parse(cached));
+    const cached = readDashboardCache_(cache, cacheKey);
+    if (cached !== null) return ok_(cached);
 
     const accounts = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).filter(accountIsActive_);
     const allTransactions = rowsAsObjects_(VINN_CONFIG.SHEETS.TRANSACTIONS).filter(function(row) { return !row.deleted_at; });
@@ -54,7 +54,9 @@ function apiGetBootstrap(month) {
         return String(b.date).localeCompare(String(a.date)) || String(b.created_at).localeCompare(String(a.created_at));
       })
     };
-    cache.put(cacheKey, JSON.stringify(data), VINN_CONFIG.CACHE_SECONDS);
+    // Cache hanya akselerator. Payload besar tetap harus berhasil dikembalikan
+    // ke aplikasi meskipun melampaui batas nilai CacheService.
+    writeDashboardCache_(cache, cacheKey, data);
     return ok_(data);
   } catch (error) { return fail_(error); }
 }

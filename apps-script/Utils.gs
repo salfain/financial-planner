@@ -22,6 +22,66 @@ function dashboardCacheKey_(period) {
   return 'dashboard:' + dashboardCacheVersion_() + ':' + month;
 }
 
+// CacheService membatasi satu nilai sampai 100 KB. Sisakan ruang dari batas
+// tersebut agar perbedaan penghitungan byte tidak membuat bootstrap gagal.
+const DASHBOARD_CACHE_SAFE_VALUE_BYTES = 90 * 1024;
+
+function utf8ByteLength_(value) {
+  const text = String(value || '');
+  let bytes = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xD800 && code <= 0xDBFF && index + 1 < text.length) {
+      const next = text.charCodeAt(index + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
+function readDashboardCache_(cache, cacheKey) {
+  if (!cache) return null;
+  try {
+    const cached = cache.get(cacheKey);
+    if (!cached) return null;
+    return JSON.parse(cached);
+  } catch (error) {
+    console.warn('Cache dashboard tidak dapat dibaca dan akan dihitung ulang: ' + (error && error.message ? error.message : error));
+    try { cache.remove(cacheKey); } catch (removeError) { /* Cache tetap bersifat opsional. */ }
+    return null;
+  }
+}
+
+function writeDashboardCache_(cache, cacheKey, data) {
+  if (!cache) return false;
+  try {
+    const serialized = JSON.stringify(data);
+    const payloadBytes = utf8ByteLength_(serialized);
+    if (payloadBytes > DASHBOARD_CACHE_SAFE_VALUE_BYTES) {
+      console.warn('Cache dashboard dilewati karena payload berukuran ' + payloadBytes + ' byte.');
+      return false;
+    }
+    cache.put(cacheKey, serialized, VINN_CONFIG.CACHE_SECONDS);
+    return true;
+  } catch (error) {
+    // Cache tidak pernah menjadi sumber kebenaran. Jika Google menolak nilai,
+    // bootstrap tetap dikembalikan langsung dari Google Sheets.
+    console.warn('Cache dashboard dilewati: ' + (error && error.message ? error.message : error));
+    return false;
+  }
+}
+
 function invalidateDashboard_(period) {
   const month = period && /^\d{4}-\d{2}$/.test(String(period))
     ? String(period)
