@@ -180,8 +180,8 @@ function currentMonth() {
 
 function notificationOverview(state: DemoState) {
   const notifications = [
-    { id: "demo-notice-bill", type: "bill_due", severity: "warning", title: "Tagihan kartu kredit mendekati jatuh tempo", message: "Siapkan Rp 2,15 jt sebelum tanggal 25.", actionPage: "bills", eventDate: state.snapshot.bills[1]?.dueDate ?? null, read: false, dismissed: false },
-    { id: "demo-notice-goal", type: "goal", severity: "info", title: "Dana darurat sudah 62%", message: "Pertahankan kontribusi Rp 1,5 jt per bulan.", actionPage: "goals", eventDate: state.snapshot.goals[0]?.deadline ?? null, read: false, dismissed: false },
+    { id: "demo-notice-bill", type: "bill_due", severity: "warning", title: "Tagihan kartu kredit mendekati jatuh tempo", message: "Siapkan Rp 2.150.000 sebelum tanggal 25.", actionPage: "bills", eventDate: state.snapshot.bills[1]?.dueDate ?? null, read: false, dismissed: false },
+    { id: "demo-notice-goal", type: "goal", severity: "info", title: "Dana darurat sudah 62%", message: "Pertahankan kontribusi Rp 1.500.000 per bulan.", actionPage: "goals", eventDate: state.snapshot.goals[0]?.deadline ?? null, read: false, dismissed: false },
   ].filter((item) => !state.dismissedNotifications.includes(item.id));
   return { notifications, unreadCount: notifications.filter((item) => !item.read).length, generatedAt: nowIso(), settings: state.notificationSettings };
 }

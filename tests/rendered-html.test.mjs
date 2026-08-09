@@ -477,7 +477,7 @@ test("layout mobile GAS menyusut tanpa menutupi navigasi", async () => {
   assert.match(styles, /\.global-search \{ min-width: 0; grid-template-columns: auto minmax\(0,1fr\); overflow: hidden/);
   assert.match(styles, /\.hero-card \{ min-height: 0; padding: 18px; \}/);
   assert.match(styles, /\.bar-chart \{ height: 150px/);
-  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*\.metric-card,\.metric-card\.cashflow \{ grid-column: span 12; \}/);
+  assert.match(styles, /\.dashboard-metric-grid > \.metric-card\.cashflow \{ grid-column: 1 \/ -1; \}/);
   assert.match(gasStyles, /bottom: calc\(66px \+ env\(safe-area-inset-bottom\) \+ 16px\)/);
   assert.match(styles, /body \{ padding-bottom: 0; \}/);
   assert.match(styles, /--mobile-safe-bottom: min\(env\(safe-area-inset-bottom, 0px\), 34px\)/);
