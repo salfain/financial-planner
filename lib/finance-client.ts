@@ -1200,7 +1200,7 @@ export const financeBackendLabel = () => isFinanceDemoMode() ? "Penyimpanan demo
 
 export const loadFinanceSecurity = (): Promise<FinanceSecurityStatus> => isFinanceDemoMode()
   ? Promise.resolve(demoSecurityStatus() as FinanceSecurityStatus)
-  : hasAppsScriptBridge()
+  : hasNativeAppsScriptBridge()
   ? Promise.resolve({
       authenticated: true,
       displayName: "Pemilik Google Apps Script",
@@ -1211,6 +1211,8 @@ export const loadFinanceSecurity = (): Promise<FinanceSecurityStatus> => isFinan
       sessionState: "verified",
       signOutUrl: null,
     })
+  : hasAppsScriptHttp()
+  ? webRequest<FinanceSecurityStatus>("/api/auth/session")
   : webRequest<FinanceSecurityStatus>("/api/finance/access-status");
 
 export async function loadFinanceDiagnostics(month: string): Promise<FinanceDiagnostics> {

@@ -1,0 +1,20 @@
+{
+  "name": "Financial Planner",
+  "short_name": "Finance",
+  "description": "Kelola transaksi, anggaran, target, tagihan, dan laporan keuangan pribadi.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e1512",
+  "theme_color": "#126b59",
+  "lang": "id-ID",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "screenshots": [
+    { "src": "/og-financial-planner.png", "sizes": "1672x941", "type": "image/png", "form_factor": "wide", "label": "Ringkasan Financial Planner" }
+  ]
+}

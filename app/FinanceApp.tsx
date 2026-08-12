@@ -77,6 +77,7 @@ import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type Acc
 import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
 import { DEFAULT_NOTIFICATION_SETTINGS, type FinanceNotification, type NotificationOverview, type NotificationSettings } from "../lib/notifications";
+import { deviceNotificationState, enableDeviceNotifications, showFinanceDeviceNotifications, type DeviceNotificationState } from "../lib/device-notifications";
 import { financeDemoWhatsAppUrl, isFinanceDemoMode } from "../lib/demo-finance";
 import { buildMonthlyReview, type MonthlyClosing } from "../lib/monthly-review";
 import type { CategoryRule } from "../lib/category-rules";
@@ -588,6 +589,10 @@ export function FinanceApp() {
     loadFinanceNotifications(month).then(setNotificationOverview).catch(() => undefined);
     return () => { active = false; window.clearTimeout(themeTimer); };
   }, [month]);
+
+  useEffect(() => {
+    if (notificationOverview) void showFinanceDeviceNotifications(notificationOverview).catch(() => undefined);
+  }, [notificationOverview]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = darkMode ? "dark" : "light";
@@ -2918,6 +2923,19 @@ function NotificationSettingsPanel({ settings, onSave, onToast }: {
   const [draft, setDraft] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [deviceState, setDeviceState] = useState<DeviceNotificationState>(() => deviceNotificationState());
+
+  const configureDevice = async () => {
+    setError("");
+    try {
+      const next = await enableDeviceNotifications();
+      setDeviceState(next);
+      if (next === "granted") onToast("Notifikasi perangkat aktif dan notifikasi tes sudah dikirim.");
+      else setError("Izin notifikasi belum diberikan. Aktifkan melalui pengaturan situs pada browser.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Notifikasi perangkat belum dapat diaktifkan.");
+    }
+  };
 
   const toggleReminderDay = (day: number) => setDraft((current) => {
     const exists = current.billReminderDays.includes(day);
@@ -2941,6 +2959,7 @@ function NotificationSettingsPanel({ settings, onSave, onToast }: {
   return <section className="panel settings-section settings-wide notification-settings-panel">
     <div className="settings-title"><span><Bell size={20} /></span><div><h2>Notification center & reminder</h2><p>Peringatan dibuat dari data nyata untuk tagihan, anggaran, target, backup, dan harga investasi.</p></div><button className={`switch ${draft.enabled ? "on" : ""}`} onClick={() => setDraft((current) => ({ ...current, enabled: !current.enabled }))} aria-pressed={draft.enabled}><span /></button></div>
     <div className="notification-settings-grid">
+      <div className="device-notification-card"><span><Bell size={18} /></span><div><strong>Notifikasi perangkat</strong><small>{deviceState === "granted" ? "Aktif. Reminder kritis dapat tampil di perangkat ini." : deviceState === "denied" ? "Diblokir browser. Ubah izin situs untuk mengaktifkan." : deviceState === "unsupported" ? "Browser ini belum mendukung notifikasi PWA." : "Aktifkan untuk reminder tagihan dan anggaran penting."}</small></div><button className="secondary-button" onClick={() => void configureDevice()} disabled={deviceState === "denied" || deviceState === "unsupported"}>{deviceState === "granted" ? "Kirim tes" : "Aktifkan"}</button></div>
       <div><strong>Pengingat tagihan</strong><small>Reminder tetap terlihat setelah ambang terlewati sampai tagihan dibayar atau diarsipkan.</small><div className="reminder-day-options">{[7, 3, 1, 0].map((day) => <label key={day}><input type="checkbox" checked={draft.billReminderDays.includes(day)} onChange={() => toggleReminderDay(day)} /><span>{day === 0 ? "Hari H" : `H-${day}`}</span></label>)}</div></div>
       <label><span>Peringatan anggaran</span><select value={draft.budgetWarningPercent} onChange={(event) => setDraft((current) => ({ ...current, budgetWarningPercent: Number(event.target.value) }))}><option value="75">Mulai 75%</option><option value="90">Mulai 90%</option></select><ChevronDown size={15} /></label>
       <label><span>Backup dianggap lama</span><select value={draft.backupWarningDays} onChange={(event) => setDraft((current) => ({ ...current, backupWarningDays: Number(event.target.value) }))}><option value="7">7 hari</option><option value="14">14 hari</option><option value="30">30 hari</option></select><ChevronDown size={15} /></label>

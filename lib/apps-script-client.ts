@@ -55,28 +55,35 @@ export function callAppsScript<T>(action: string, payload: Record<string, unknow
   });
 }
 
-export function callAppsScriptHttp<T>(action: string, payload: Record<string, unknown> = {}) {
+export async function callAppsScriptHttp<T>(action: string, payload: Record<string, unknown> = {}) {
   const requestId = typeof payload.__mobileRequestId === "string" && UUID_V4_PATTERN.test(payload.__mobileRequestId)
     ? payload.__mobileRequestId
     : UUID_V4_PATTERN.test(String(payload.requestId || ""))
     ? String(payload.requestId)
     : crypto.randomUUID();
 
-  return fetch("/api/apps-script", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action, requestId, payload }),
-  }).then(async (response) => {
-    let raw: unknown;
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      raw = await response.json();
-    } catch {
-      throw new Error(`Proxy Apps Script mengembalikan respons yang tidak valid (${response.status}).`);
+      const response = await fetch("/api/apps-script", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, requestId, payload }),
+      });
+      let raw: unknown;
+      try { raw = await response.json(); }
+      catch { throw new Error(`Proxy Apps Script mengembalikan respons yang tidak valid (${response.status}).`); }
+      const envelope = raw as ApiResponse<T>;
+      if (response.ok && envelope.ok && envelope.data !== undefined) return envelope.data;
+      const retryable = response.status === 429 || response.status === 502 || response.status === 503 || response.status === 504;
+      const reason = new Error(envelope.error?.message ?? `Permintaan Apps Script gagal (${response.status}).`);
+      if (!retryable || attempt === 3) throw reason;
+      lastError = reason;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Koneksi Apps Script terputus.");
+      if (attempt === 3) throw lastError;
     }
-    const envelope = raw as ApiResponse<T>;
-    if (!response.ok || !envelope.ok || envelope.data === undefined) {
-      throw new Error(envelope.error?.message ?? `Permintaan Apps Script gagal (${response.status}).`);
-    }
-    return envelope.data;
-  });
+    await new Promise((resolve) => window.setTimeout(resolve, attempt === 1 ? 450 : 1_100));
+  }
+  throw lastError ?? new Error("Permintaan Apps Script gagal.");
 }

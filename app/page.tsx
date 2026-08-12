@@ -1,6 +1,18 @@
 import { FinanceApp } from "./FinanceApp";
+import { cookies, headers } from "next/headers";
+import { authenticatedViewerFromHeaders } from "../lib/security";
+import { ownerPasswordConfigured, OWNER_SESSION_COOKIE, verifyOwnerSession } from "../lib/owner-auth";
+import { OwnerLogin } from "./OwnerLogin";
+import { PwaRuntime } from "./PwaRuntime";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const requestHeaders = await headers();
+  const viewer = authenticatedViewerFromHeaders(requestHeaders);
+  const ownerCookie = (await cookies()).get(OWNER_SESSION_COOKIE)?.value;
+  const authenticated = Boolean(viewer) || await verifyOwnerSession(ownerCookie);
+  if (!authenticated) return <OwnerLogin configured={ownerPasswordConfigured()} />;
   return <>
     <script
       dangerouslySetInnerHTML={{
@@ -20,5 +32,6 @@ if (new URLSearchParams(location.search).get("demo") === "1") { window.__FINANCE
       }}
     />
     <FinanceApp />
+    <PwaRuntime />
   </>;
 }
