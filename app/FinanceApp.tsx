@@ -121,7 +121,6 @@ import {
   formatIDR,
   getCurrentMonth,
   monthlySummary,
-  recomputeAccountBalances,
 } from "../lib/finance";
 import {
   FinanceDiagnostics,
@@ -1153,20 +1152,11 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   const nearestBill = upcomingBills[0];
   const recent = [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
   const healthLabel = healthScore >= 80 ? "Sehat" : healthScore >= 60 ? "Baik" : healthScore >= 40 ? "Cukup" : "Perlu perhatian";
-  const liquidAssets = accounts
-    .filter((account) => !account.liability && account.type !== "Investment")
-    .reduce((sum, account) => sum + Math.max(0, account.balance), 0);
-  const runwayMonths = monthly.expense > 0 ? liquidAssets / monthly.expense : 0;
-  const runwayBars = Math.max(0, Math.min(6, Math.ceil(runwayMonths)));
-  const savingsProgress = Math.max(0, Math.min(100, monthly.savingsRate));
-
-  const wealthHistory = Array.from({ length: 7 }, (_, index) => {
-    const period = addMonthsToPeriod(month, index - 6);
-    const monthEnd = new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate();
-    const balances = recomputeAccountBalances(accounts, transactions.filter((item) => item.date <= `${period}-${String(monthEnd).padStart(2, "0")}`));
-    return accountSummary(balances).netWorth;
-  });
-  const wealthChange = (wealthHistory.at(-1) ?? 0) - (wealthHistory[0] ?? 0);
+  const consumerLiabilities = accounts.filter((account) => account.liability && ["Paylater", "Credit Card"].includes(account.type));
+  const longTermLiabilities = accounts.filter((account) => account.liability && ["Loan", "Mortgage"].includes(account.type));
+  const liabilityInstallments = activeBills.filter((bill) => !bill.paid && !bill.completed && bill.liabilityAccountId);
+  const activeInstallments = liabilityInstallments.filter((bill) => bill.dueDate.slice(0, 7) <= month);
+  const nearestInstallment = [...liabilityInstallments].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
 
   const spendingByCategory = transactions
     .filter((item) => item.status === "completed" && item.type === "expense" && item.date.slice(0, 7) === month)
@@ -1208,43 +1198,39 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
 
       <section className="dashboard-section">
         <div className="dashboard-section-header"><h2>Sekarang</h2><span className="divider" /><span className="count">Posisi keuangan terkini</span></div>
-        <div className="tier-now">
-          <article className="now-networth">
-            <span className="now-kicker">Kekayaan bersih</span>
-            <Amount value={accountTotals.netWorth} privacy={privacy} className="now-networth-value" />
-            <div className="now-change">
-              <span className={`now-change-pill ${wealthChange < 0 ? "negative" : ""}`}>
-                {wealthChange >= 0 ? <TrendingUp size={15} /> : <TrendingDown size={15} />}
-                <Amount value={Math.abs(wealthChange)} privacy={privacy} compact />
-              </span>
-              <small>perubahan 6 bulan</small>
+        <div className="dashboard-grid dashboard-now-legacy">
+          <article className="hero-card">
+            <div className="hero-copy">
+              <span className="card-kicker"><span className="live-dot" /> Kekayaan bersih</span>
+              <Amount value={accountTotals.netWorth} privacy={privacy} className="hero-value" />
+              <div className="positive-change"><ShieldCheck size={15} /> Ledger aktif <span>saldo dapat dihitung ulang</span></div>
             </div>
-            <div className="now-networth-stats">
-              <div><small>Total aset · {accountCount} akun</small><Amount value={accountTotals.assets} privacy={privacy} /></div>
-              <div><small>Kewajiban · {liabilityCount} akun</small><Amount value={accountTotals.liabilities} privacy={privacy} className="negative-text" /></div>
+            <div className="hero-mini-stats">
+              <div><span>Total aset</span><Amount value={accountTotals.assets} privacy={privacy} /><small>{accountCount} akun aset</small></div>
+              <div><span>Total kewajiban</span><Amount value={accountTotals.liabilities} privacy={privacy} /><small className="muted-change">{liabilityCount} akun kewajiban</small></div>
+            </div>
+            <div className="hero-liability-details" aria-label="Rincian kewajiban">
+              <button type="button" onClick={() => onNavigate("bills")}><span>Paylater & kartu</span><Amount value={consumerLiabilities.reduce((sum, account) => sum + account.balance, 0)} privacy={privacy} /><small>{consumerLiabilities.length} akun</small></button>
+              <button type="button" onClick={() => onNavigate("bills")}><span>Kredit & pinjaman</span><Amount value={longTermLiabilities.reduce((sum, account) => sum + account.balance, 0)} privacy={privacy} /><small>{longTermLiabilities.length} kontrak</small></button>
+              <button type="button" onClick={() => onNavigate("bills")}><span>Cicilan bulan ini</span><Amount value={activeInstallments.reduce((sum, bill) => sum + bill.amount, 0)} privacy={privacy} /><small>{activeInstallments.length} jadwal belum dibayar</small></button>
+              <button type="button" onClick={() => onNavigate("bills")}><span>Jatuh tempo terdekat</span><strong>{nearestInstallment ? shortDate(nearestInstallment.dueDate) : "Tidak ada"}</strong><small>{nearestInstallment?.name ?? "Belum ada cicilan"}</small></button>
+            </div>
+            <div className="hero-pattern" aria-hidden="true"><span /><span /><span /><span /><span /></div>
+          </article>
+
+          <article className="health-card">
+            <div className="card-title-row"><div><span className="card-kicker">Skor kesehatan</span><h2>Kondisi finansial</h2></div></div>
+            <div className="health-content">
+              <div className="score-ring" style={{ "--score": `${Math.max(0, Math.min(100, healthScore)) * 3.6}deg` } as React.CSSProperties}><div><strong>{healthScore}</strong><small>/100</small></div></div>
+              <div><span className="health-label">{healthLabel}</span><p>Dihitung dari savings rate, likuiditas, utang, dan kepatuhan anggaran.</p><button className="text-button" onClick={() => onNavigate("reports")}>Lihat analisis <ArrowRight size={15} /></button></div>
             </div>
           </article>
 
-          <article className="now-cell">
-            <div><span className="now-kicker">Arus kas bulan ini</span><Amount value={monthly.cashflow} privacy={privacy} className={`now-big ${monthly.cashflow < 0 ? "negative-text" : "positive-text"}`} /><span className="now-sub">{monthLabel(month)}</span></div>
-            <div className="now-savings">
-              <div><span>Savings rate</span><strong>{monthly.savingsRate.toFixed(1)}%</strong></div>
-              <div className="now-savings-track"><span style={{ width: `${savingsProgress}%` }} /></div>
-            </div>
-          </article>
-
-          <article className="now-cell">
-            <div><span className="now-kicker">Ketahanan kas</span><div className="now-big">{runwayMonths.toFixed(1)} <span>bulan</span></div><span className="now-sub">berdasarkan biaya bulan ini</span></div>
-            <div className="now-runway-bars" aria-label={`Ketahanan kas ${runwayMonths.toFixed(1)} bulan`}>
-              {Array.from({ length: 6 }, (_, index) => <span key={index}><i style={{ height: `${34 + index * 11}%`, background: index < runwayBars ? "var(--primary)" : "var(--surface-strong)" }} /></span>)}
-            </div>
-          </article>
-
-          <article className="now-cell now-health">
-            <span className="now-kicker">Kesehatan finansial</span>
-            <div className="now-health-ring" style={{ "--score": `${Math.max(0, Math.min(100, healthScore)) * 3.6}deg` } as React.CSSProperties}><div><strong>{healthScore}</strong><small>/100</small></div></div>
-            <button className="now-health-pill" onClick={() => onNavigate("roadmap")}>{healthLabel}</button>
-          </article>
+          <div className="dashboard-metric-grid" aria-label="Ringkasan arus kas">
+            <article className="metric-card income"><span className="metric-icon"><ArrowDownLeft size={19} /></span><div><span>Pemasukan bulan ini</span><Amount value={monthly.income} privacy={privacy} className="metric-value" /><small>Di luar transfer internal</small></div></article>
+            <article className="metric-card expense"><span className="metric-icon"><ArrowUpRight size={19} /></span><div><span>Pengeluaran bulan ini</span><Amount value={monthly.expense} privacy={privacy} className="metric-value" /><small>Refund sudah dikurangkan</small></div></article>
+            <article className="metric-card cashflow"><span className="metric-icon"><TrendingUp size={19} /></span><div><span>Arus kas bersih</span><Amount value={monthly.cashflow} privacy={privacy} className={`metric-value ${monthly.cashflow < 0 ? "negative-text" : ""}`} /><small><strong>{monthly.savingsRate.toFixed(1)}%</strong> savings rate</small></div></article>
+          </div>
         </div>
       </section>
 
