@@ -746,7 +746,6 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .global-search:focus-within { flex: 1 1 auto; width: auto; grid-template-columns: auto minmax(0,1fr); padding: 0 11px; overflow: hidden; border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); background: var(--surface); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent); }
   .global-search:focus-within input { position: static; width: 100%; opacity: 1; pointer-events: auto; }
   .topbar-actions { flex: 0 0 auto; gap: 6px; }
-  .theme-toggle { display: none !important; }
   .page-heading h1 { font-size: 22px; }
   .eyebrow { font-size: 13px; }
   .demo-banner { grid-template-columns: 32px minmax(0,1fr); gap: 8px; }
