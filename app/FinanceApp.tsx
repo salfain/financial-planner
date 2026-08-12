@@ -1298,7 +1298,27 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
           <div>
             <article className="panel cashflow-panel">
               <div className="panel-head"><div><h3>Aktivitas 14 hari</h3><p>Perbandingan pemasukan dan pengeluaran harian.</p></div><span className="chart-legend"><span className="legend-income" /> Masuk <span className="legend-expense" /> Keluar</span></div>
-              <div className="bar-chart">{dailySeries.map((item) => <div className="bar-column" key={item.day} title={`${item.day}: masuk ${formatIDR(item.income)}, keluar ${formatIDR(item.expense)}`}><span className="bar-income" style={{ height: `${Math.max(3, item.income / chartMax * 100)}%` }} /><span className="bar-expense" style={{ height: `${Math.max(3, item.expense / chartMax * 100)}%` }} /><small>{item.day}</small></div>)}</div>
+              <div className="bar-chart">{dailySeries.map((item) => {
+                const tooltipId = `daily-activity-${month}-${item.day}`;
+                const incomeLabel = privacy ? "Rp ••••" : formatIDR(item.income);
+                const expenseLabel = privacy ? "Rp ••••" : formatIDR(item.expense);
+                return <button
+                  type="button"
+                  className="bar-column"
+                  key={item.day}
+                  aria-label={`${item.day} ${monthLabel(month)}. Pemasukan ${incomeLabel}. Pengeluaran ${expenseLabel}`}
+                  aria-describedby={tooltipId}
+                >
+                  <span className="bar-tooltip" id={tooltipId} role="tooltip">
+                    <strong>{item.day} {monthLabel(month)}</strong>
+                    <span><i className="green-dot" />Pemasukan <b>{incomeLabel}</b></span>
+                    <span><i className="red-dot" />Pengeluaran <b>{expenseLabel}</b></span>
+                  </span>
+                  <span className="bar-income" style={{ height: `${Math.max(3, item.income / chartMax * 100)}%` }} />
+                  <span className="bar-expense" style={{ height: `${Math.max(3, item.expense / chartMax * 100)}%` }} />
+                  <small>{item.day}</small>
+                </button>;
+              })}</div>
             </article>
             <article className="panel recent-panel">
               <div className="card-title-row"><div><span className="card-kicker">Aktivitas</span><h2>Transaksi terbaru</h2></div><button className="primary-button compact" onClick={onAdd}><Plus size={16} /> Tambah</button></div>
