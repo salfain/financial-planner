@@ -313,6 +313,8 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .page-heading h1 { margin: 2px 0 0; font-size: 20px; line-height: 1.25; font-weight: 750; letter-spacing: -.03em; }
 .page-heading p { margin: 0; color: var(--text-soft); font-size: 13.5px; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 15px; }
+.dashboard-overview { display: grid; gap: 30px; }
+.dashboard-overview .onboarding-banner { width: 100%; }
 .dashboard-section { display: grid; gap: 14px; }
 .dashboard-section-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 0; }
 .dashboard-section-header h2 { margin: 0; font-size: 15px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--primary-dark); }
@@ -386,6 +388,7 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .waterfall-bar.step { border-radius: 4px; min-height: 10px; }
 .waterfall-bar.income { border-radius: 8px 8px 0 0; background: linear-gradient(180deg, #3fae8d, var(--primary-dark, #0f5949)); }
 .waterfall-bar.remainder { border-radius: 8px 8px 0 0; background: repeating-linear-gradient(135deg, var(--primary-dark, #0f5949) 0 6px, #17705c 6px 12px); }
+.waterfall-bar.remainder.negative { background: repeating-linear-gradient(135deg, var(--negative) 0 6px, color-mix(in srgb, var(--negative) 72%, #792f38) 6px 12px); }
 .waterfall-labels { display: flex; gap: 18px; margin-top: 12px; color: var(--text-soft); font-size: 12.5px; text-align: center; }
 .waterfall-labels > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .waterfall-labels > span.wide { flex: 1.2; }
@@ -405,7 +408,8 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .budget-compare-unbudgeted { padding-top: 20px; border-top: 1px solid var(--border-soft); }
 
 /* Kartu aksi: satu hal yang perlu dikerjakan, lengkap dengan CTA-nya. */
-.action-card { display: flex; flex-direction: column; padding: 24px 26px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); }
+.action-card { display: flex; flex-direction: column; padding: 24px 26px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.action-card:hover { border-color: color-mix(in srgb, var(--primary) 24%, var(--border)); box-shadow: 0 14px 30px rgba(19,42,33,.07); transform: translateY(-2px); }
 .action-card.urgent { border-color: rgba(201,82,91,.28); background: linear-gradient(160deg, #fdf4f4, var(--surface)); }
 [data-theme="dark"] .action-card.urgent { background: linear-gradient(160deg, color-mix(in srgb, var(--negative) 12%, var(--surface)), var(--surface)); }
 .action-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
@@ -433,6 +437,19 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .action-cta.ghost:hover { border-color: var(--primary); background: var(--primary-soft); }
 .tier-ledger { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: start; }
 .tier-ledger > div { display: grid; gap: 20px; }
+.tier-month > .panel,
+.tier-ledger > div,
+.tier-ledger .panel,
+.tier-ledger .insight-card { min-width: 0; }
+.tier-ledger .cashflow-panel,
+.tier-ledger .recent-panel,
+.tier-ledger .accounts-panel,
+.tier-ledger .bills-panel,
+.tier-ledger .insight-card { grid-column: auto; width: auto; }
+.tier-ledger .recent-panel { padding-bottom: 10px; }
+.tier-ledger .insight-card { border-radius: 20px; }
+.budget-focus-panel { display: flex; flex-direction: column; }
+.budget-focus-panel .budget-compare-list { flex: 1; }
 .panel, .metric-card, .health-card { border: 1px solid var(--border); border-radius: 22px; background: var(--surface); box-shadow: var(--shadow-sm); padding: 28px 30px; }
 .hero-card { grid-column: span 8; position: relative; min-height: 200px; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; padding: 32px 34px; color: #fff; border-radius: 22px; background: linear-gradient(125deg, #155f51 0%, #113e35 50%, #102a23 100%); box-shadow: var(--shadow-hero); }
 .hero-card .card-kicker { color: rgba(255,255,255,.6); font-size: 12px; }
@@ -638,6 +655,10 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 @media (max-width: 920px) { .notification-settings-grid { grid-template-columns: 1fr 1fr; }.notification-settings-grid > div { grid-column: 1 / -1; } }
 
 @media (max-width: 720px) {
+  .dashboard-overview { gap: 23px; }
+  .dashboard-section { gap: 11px; }
+  .dashboard-section-header .count { display: none; }
+  .action-card:hover { transform: none; }
   .setup-shell { min-height: auto; padding: 28px 17px 40px; }.setup-copy h1 { font-size: 38px; }.setup-card { padding: 22px 18px; }.transaction-actions { opacity: 1; }.transaction-table:not(.compact-table) .transaction-amount { padding-right: 57px; } body { padding-bottom: calc(66px + env(safe-area-inset-bottom)); }.topbar { height: 61px; gap: 9px; }.global-search { flex: 1; width: auto; }.global-search kbd,.privacy-toggle span,.top-add { display: none; }.top-add { width: 38px; padding: 0; }.top-add svg { margin: 0; }.page-wrap { padding: 22px 14px 35px; }.page-heading { align-items: flex-start; margin-bottom: 19px; }.page-heading .primary-button { display: none; }.page-heading h1 { font-size: 23px; }.page-heading p { max-width: 360px; }.dashboard-grid { gap: 11px; }
   .tier-month,.tier-action,.tier-ledger { grid-template-columns: 1fr; gap: 11px; }.tier-now { grid-template-columns: 1fr; }.tier-now .now-cell { border-right: 0; border-bottom: 1px solid var(--border-soft); padding: 22px; }.tier-now .now-cell:last-child { border-bottom: 0; }.now-networth { padding: 22px; }.waterfall-chart { height: 190px; gap: 10px; }.waterfall-labels { gap: 10px; font-size: 13.5px; }.panel-head h3 { font-size: 17px; }.panel-head p { font-size: 12px; }
   .tier-ledger > div { display: contents; }
