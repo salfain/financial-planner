@@ -2316,6 +2316,32 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .owner-password-success { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-radius: 12px; color: var(--primary); background: var(--primary-soft); font-weight: 700; }
 .owner-password-change-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 
+/* Global quick add: one responsive surface for transactions and common records. */
+.quick-add-backdrop { z-index: 130; }
+.quick-add-modal { width: min(720px,100%); overflow: hidden; }
+.quick-add-handle { display: none; }
+.quick-add-head { padding-bottom: 16px; border-bottom: 1px solid var(--border-soft); }
+.quick-add-head p { margin: 5px 0 0; color: var(--text-faint); font-size: 13px; }
+.quick-add-content { display: grid; gap: 18px; padding: 18px 22px 24px; }
+.quick-add-primary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.quick-add-transaction { min-width: 0; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; grid-template-rows: auto auto; align-items: center; column-gap: 11px; padding: 14px; color: var(--text); border: 1px solid var(--border); border-radius: 15px; background: var(--surface-soft); cursor: pointer; text-align: left; transition: transform .16s ease,border-color .16s ease,box-shadow .16s ease; }
+.quick-add-transaction:hover { transform: translateY(-2px); border-color: color-mix(in srgb,var(--primary) 35%,var(--border)); box-shadow: var(--shadow-sm); }
+.quick-add-transaction > span { grid-row: 1/3; width: 42px; height: 42px; display: grid; place-items: center; color: var(--primary); border-radius: 13px; background: var(--primary-soft); }
+.quick-add-transaction.expense > span { color: var(--danger); background: color-mix(in srgb,var(--danger) 12%,var(--surface)); }
+.quick-add-transaction.transfer > span { color: #2870a9; background: color-mix(in srgb,#4b9bd8 14%,var(--surface)); }
+.quick-add-transaction strong { align-self: end; font-size: 14px; }
+.quick-add-transaction small { align-self: start; color: var(--text-faint); font-size: 11.5px; }
+.quick-add-transaction > svg { grid-column: 3; grid-row: 1/3; color: var(--text-faint); }
+.quick-add-divider { display: flex; align-items: center; gap: 10px; color: var(--text-faint); font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.quick-add-divider::after { content: ""; height: 1px; flex: 1; background: var(--border-soft); }
+.quick-add-secondary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; }
+.quick-add-secondary button { min-width: 0; display: grid; grid-template-columns: 38px minmax(0,1fr); align-items: center; gap: 10px; padding: 11px; color: var(--text); border: 1px solid var(--border-soft); border-radius: 13px; background: var(--surface); cursor: pointer; text-align: left; }
+.quick-add-secondary button:hover { border-color: var(--border); background: var(--surface-soft); }
+.quick-add-secondary button > span:first-child { width: 38px; height: 38px; display: grid; place-items: center; color: var(--primary); border-radius: 11px; background: var(--primary-soft); }
+.quick-add-secondary button > span:last-child { min-width: 0; display: grid; gap: 2px; }
+.quick-add-secondary strong { font-size: 13px; }
+.quick-add-secondary small { color: var(--text-faint); font-size: 11px; }
+
 @media (max-width: 760px) {
   .owner-password-change { padding: 15px; }
   .owner-password-change-head { align-items: flex-start; flex-wrap: wrap; }
@@ -2324,6 +2350,19 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .owner-password-change-grid { grid-template-columns: 1fr; }
   .owner-password-change-actions { align-items: stretch; flex-direction: column; }
   .owner-password-change-actions .primary-button { width: 100%; }
+  .quick-add-modal { max-height: min(88dvh,680px); border-radius: 24px 24px 0 0; }
+  .quick-add-handle { width: 42px; height: 4px; display: block; margin: 9px auto 0; border-radius: 999px; background: var(--border); }
+  .quick-add-head { padding: 12px 17px 14px; }
+  .quick-add-head h2 { font-size: 20px; }
+  .quick-add-content { gap: 15px; padding: 15px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .quick-add-primary { gap: 8px; }
+  .quick-add-transaction { grid-template-columns: 1fr; grid-template-rows: auto auto; justify-items: center; gap: 7px; padding: 12px 5px; text-align: center; }
+  .quick-add-transaction > span { grid-row: auto; width: 40px; height: 40px; }
+  .quick-add-transaction strong { align-self: auto; font-size: 12px; }
+  .quick-add-transaction small,.quick-add-transaction > svg { display: none; }
+  .quick-add-secondary { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  .quick-add-secondary button { grid-template-columns: 34px minmax(0,1fr); gap: 8px; padding: 9px; }
+  .quick-add-secondary button > span:first-child { width: 34px; height: 34px; }
 }
 
 @keyframes mobile-overlay-in { from { opacity: 0; } }

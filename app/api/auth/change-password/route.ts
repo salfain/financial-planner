@@ -7,6 +7,7 @@ import {
   verifyOwnerPassword,
 } from "../../../../lib/owner-auth";
 import { rotateStoredOwnerPassword } from "../../../../lib/owner-auth-store";
+import { AppsScriptUpstreamError } from "../../_lib/apps-script-upstream";
 
 const MAX_BODY_BYTES = 4096;
 const MIN_PASSWORD_LENGTH = 14;
@@ -56,7 +57,10 @@ export async function POST(request: Request) {
       message: "Kunci akses berhasil diganti. Sesi perangkat lain telah dicabut.",
       expiresAt: new Date(session.expiresAt * 1000).toISOString(),
     }, 200, { "Set-Cookie": ownerSessionCookie(session.token, session.maxAge) });
-  } catch {
+  } catch (error) {
+    if (error instanceof AppsScriptUpstreamError) {
+      return response(request, { ok: false, error: { code: error.code, message: error.message } }, error.status >= 400 && error.status < 600 ? error.status : 503);
+    }
     return response(request, { ok: false, error: { code: "OWNER_AUTH_UNAVAILABLE", message: "Kunci belum dapat diganti. Coba lagi beberapa saat." } }, 503);
   }
 }

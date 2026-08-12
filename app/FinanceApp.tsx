@@ -471,7 +471,9 @@ export function FinanceApp() {
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [transactionOpen, setTransactionOpen] = useState(false);
+  const [transactionPreset, setTransactionPreset] = useState<"expense" | "income" | "transfer">("expense");
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
   const [transactionImportOpen, setTransactionImportOpen] = useState(false);
@@ -922,6 +924,12 @@ export function FinanceApp() {
     if (activePage === "funds") return setSinkingFundModal({});
     if (activePage === "bills") return setBillOpen(true);
     if (activePage === "investments") return setInvestmentAssetModal({});
+    openTransaction();
+  };
+
+  const openTransaction = (type: "expense" | "income" | "transfer" = "expense") => {
+    setTransactionPreset(type);
+    setQuickAddOpen(false);
     setTransactionOpen(true);
   };
 
@@ -1050,7 +1058,7 @@ export function FinanceApp() {
                 </div>
               )}
             </div>
-            <button className="primary-button top-add" onClick={() => setTransactionOpen(true)}><Plus size={18} /> Transaksi</button>
+            <button className="primary-button top-add" onClick={() => setQuickAddOpen(true)} aria-haspopup="dialog"><Plus size={18} /> Tambah</button>
             {/* Mobile: aksi utama per halaman ada di header (desain 11a-11d, 12a-12n). */}
             {pageSupportsCreate && <button className="mobile-page-add" onClick={() => activePage === "investments" ? requirePlan("investments") && openCreateForPage() : openCreateForPage()} aria-label={createLabel}><Plus size={19} /></button>}
           </div>
@@ -1071,7 +1079,7 @@ export function FinanceApp() {
             )}
           </section>
 
-          {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setTransactionOpen(true)} />}
+          {activePage === "dashboard" && <DashboardPage transactions={transactions} accounts={accounts} budgets={budgets} bills={bills} goals={goals} privacy={privacy} monthly={monthly} accountTotals={accountTotals} healthScore={healthScore} month={month} onNavigate={selectPage} onAdd={() => setQuickAddOpen(true)} />}
           {activePage === "roadmap" && <RoadmapPage month={month} transactions={transactions} accounts={accounts} goals={goals} investmentAssets={investmentAssets} privacy={privacy} onToast={showToast} />}
           {activePage === "forecast" && <CashflowForecastPage transactions={transactions} accounts={accounts} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "emergency" && <EmergencyFundPage month={month} transactions={transactions} accounts={accounts} privacy={privacy} onToast={showToast} />}
@@ -1096,7 +1104,7 @@ export function FinanceApp() {
       <nav className="mobile-nav" aria-label="Navigasi seluler">
         {/* Urutan mengikuti desain 5a: dua tab, FAB tengah, dua tab. */}
         {navPrimary.filter((item) => ["dashboard", "transactions"].includes(item.key) && isOptionalFeatureEnabled(featurePreferences, item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
-        <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={24} /></button>
+        <button className="mobile-add" onClick={() => setQuickAddOpen(true)} aria-label="Buka tambah cepat" aria-haspopup="dialog"><Plus size={24} /></button>
         {navPrimary.filter((item) => item.key === "budgets" && isOptionalFeatureEnabled(featurePreferences, item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
         <button className={`mobile-nav-more nav-item ${mobileMoreOpen ? "active" : ""}`} onClick={() => setMobileMoreOpen(true)} aria-label="Menu lainnya" aria-expanded={mobileMoreOpen}><MoreHorizontal size={21} /><span>Lainnya</span></button>
       </nav>
@@ -1127,7 +1135,17 @@ export function FinanceApp() {
         </section>
       </div>}
 
-      {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} transactions={transactions} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
+      {quickAddOpen && <QuickAddModal
+        onClose={() => setQuickAddOpen(false)}
+        onTransaction={openTransaction}
+        onAccount={() => { setQuickAddOpen(false); setAccountOpen(true); }}
+        onReceivable={() => { setQuickAddOpen(false); setReceivableOpen(true); }}
+        onBudget={() => { setQuickAddOpen(false); setBudgetOpen(true); }}
+        onGoal={() => { setQuickAddOpen(false); setGoalOpen(true); }}
+        onFund={() => { setQuickAddOpen(false); setSinkingFundModal({}); }}
+        onBill={() => { setQuickAddOpen(false); setBillOpen(true); }}
+      />}
+      {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} transactions={transactions} initial={editingTransaction ?? duplicatingTransaction ?? undefined} initialType={transactionPreset} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
       {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} categoryRules={categoryRules} existingTransactions={transactions} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
       {accountImportOpen && <AccountImportModal accounts={accounts} saving={saving} onClose={() => setAccountImportOpen(false)} onSubmit={async (items) => { const ok = await importAccounts(items); if (ok) setAccountImportOpen(false); return ok; }} />}
       {(accountOpen || editingAccount) && <AccountModal account={editingAccount ?? undefined} saving={saving} onClose={() => { setAccountOpen(false); setEditingAccount(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingAccount ? updateFinanceAccount(editingAccount.id, payload) : createFinanceAccount(payload), editingAccount ? "Akun berhasil diperbarui." : "Akun baru berhasil ditambahkan."); if (ok) { setAccountOpen(false); setEditingAccount(null); } }} />}
@@ -3534,11 +3552,61 @@ async function compressReceiptImage(file: File) {
 
 type TransactionModalMode = "create" | "edit" | "duplicate";
 
-function TransactionModal({ accounts, categories, transactions, initial, mode, saving, onClose, onSubmit }: {
+type QuickTransactionType = "expense" | "income" | "transfer";
+
+function QuickAddModal({ onClose, onTransaction, onAccount, onReceivable, onBudget, onGoal, onFund, onBill }: {
+  onClose: () => void;
+  onTransaction: (type: QuickTransactionType) => void;
+  onAccount: () => void;
+  onReceivable: () => void;
+  onBudget: () => void;
+  onGoal: () => void;
+  onFund: () => void;
+  onBill: () => void;
+}) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const transactionActions: Array<{ type: QuickTransactionType; label: string; hint: string; icon: LucideIcon; tone: string }> = [
+    { type: "expense", label: "Pengeluaran", hint: "Catat uang keluar", icon: ArrowUpRight, tone: "expense" },
+    { type: "income", label: "Pemasukan", hint: "Catat uang masuk", icon: ArrowDownLeft, tone: "income" },
+    { type: "transfer", label: "Transfer", hint: "Pindah antar akun", icon: Repeat2, tone: "transfer" },
+  ];
+  const otherActions: Array<{ label: string; hint: string; icon: LucideIcon; action: () => void }> = [
+    { label: "Akun", hint: "Tambah rekening", icon: WalletCards, action: onAccount },
+    { label: "Piutang", hint: "Catat pinjaman", icon: CircleDollarSign, action: onReceivable },
+    { label: "Anggaran", hint: "Atur batas", icon: BarChart3, action: onBudget },
+    { label: "Target", hint: "Buat tujuan", icon: Target, action: onGoal },
+    { label: "Pos dana", hint: "Siapkan tabungan", icon: Umbrella, action: onFund },
+    { label: "Tagihan", hint: "Jadwalkan bayar", icon: ReceiptText, action: onBill },
+  ];
+
+  return <div className="modal-backdrop quick-add-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="modal quick-add-modal" role="dialog" aria-modal="true" aria-labelledby="quick-add-title">
+      <div className="quick-add-handle" aria-hidden="true" />
+      <div className="modal-head quick-add-head"><div><span className="card-kicker">Tambah cepat</span><h2 id="quick-add-title">Mau mencatat apa?</h2><p>Pilih aksi, lalu isi detail seperlunya.</p></div><button className="icon-button" onClick={onClose} aria-label="Tutup tambah cepat"><X size={20} /></button></div>
+      <div className="quick-add-content">
+        <div className="quick-add-primary">
+          {transactionActions.map((item) => { const Icon = item.icon; return <button type="button" className={`quick-add-transaction ${item.tone}`} key={item.type} onClick={() => onTransaction(item.type)}><span><Icon size={21} /></span><strong>{item.label}</strong><small>{item.hint}</small><ArrowRight size={17} /></button>; })}
+        </div>
+        <div className="quick-add-divider"><span>Lainnya</span></div>
+        <div className="quick-add-secondary">
+          {otherActions.map((item) => { const Icon = item.icon; return <button type="button" key={item.label} onClick={item.action}><span><Icon size={19} /></span><span><strong>{item.label}</strong><small>{item.hint}</small></span></button>; })}
+        </div>
+      </div>
+    </section>
+  </div>;
+}
+
+function TransactionModal({ accounts, categories, transactions, initial, initialType = "expense", mode, saving, onClose, onSubmit }: {
   accounts: Account[];
   categories: FinanceCategory[];
   transactions: Transaction[];
   initial?: Transaction;
+  initialType?: QuickTransactionType;
   mode: TransactionModalMode;
   saving: boolean;
   onClose: () => void;
@@ -3550,12 +3618,12 @@ function TransactionModal({ accounts, categories, transactions, initial, mode, s
   const initialAccountId = initial?.accountId ?? sourceAccounts[0]?.id ?? "";
   const [draftId] = useState(() => isEdit && initial ? initial.id : `tx-${crypto.randomUUID()}`);
   const [mutationRequestId] = useState(() => isEdit && initial ? `transaction-update:${initial.id}:${crypto.randomUUID()}` : draftId);
-  const [type, setType] = useState<TransactionType>(initial?.type ?? "expense");
+  const [type, setType] = useState<TransactionType>(initial?.type ?? initialType);
   const [amount, setAmount] = useState(initial ? String(initial.amount) : "");
   const [accountId, setAccountId] = useState(initialAccountId);
   const [destinationAccountId, setDestinationAccountId] = useState(initial?.destinationAccountId ?? accounts.find((account) => account.id !== initialAccountId)?.id ?? "");
   const [title, setTitle] = useState(isDuplicate && initial ? `${initial.title} (salinan)` : initial?.title ?? "");
-  const [category, setCategory] = useState(initial?.category ?? categories.find((item) => item.active && item.type === "expense")?.name ?? "");
+  const [category, setCategory] = useState(initial?.category ?? categories.find((item) => item.active && item.type === (initialType === "income" ? "income" : "expense"))?.name ?? "");
   const [date, setDate] = useState(isDuplicate ? today() : initial?.date ?? today());
   const [time, setTime] = useState(initial?.time ?? "");
   const [status, setStatus] = useState<Transaction["status"]>(initial?.status ?? "completed");

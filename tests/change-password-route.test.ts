@@ -50,3 +50,46 @@ test("endpoint pengaturan mengganti kunci dan mencabut sesi lama", async () => {
     }
   }
 });
+
+test("endpoint mengonfirmasi rotasi yang sudah tersimpan ketika respons ulang tidak membawa revisi", async () => {
+  const oldPassword = "kunci-pemilik-lama-yang-kuat";
+  const newPassword = "kunci-pemilik-baru-yang-kuat";
+  const oldHash = createHash("sha256").update(oldPassword).digest("hex");
+  const newHash = createHash("sha256").update(newPassword).digest("hex");
+  const originalFetch = globalThis.fetch;
+  const originalEnv = { ...process.env };
+  let stored = { configured: false, passwordHash: null as string | null, revision: "environment" };
+
+  process.env.APPS_SCRIPT_API_URL = "https://script.google.test/exec";
+  process.env.APPS_SCRIPT_ACCESS_KEY = "test-access-key-0123456789-abcdefghijklmnopqrstuvwxyz";
+  process.env.FINANCE_OWNER_PASSWORD_SHA256 = oldHash;
+  process.env.FINANCE_SESSION_SECRET = "secret-session-owner-0123456789-abcdefghijklmnopqrstuvwxyz";
+  globalThis.fetch = async (_input, init) => {
+    const request = JSON.parse(String(init?.body || "{}")) as { action: string };
+    if (request.action === "rotateOwnerPassword") {
+      stored = { configured: true, passwordHash: newHash, revision: "revision-after-retry" };
+      return Response.json({ ok: true, data: { committed: true, duplicate: true } });
+    }
+    return Response.json({ ok: true, data: stored });
+  };
+
+  try {
+    clearOwnerAuthStateCache();
+    const oldSession = await createOwnerSession();
+    const request = new Request("https://financial.example/api/auth/change-password", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: ownerSessionCookie(oldSession.token) },
+      body: JSON.stringify({ currentPassword: oldPassword, newPassword }),
+    });
+    const response = await POST(request);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as { ok?: boolean }).ok, true);
+    assert.equal(await verifyOwnerSession(oldSession.token), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearOwnerAuthStateCache();
+    for (const key of ["APPS_SCRIPT_API_URL", "APPS_SCRIPT_ACCESS_KEY", "FINANCE_OWNER_PASSWORD_SHA256", "FINANCE_SESSION_SECRET"]) {
+      if (originalEnv[key] === undefined) delete process.env[key]; else process.env[key] = originalEnv[key];
+    }
+  }
+});

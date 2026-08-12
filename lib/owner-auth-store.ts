@@ -60,7 +60,14 @@ export async function rotateStoredOwnerPassword(passwordHash: string) {
   const envelope = result.envelope as OwnerAuthEnvelope;
   if (!envelope.ok) throw new AppsScriptUpstreamError(502, String(envelope.error?.code || "OWNER_PASSWORD_ROTATION_FAILED"), String(envelope.error?.message || "Kunci pemilik belum dapat diganti."));
   const revision = String(envelope.data?.revision || "").trim();
-  if (!revision) throw new AppsScriptUpstreamError(502, "OWNER_AUTH_REVISION_MISSING", "Revisi keamanan baru tidak diterima.");
+  if (!revision) {
+    clearOwnerAuthStateCache();
+    const confirmed = await getOwnerAuthState({ refresh: true });
+    if (confirmed.source !== "apps-script" || confirmed.passwordHash !== passwordHash.toLowerCase()) {
+      throw new AppsScriptUpstreamError(502, "OWNER_AUTH_REVISION_MISSING", "Perubahan kunci belum dapat dikonfirmasi.");
+    }
+    return { state: confirmed, updatedAt: "", sessionsRevoked: true };
+  }
   const state: OwnerAuthState = { passwordHash: passwordHash.toLowerCase(), revision, source: "apps-script" };
   cached = { state, expiresAt: Date.now() + CACHE_MS };
   return { state, updatedAt: String(envelope.data?.updatedAt || ""), sessionsRevoked: envelope.data?.sessionsRevoked === true };
