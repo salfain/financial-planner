@@ -465,6 +465,8 @@ export function FinanceApp() {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [transactionOpen, setTransactionOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -647,6 +649,8 @@ export function FinanceApp() {
     if (!isOptionalFeatureEnabled(featurePreferences, page)) {
       setActivePage("settings");
       setSidebarOpen(false);
+      setMobileMoreOpen(false);
+      setMobileSearchOpen(false);
       showToast("Fitur tersebut sedang dinonaktifkan. Aktifkan kembali melalui Pengaturan.");
       return;
     }
@@ -654,6 +658,8 @@ export function FinanceApp() {
     if (capability && !requirePlan(capability)) return;
     setActivePage(page);
     setSidebarOpen(false);
+    setMobileMoreOpen(false);
+    setMobileSearchOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -1009,6 +1015,7 @@ export function FinanceApp() {
           {/* Mobile: judul halaman tampil di header sticky (desain 5a/11a), bukan di badan halaman.
               Dipakai label nav yang pendek ("Ringkasan"), bukan sapaan panjang yang akan terpotong. */}
           <h1 className="topbar-title">{navPrimary.find((item) => item.key === activePage)?.label ?? title.title}</h1>
+          <button className="icon-button mobile-search-toggle" onClick={() => setMobileSearchOpen(true)} aria-label="Buka pencarian transaksi"><Search size={18} /></button>
           <label className="global-search" htmlFor="global-transaction-search">
             <Search size={18} />
             <input id="global-transaction-search" aria-label="Cari transaksi" placeholder="Cari transaksi, akun, atau kategori..." value={transactionQuery} onChange={(event) => { setTransactionQuery(event.target.value); setActivePage("transactions"); }} onFocus={() => activePage !== "transactions" && setActivePage("transactions")} />
@@ -1084,8 +1091,34 @@ export function FinanceApp() {
         {navPrimary.filter((item) => ["dashboard", "transactions"].includes(item.key) && isOptionalFeatureEnabled(featurePreferences, item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
         <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={24} /></button>
         {navPrimary.filter((item) => item.key === "budgets" && isOptionalFeatureEnabled(featurePreferences, item.key)).map((item) => <NavButton key={item.key} item={item} active={activePage === item.key} onClick={() => selectPage(item.key)} />)}
-        <button className="mobile-nav-more nav-item" onClick={() => setSidebarOpen(true)} aria-label="Menu lainnya"><MoreHorizontal size={21} /><span>Lainnya</span></button>
+        <button className={`mobile-nav-more nav-item ${mobileMoreOpen ? "active" : ""}`} onClick={() => setMobileMoreOpen(true)} aria-label="Menu lainnya" aria-expanded={mobileMoreOpen}><MoreHorizontal size={21} /><span>Lainnya</span></button>
       </nav>
+
+      {mobileSearchOpen && <div className="mobile-overlay" role="presentation" onClick={() => setMobileSearchOpen(false)}>
+        <section className="mobile-search-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-search-title" onClick={(event) => event.stopPropagation()}>
+          <div className="mobile-sheet-handle" />
+          <div className="mobile-sheet-head"><div><small>Cari data</small><h2 id="mobile-search-title">Pencarian transaksi</h2></div><button className="icon-button" onClick={() => setMobileSearchOpen(false)} aria-label="Tutup pencarian"><X size={19} /></button></div>
+          <label className="mobile-search-field" htmlFor="mobile-transaction-search"><Search size={19} /><input id="mobile-transaction-search" autoFocus aria-label="Cari transaksi mobile" placeholder="Merchant, catatan, kategori, atau akun" value={transactionQuery} onChange={(event) => setTransactionQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") selectPage("transactions"); }} /></label>
+          <button className="primary-button mobile-search-submit" onClick={() => selectPage("transactions")} disabled={!transactionQuery.trim()}><Search size={17} /> Lihat hasil pencarian</button>
+        </section>
+      </div>}
+
+      {mobileMoreOpen && <div className="mobile-overlay" role="presentation" onClick={() => setMobileMoreOpen(false)}>
+        <section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title" onClick={(event) => event.stopPropagation()}>
+          <div className="mobile-sheet-handle" />
+          <div className="mobile-sheet-head"><div><small>Navigasi</small><h2 id="mobile-more-title">Semua menu</h2></div><button className="icon-button" onClick={() => setMobileMoreOpen(false)} aria-label="Tutup menu lainnya"><X size={19} /></button></div>
+          <div className="mobile-menu-groups">{navGroups.map((group) => {
+            const visibleItems = group.items.filter((item) => !["dashboard", "transactions", "budgets"].includes(item.key) && isOptionalFeatureEnabled(featurePreferences, item.key));
+            if (!visibleItems.length) return null;
+            return <section key={group.key}><h3>{group.label}</h3><div className="mobile-menu-grid">{visibleItems.map((item) => {
+              const ItemIcon = item.icon;
+              const capability = pageCapability(item.key);
+              const locked = Boolean(capability && !entitlement.capabilities[capability]);
+              return <button key={item.key} className={activePage === item.key ? "active" : ""} onClick={() => selectPage(item.key)}><span><ItemIcon size={20} /></span><strong>{item.label}</strong>{locked && <small><LockKeyhole size={11} /> {capability === "investments" || capability === "ai" ? "Premium" : "Pro"}</small>}</button>;
+            })}</div></section>;
+          })}</div>
+        </section>
+      </div>}
 
       {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} transactions={transactions} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
       {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} categoryRules={categoryRules} existingTransactions={transactions} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
@@ -3171,20 +3204,27 @@ function SettingsPage({ profile, entitlement, configured, accounts, transactions
   onRefresh: () => Promise<void>;
   onNavigate: (page: PageKey) => void;
 }) {
+  const [section, setSection] = useState<"display" | "reminders" | "data" | "features" | "security" | "ai">("display");
   const editableCategories = categories.filter((category) => category.active && (category.type === "income" || category.type === "expense"));
   return <div className="settings-layout">
+    <nav className="settings-tabs settings-wide" aria-label="Kategori pengaturan">{([["display", "Tampilan"], ["reminders", "Reminder"], ["data", "Data"], ["features", "Fitur"], ["security", "Keamanan"], ["ai", "AI"]] as const).map(([key, label]) => <button key={key} className={section === key ? "active" : ""} onClick={() => setSection(key)} aria-current={section === key ? "page" : undefined}>{label}</button>)}</nav>
+    <div className={`settings-tab-content settings-wide ${section === "display" ? "active" : ""}`}>
     <OwnerProfilePanel key={profile.name} profile={profile} saving={saving} onSave={onSaveProfile} />
     <section className="panel settings-section"><div className="settings-title"><span><Settings size={20} /></span><div><h2>Preferensi tampilan</h2><p>Atur pengalaman dashboard di perangkat ini.</p></div></div><div className="settings-row"><div><strong>Tema gelap</strong><small>Kurangi cahaya pada malam hari.</small></div><button className={`switch ${darkMode ? "on" : ""}`} onClick={() => setDarkMode(!darkMode)} aria-pressed={darkMode}><span /></button></div><div className="settings-row"><div><strong>Privacy mode</strong><small>Sembunyikan semua nominal sensitif.</small></div><button className={`switch ${privacy ? "on" : ""}`} onClick={() => setPrivacy(!privacy)} aria-pressed={privacy}><span /></button></div></section>
-    <NotificationSettingsPanel key={`${notificationSettings.enabled}-${notificationSettings.billReminderDays.join(",")}-${notificationSettings.budgetWarningPercent}-${notificationSettings.backupWarningDays}-${notificationSettings.goalWarningDays}-${notificationSettings.emailEnabled}-${notificationSettings.emailAddress}-${notificationSettings.weeklyDigest}`} settings={notificationSettings} onSave={onSaveNotificationSettings} onToast={onToast} />
+    </div>
+    <div className={`settings-tab-content settings-wide ${section === "reminders" ? "active" : ""}`}><NotificationSettingsPanel key={`${notificationSettings.enabled}-${notificationSettings.billReminderDays.join(",")}-${notificationSettings.budgetWarningPercent}-${notificationSettings.backupWarningDays}-${notificationSettings.goalWarningDays}-${notificationSettings.emailEnabled}-${notificationSettings.emailAddress}-${notificationSettings.weeklyDigest}`} settings={notificationSettings} onSave={onSaveNotificationSettings} onToast={onToast} /></div>
+    <div className={`settings-tab-content settings-wide ${section === "data" ? "active" : ""}`}>
     <DataPortabilityPanel backendLabel={backendLabel} onToast={onToast} onRefresh={onRefresh} />
-    <LicenseCenterPanel entitlement={entitlement} onOpenLicense={onOpenLicense} onToast={onToast} />
     <CustomerReadinessPanel configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} entitlement={entitlement} schemaVersion={schemaVersion} backendLabel={backendLabel} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onNavigate={onNavigate} onToast={onToast} />
-    <FeaturePreferencesPanel key={JSON.stringify(featurePreferences)} preferences={featurePreferences} saving={saving} onSave={onSaveFeaturePreferences} />
-    <SecurityAccessPanel privacy={privacy} />
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
     <UpdateCenterPanel schemaVersion={schemaVersion} backendLabel={backendLabel} onRefresh={onRefresh} onToast={onToast}/>
-    <AiSettingsPanel onToast={onToast} />
     <LedgerHealthPanel privacy={privacy} onToast={onToast} onRefresh={onRefresh} />
+    </div>
+    <div className={`settings-tab-content settings-advanced-content settings-wide ${["features", "security", "ai"].includes(section) ? "active" : ""}`} data-section={section}>
+    <LicenseCenterPanel entitlement={entitlement} onOpenLicense={onOpenLicense} onToast={onToast} />
+    <SecurityAccessPanel privacy={privacy} />
+    <AiSettingsPanel onToast={onToast} />
+    <FeaturePreferencesPanel key={JSON.stringify(featurePreferences)} preferences={featurePreferences} saving={saving} onSave={onSaveFeaturePreferences} />
     <section className="panel settings-section settings-wide"><div className="settings-title"><span><Tags size={20} /></span><div><h2>Kategori transaksi</h2><p>Kategori aktif dipakai langsung pada transaksi, anggaran, dan tagihan.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategory}><Plus size={15} /> Tambah kategori</button></div><div className="category-manager">{editableCategories.map((category) => <div className="category-manager-row" key={category.id}><i style={{ background: category.color }} /><div><strong>{category.name}</strong><small>{category.type === "income" ? "Pemasukan" : "Pengeluaran"}{category.isDefault ? " · bawaan" : ""}</small></div><span><button className="icon-button small" onClick={() => onEditCategory(category)} aria-label={`Edit kategori ${category.name}`}><Pencil size={14} /></button>{!category.isDefault && <button className="icon-button small danger" onClick={() => window.confirm(`Arsipkan kategori ${category.name}? Transaksi lama tetap aman.`) && onArchiveCategory(category.id)} aria-label={`Arsipkan kategori ${category.name}`}><Trash2 size={14} /></button>}</span></div>)}{!editableCategories.length && <div className="settings-empty">Belum ada kategori aktif.</div>}</div></section>
     <section className="panel settings-section settings-wide category-rules-panel">
       <div className="settings-title"><span><Sparkles size={20} /></span><div><h2>Aturan kategori otomatis</h2><p>Cocokkan merchant atau keterangan CSV dengan kategori yang tepat saat preview impor.</p></div><button className="secondary-button settings-title-action" onClick={onAddCategoryRule}><Plus size={15} /> Tambah aturan</button></div>
@@ -3199,6 +3239,7 @@ function SettingsPage({ profile, entitlement, configured, accounts, transactions
       </div>
     </section>
     <section className="panel settings-section"><div className="settings-title"><span><History size={20} /></span><div><h2>Audit trail</h2><p>20 aktivitas terbaru yang tercatat di workspace.</p></div></div><div className="audit-list">{auditLogs.slice(0, 20).map((log) => <div key={log.id}><span><strong>{log.action.replaceAll("_", " ")}</strong><small>{log.module}{log.entityId ? ` · ${log.entityId.slice(0, 18)}` : ""}</small></span><time>{log.createdAt ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(log.createdAt)) : "—"}</time></div>)}{!auditLogs.length && <div className="settings-empty">Belum ada aktivitas yang tercatat.</div>}</div></section>
+    </div>
   </div>;
 }
 

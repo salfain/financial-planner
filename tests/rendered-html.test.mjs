@@ -457,12 +457,20 @@ test("tampilan mobile target memakai aksi jelas dan area navigasi aman", async (
   assert.match(app, /Belum ada target finansial/);
   assert.match(app, /Buat target pertama/);
   assert.match(app, /theme-toggle/);
+  assert.match(app, /mobile-more-sheet/);
+  assert.match(app, /mobile-search-sheet/);
+  assert.match(app, /Kategori pengaturan/);
+  assert.match(app, /setMobileMoreOpen\(true\)/);
+  assert.doesNotMatch(app, /mobile-nav-more nav-item" onClick=\{\(\) => setSidebarOpen\(true\)\}/);
   assert.match(styles, /\.goal-add\.is-empty/);
   assert.match(styles, /\.goal-add-cta/);
   assert.match(styles, /safe-area-inset-bottom/);
   assert.match(styles, /\.global-search:focus-within/);
   assert.match(styles, /grid-template-columns: auto minmax\(0,1fr\)/);
   assert.match(styles, /\.mobile-menu:hover/);
+  assert.match(styles, /\.mobile-overlay/);
+  assert.match(styles, /\.mobile-menu-grid/);
+  assert.match(styles, /\.settings-tab-content\.active/);
 });
 
 test("layout mobile GAS menyusut tanpa menutupi navigasi", async () => {
