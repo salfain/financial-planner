@@ -912,7 +912,9 @@ export function FinanceApp() {
     setTransactionOpen(true);
   };
 
-  const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "receivables" ? "Catat piutang" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "funds" ? "Buat pos dana" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
+  const createPages: PageKey[] = ["accounts", "receivables", "budgets", "goals", "funds", "bills", "investments"];
+  const pageSupportsCreate = createPages.includes(activePage);
+  const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "receivables" ? "Tambah piutang" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "funds" ? "Buat pos dana" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
   const notifications = notificationOverview?.notifications ?? [];
   const unreadNotifications = notificationOverview?.unreadCount ?? 0;
 
@@ -1036,7 +1038,7 @@ export function FinanceApp() {
             </div>
             <button className="primary-button top-add" onClick={() => setTransactionOpen(true)}><Plus size={18} /> Transaksi</button>
             {/* Mobile: aksi utama per halaman ada di header (desain 11a-11d, 12a-12n). */}
-            <button className="mobile-page-add" onClick={() => activePage === "investments" ? requirePlan("investments") && openCreateForPage() : openCreateForPage()} aria-label={createLabel}><Plus size={19} /></button>
+            {pageSupportsCreate && <button className="mobile-page-add" onClick={() => activePage === "investments" ? requirePlan("investments") && openCreateForPage() : openCreateForPage()} aria-label={createLabel}><Plus size={19} /></button>}
           </div>
         </header>
 
@@ -1196,7 +1198,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         <button className="primary-button" onClick={onAdd}><Plus size={17} /> Tambah transaksi</button>
       </section>}
 
-      <section className="dashboard-section">
+      <section className="dashboard-section dashboard-now-section">
         <div className="dashboard-section-header"><h2>Sekarang</h2><span className="divider" /><span className="count">Posisi keuangan terkini</span></div>
         <div className="dashboard-grid dashboard-now-legacy">
           <article className="hero-card">
@@ -1234,7 +1236,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         </div>
       </section>
 
-      <section className="dashboard-section">
+      <section className="dashboard-section dashboard-month-section">
         <div className="dashboard-section-header"><h2>Bulan ini</h2><span className="divider" /><span className="count">Pemasukan, pengeluaran, dan anggaran</span></div>
         <div className="tier-month">
           <article className="panel waterfall-panel">
@@ -1267,7 +1269,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         </div>
       </section>
 
-      <section className="dashboard-section">
+      <section className="dashboard-section dashboard-attention-section">
         <div className="dashboard-section-header"><h2>Perlu perhatian</h2><span className="divider" /><span className="count">Tiga langkah berikutnya</span></div>
         <div className="tier-action">
           <article className={`action-card ${nearestBill ? "urgent" : ""}`}>
@@ -1290,7 +1292,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
         </div>
       </section>
 
-      <section className="dashboard-section">
+      <section className="dashboard-section dashboard-ledger-section">
         <div className="dashboard-section-header"><h2>Ledger & aktivitas</h2><span className="divider" /><span className="count">Data di balik ringkasan</span></div>
         <div className="tier-ledger">
           <div>

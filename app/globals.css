@@ -2159,3 +2159,57 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .dashboard-metric-grid { grid-template-columns: 1fr; }
   .dashboard-metric-grid > .metric-card.cashflow { grid-column: auto; }
 }
+
+/* Dashboard priority: the ledger and account activity belong directly below
+   the current net-worth snapshot, before monthly analysis and follow-ups. */
+.dashboard-overview > .onboarding-banner { order: 0; }
+.dashboard-now-section { order: 1; }
+.dashboard-ledger-section { order: 2; }
+.dashboard-month-section { order: 3; }
+.dashboard-attention-section { order: 4; }
+
+/* A generic insight card normally spans several dashboard columns. Inside a
+   two-column content grid it must behave as a regular grid item. */
+.two-col-grid > .insight-card { grid-column: auto; min-width: 0; }
+
+@media (max-width: 720px) {
+  /* Keep contextual create actions reachable even when the desktop page
+     heading is hidden. This restores actions such as "Tambah piutang". */
+  .mobile-page-add { display: grid; }
+
+  /* Five transaction filters should be visible without a clipped final pill. */
+  .filter-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .filter-tabs button {
+    flex: 1 1 90px;
+    min-width: 0;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  /* Content pairs become one true column. A spanning insight card previously
+     generated implicit zero-width columns and squeezed the budget chart. */
+  .two-col-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .two-col-grid > * { min-width: 0; }
+  .budget-history-labels { gap: 4px; font-size: 11px; }
+  .budget-history-legend { flex-wrap: wrap; gap: 8px 12px; }
+
+  /* Installment action buttons were each 100% wide inside a horizontal flex
+     row, making the group more than twice the phone width. */
+  .installment-group-card { padding: 0; }
+  .installment-group-footer > span { width: 100%; }
+  .installment-footer-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .installment-footer-actions button { width: 100%; }
+}
+
+@media (max-width: 380px) {
+  .filter-tabs button { flex-basis: 84px; font-size: 12px; }
+}
