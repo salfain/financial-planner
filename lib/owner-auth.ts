@@ -1,7 +1,8 @@
 import { authenticatedViewerFromHeaders } from "./security";
+import { getOwnerAuthState } from "./owner-auth-store";
 
 export const OWNER_SESSION_COOKIE = "finance_owner_session";
-const SESSION_VERSION = "v1";
+const SESSION_VERSION = "v2";
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 30;
 
 const encoder = new TextEncoder();
@@ -38,16 +39,21 @@ export function ownerPasswordConfigured() {
   return /^[0-9a-f]{64}$/i.test(env("FINANCE_OWNER_PASSWORD_SHA256")) && env("FINANCE_SESSION_SECRET").length >= 32;
 }
 
+export async function hashOwnerPassword(password: string) {
+  return toHex(await crypto.subtle.digest("SHA-256", encoder.encode(password))).toLowerCase();
+}
+
 export async function verifyOwnerPassword(password: string) {
-  const expected = env("FINANCE_OWNER_PASSWORD_SHA256").toLowerCase();
   if (!ownerPasswordConfigured() || !password || password.length > 256) return false;
-  const actual = toHex(await crypto.subtle.digest("SHA-256", encoder.encode(password))).toLowerCase();
+  const expected = (await getOwnerAuthState()).passwordHash;
+  const actual = await hashOwnerPassword(password);
   return constantTimeEqual(actual, expected);
 }
 
 export async function createOwnerSession() {
+  const authState = await getOwnerAuthState({ refresh: true });
   const expiresAt = Math.floor(Date.now() / 1000) + SESSION_DURATION_SECONDS;
-  const payload = `${SESSION_VERSION}.${expiresAt}`;
+  const payload = `${SESSION_VERSION}.${expiresAt}.${authState.revision}`;
   const signature = await hmac(payload);
   if (!signature) throw new Error("OWNER_AUTH_NOT_CONFIGURED");
   return { token: `${payload}.${signature}`, expiresAt, maxAge: SESSION_DURATION_SECONDS };
@@ -55,11 +61,21 @@ export async function createOwnerSession() {
 
 export async function verifyOwnerSession(token: string | null | undefined) {
   const parts = String(token || "").split(".");
-  if (parts.length !== 3 || parts[0] !== SESSION_VERSION || !/^\d{10}$/.test(parts[1])) return false;
+  if (!/^\d{10}$/.test(parts[1] || "")) return false;
   const expiresAt = Number(parts[1]);
   if (!Number.isSafeInteger(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) return false;
-  const expected = await hmac(`${parts[0]}.${parts[1]}`);
-  return Boolean(expected) && constantTimeEqual(parts[2].toLowerCase(), expected.toLowerCase());
+  try {
+    const authState = await getOwnerAuthState();
+    if (parts.length === 3 && parts[0] === "v1" && authState.source === "environment") {
+      const expected = await hmac(`${parts[0]}.${parts[1]}`);
+      return Boolean(expected) && constantTimeEqual(parts[2].toLowerCase(), expected.toLowerCase());
+    }
+    if (parts.length !== 4 || parts[0] !== SESSION_VERSION || parts[2] !== authState.revision) return false;
+    const expected = await hmac(`${parts[0]}.${parts[1]}.${parts[2]}`);
+    return Boolean(expected) && constantTimeEqual(parts[3].toLowerCase(), expected.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 export function cookieValue(request: Pick<Request, "headers">, name = OWNER_SESSION_COOKIE) {

@@ -14,6 +14,7 @@ const sources = readdirSync(appsScriptDirectory)
 const combinedSource = sources.join("\n");
 for (const action of [
   "mutationStatus",
+  "ownerAuthState", "rotateOwnerPassword",
   "listCategories", "createCategory", "updateCategory", "archiveCategory",
   "importAccounts", "updateAccount", "updateProfile", "getRoadmapSettings", "updateRoadmapSettings",
   "updateBudget", "deleteBudget", "updateGoal", "deleteGoal", "contributeGoal", "updateBill", "deleteBill",

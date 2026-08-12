@@ -4,7 +4,7 @@ const VINN_MOBILE_API = Object.freeze({
   MAX_ACCESS_KEY_LENGTH: 256,
   CACHE_SECONDS: 21600,
   ALLOWED_ACTIONS: Object.freeze([
-    'setup', 'health', 'mutationStatus', 'bootstrap',
+    'setup', 'health', 'ownerAuthState', 'rotateOwnerPassword', 'mutationStatus', 'bootstrap',
     'licenseStatus', 'activateLicense', 'deactivateLicense',
     'setupWorkspace', 'upgradeWorkspace', 'updateProfile', 'updateFeaturePreferences',
     'getRoadmapSettings', 'updateRoadmapSettings',
@@ -33,7 +33,7 @@ const VINN_MOBILE_API = Object.freeze({
     'aiHistory', 'askAi', 'clearAiHistory', 'ocrReceipt'
   ]),
   READ_ACTIONS: Object.freeze([
-    'health', 'mutationStatus', 'bootstrap', 'licenseStatus',
+    'health', 'ownerAuthState', 'mutationStatus', 'bootstrap', 'licenseStatus',
     'getRoadmapSettings', 'getDebtPlanner', 'getCashflowForecastSettings',
     'getEmergencyFundSettings', 'monthlyClosingStatus', 'listTransactions',
     'inspectLedger', 'listCategories', 'categoryRules', 'listAuditLogs',

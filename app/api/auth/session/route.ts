@@ -61,11 +61,22 @@ export async function POST(request: Request) {
   } catch {
     return response(request, { ok: false, error: { code: "INVALID_JSON", message: "Permintaan tidak valid." } }, 400);
   }
-  if (!await verifyOwnerPassword(password)) {
+  let valid = false;
+  try {
+    valid = await verifyOwnerPassword(password);
+  } catch {
+    return response(request, { ok: false, error: { code: "OWNER_AUTH_UNAVAILABLE", message: "Pemeriksaan kunci sedang tidak tersedia. Coba lagi beberapa saat." } }, 503);
+  }
+  if (!valid) {
     recordFailure(key);
     return response(request, { ok: false, error: { code: "AUTH_INVALID", message: "Kunci akses tidak cocok." } }, 401);
   }
   attempts.delete(key);
-  const session = await createOwnerSession();
+  let session;
+  try {
+    session = await createOwnerSession();
+  } catch {
+    return response(request, { ok: false, error: { code: "OWNER_AUTH_UNAVAILABLE", message: "Sesi aman belum dapat dibuat. Coba lagi beberapa saat." } }, 503);
+  }
   return response(request, { ok: true, expiresAt: new Date(session.expiresAt * 1000).toISOString() }, 200, { "Set-Cookie": ownerSessionCookie(session.token, session.maxAge) });
 }

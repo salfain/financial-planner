@@ -2,6 +2,8 @@ function api(action, payload) {
   const routes = {
     setup: function() { return setupFinancialPlanner(); },
     health: function() { return apiHealthCheck(); },
+    ownerAuthState: function() { return apiOwnerAuthState(); },
+    rotateOwnerPassword: function() { return apiRotateOwnerPassword(payload || {}); },
     mutationStatus: function() { return apiMutationStatus(payload || {}); },
     bootstrap: function() { return apiGetBootstrap(payload && payload.month); },
     licenseStatus: function() { return apiLicenseStatus(); },

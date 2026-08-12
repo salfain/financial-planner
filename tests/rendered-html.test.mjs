@@ -81,6 +81,8 @@ test("pengaturan menampilkan keamanan owner-only dan isolasi workspace", async (
     source("../worker/index.ts"),
   ]);
   assert.match(app, /Keamanan & akses/);
+  assert.match(app, /Ganti kunci akses/);
+  assert.match(app, /\/api\/auth\/change-password/);
   assert.match(app, /Hanya pemilik/);
   assert.match(app, /Dikunci di server/);
   assert.match(client, /\/api\/finance\/access-status/);

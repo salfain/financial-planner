@@ -2304,5 +2304,27 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .topbar-title { font-size: 18px; }
 }
 
+.owner-password-change { margin-top: 18px; padding: 18px; border: 1px solid var(--border); border-radius: 18px; background: color-mix(in srgb,var(--surface-soft) 76%,transparent); display: grid; gap: 16px; }
+.owner-password-change-head { display: flex; align-items: center; gap: 12px; }
+.owner-password-change-head > span { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; color: var(--primary); background: var(--primary-soft); flex: 0 0 auto; }
+.owner-password-change-head > div { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.owner-password-change-head small,.owner-password-change-actions small { color: var(--text-faint); line-height: 1.45; }
+.owner-password-change-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.owner-password-change-grid label { display: grid; align-content: start; gap: 7px; color: var(--text-soft); font-size: 13px; }
+.owner-password-change-grid input { width: 100%; min-height: 44px; }
+.owner-password-change-grid .field-error { color: var(--danger); }
+.owner-password-success { display: flex; align-items: center; gap: 8px; padding: 11px 13px; border-radius: 12px; color: var(--primary); background: var(--primary-soft); font-weight: 700; }
+.owner-password-change-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+
+@media (max-width: 760px) {
+  .owner-password-change { padding: 15px; }
+  .owner-password-change-head { align-items: flex-start; flex-wrap: wrap; }
+  .owner-password-change-head > div { flex-basis: calc(100% - 52px); }
+  .owner-password-change-head .secondary-button { margin-left: 50px; }
+  .owner-password-change-grid { grid-template-columns: 1fr; }
+  .owner-password-change-actions { align-items: stretch; flex-direction: column; }
+  .owner-password-change-actions .primary-button { width: 100%; }
+}
+
 @keyframes mobile-overlay-in { from { opacity: 0; } }
 @keyframes mobile-sheet-in { from { transform: translateY(22px); opacity: .7; } }
