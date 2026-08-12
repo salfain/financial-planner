@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Account, FinanceCategory, Transaction } from "../lib/finance";
-import { budgetSpent } from "../lib/finance";
+import { budgetSpent, budgetTransactionCount } from "../lib/finance";
 import { parseCsvRecords, previewTransactionCsv } from "../lib/transaction-import";
 import type { CategoryRule } from "../lib/category-rules";
 
@@ -88,4 +88,16 @@ test("realisasi anggaran memakai alokasi split, bukan kategori induk saja", () =
   };
   assert.equal(budgetSpent([transaction], "Makanan", "2026-07"), 100_000);
   assert.equal(budgetSpent([transaction], "Transportasi", "2026-07"), 50_000);
+});
+
+test("realisasi Parkir menggabungkan variasi spasi dan kapitalisasi pada bulan yang dipilih", () => {
+  const transactions: Transaction[] = [
+    { id: "parking-1", type: "expense", date: "2026-08-01", title: "Parkir", category: "Parkir", accountId: "cash", amount: 5_000, status: "completed" },
+    { id: "parking-2", type: "expense", date: "2026-08-02", title: "Parkir", category: " parkir ", accountId: "cash", amount: 6_000, status: "completed" },
+    { id: "parking-3", type: "expense", date: "2026-08-03", title: "Belanja campuran", category: "Lainnya", accountId: "cash", amount: 10_000, status: "completed", splits: [{ id: "parking-split", category: "PARKIR", amount: 4_000 }, { id: "food-split", category: "Makanan", amount: 6_000 }] },
+    { id: "parking-old", type: "expense", date: "2026-07-31", title: "Parkir lama", category: "Parkir", accountId: "cash", amount: 50_000, status: "completed" },
+    { id: "parking-pending", type: "expense", date: "2026-08-04", title: "Parkir pending", category: "Parkir", accountId: "cash", amount: 20_000, status: "pending" },
+  ];
+  assert.equal(budgetSpent(transactions, "Parkir", "2026-08"), 15_000);
+  assert.equal(budgetTransactionCount(transactions, "Parkir", "2026-08"), 3);
 });

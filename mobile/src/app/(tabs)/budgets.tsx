@@ -12,7 +12,7 @@ import { MoneyInput, SelectField, SwitchField } from '@/components/ui/forms';
 import { ScreenHeader } from '@/components/ui/screen-header';
 import { EmptyState } from '@/components/ui/state-view';
 import { spacing } from '@/constants/theme';
-import { budgetActual } from '@/domain/selectors';
+import { budgetActual, budgetTransactionCount } from '@/domain/selectors';
 import type { Budget } from '@/domain/types';
 import { useApp } from '@/providers/app-provider';
 import { usePreferences } from '@/providers/preferences-provider';
@@ -48,7 +48,7 @@ export default function BudgetsScreen() {
   return <AppScreen refreshing={isRefreshing} onRefresh={() => void refresh()}>
     <ScreenHeader title="Anggaran" subtitle="Jaga pengeluaran tetap terarah" />
     <AppButton icon={Plus} fullWidth disabled={!isOnline} onPress={() => showForm()}>Tambah anggaran</AppButton>
-    {!budgets.length ? <EmptyState title="Belum ada anggaran" message="Tentukan batas pengeluaran per kategori untuk bulan ini." /> : budgets.map((budget) => <View key={budget.id} style={{ gap: spacing.xs }}><BudgetCard budget={budget} actual={snapshot ? budgetActual(budget, snapshot) : 0} onPress={() => showForm(budget)} /><AppButton tone="ghost" disabled={!isOnline} onPress={() => setDeleting(budget)}>Hapus</AppButton></View>)}
+    {!budgets.length ? <EmptyState title="Belum ada anggaran" message="Tentukan batas pengeluaran per kategori untuk bulan ini." /> : budgets.map((budget) => <View key={budget.id} style={{ gap: spacing.xs }}><BudgetCard budget={budget} actual={snapshot ? budgetActual(budget, snapshot, selectedMonth) : 0} transactionCount={snapshot ? budgetTransactionCount(budget, snapshot, selectedMonth) : 0} onPress={() => showForm(budget)} /><AppButton tone="ghost" disabled={!isOnline} onPress={() => setDeleting(budget)}>Hapus</AppButton></View>)}
     <Card style={{ gap: spacing.xs }}><AppText variant="label">Realisasi yang akurat</AppText><AppText muted>Split kategori ikut dihitung dan refund mengurangi realisasi anggaran.</AppText></Card>
     <AppBottomSheet visible={open} title={editing ? 'Ubah anggaran' : 'Anggaran baru'} onClose={() => setOpen(false)} footer={<AppButton fullWidth loading={isMutating} disabled={!isOnline} onPress={() => void save()}>Simpan anggaran</AppButton>}>
       <SelectField label="Kategori" value={category} onChange={setCategory} error={!category && error ? 'Pilih kategori.' : undefined} options={categories.map((item) => ({ label: item.name, value: item.name, disabled: Boolean(editing) }))} />

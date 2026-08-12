@@ -57,7 +57,7 @@ export function AccountCard({ account, onPress }: { account: Account; onPress?: 
   );
 }
 
-export function BudgetCard({ budget, actual, onPress }: { budget: Budget; actual: number; onPress?: () => void }) {
+export function BudgetCard({ budget, actual, transactionCount, onPress }: { budget: Budget; actual: number; transactionCount?: number; onPress?: () => void }) {
   const ratio = budget.limit > 0 ? actual / budget.limit * 100 : 0;
   const tone = ratio >= 100 ? 'negative' : ratio >= 90 ? 'warning' : ratio >= 75 ? 'info' : 'positive';
   const label = ratio >= 100 ? 'Terlewati' : ratio >= 90 ? 'Hampir penuh' : ratio >= 75 ? 'Peringatan' : 'Aman';
@@ -66,6 +66,7 @@ export function BudgetCard({ budget, actual, onPress }: { budget: Budget; actual
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}><AppText variant="title" style={{ flex: 1 }}>{budget.category}</AppText><StatusPill label={label} tone={tone} /></View>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Amount value={actual} variant="label" /><Amount value={budget.limit} variant="label" /></View>
       <ProgressBar value={ratio} label={`${label}, realisasi anggaran ${Math.round(ratio)} persen`} color={budget.color} />
+      {transactionCount !== undefined ? <AppText variant="caption" muted>{transactionCount} transaksi diperhitungkan pada periode ini</AppText> : null}
     </Card>}</Pressable>
   );
 }

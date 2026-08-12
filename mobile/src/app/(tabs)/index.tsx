@@ -30,8 +30,8 @@ export default function SummaryScreen() {
   const { snapshot, selectedMonth, setSelectedMonth, refresh, isRefreshing } = useApp();
   const { colors, privacyMode } = usePreferences();
   const totals = accountTotals(snapshot?.accounts ?? []);
-  const categories = expenseByCategory(snapshot!).slice(0, 5);
-  const recent = recentTransactions(snapshot!, 5);
+  const categories = expenseByCategory(snapshot!, selectedMonth);
+  const recent = recentTransactions(snapshot!, 5, selectedMonth);
   const bills = upcomingBills(snapshot!).slice(0, 3);
   const goals = snapshot!.goals.slice().sort((a, b) => a.deadline.localeCompare(b.deadline)).slice(0, 3);
   const accountMap = new Map(snapshot!.accounts.map((item) => [item.id, item.name]));
@@ -121,7 +121,7 @@ export default function SummaryScreen() {
       <Card style={{ gap: spacing.md }}><SectionHeader title="Arus kas 14 hari" subtitle="Hijau pemasukan, merah pengeluaran" /><CashflowBarChart data={chartData} /></Card>
 
       <Card style={{ gap: spacing.md }}>
-        <SectionHeader title="Komposisi pengeluaran" subtitle={categories.length ? `${categories.length} kategori teratas` : 'Belum ada pengeluaran'} />
+        <SectionHeader title="Komposisi pengeluaran" subtitle={categories.length ? `${categories.length} kategori bulan ini` : 'Belum ada pengeluaran'} />
         {categories.length ? <DonutChart items={categories.map((item, index) => ({ label: item.category, value: item.amount, color: snapshot!.categories.find((category) => category.name === item.category)?.color ?? palette[index] }))} /> : <AppText muted>Catat pengeluaran untuk melihat komposisinya.</AppText>}
       </Card>
 

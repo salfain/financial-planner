@@ -117,7 +117,9 @@ import {
   TransactionType,
   accountSummary,
   budgetSpent,
+  budgetTransactionCount,
   calculateHealthScore,
+  financeCategoryKey,
   formatMonthLabel,
   formatIDR,
   getCurrentMonth,
@@ -1156,9 +1158,13 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   monthly: ReturnType<typeof monthlySummary>; accountTotals: ReturnType<typeof accountSummary>; healthScore: number;
   onNavigate: (page: PageKey) => void; onAdd: () => void;
 }) {
-  const visibleBudgets = budgets.length
-    ? budgets
-    : [...new Set(transactions.filter((item) => item.type === "expense").map((item) => item.category))].map((category, index) => ({
+  const currentBudgets = budgets.filter((budget) => !budget.period || budget.period === month);
+  const visibleBudgets = currentBudgets.length
+    ? currentBudgets
+    : [...new Map(transactions
+      .filter((item) => item.type === "expense" && item.date.startsWith(month) && item.status === "completed" && !item.deletedAt)
+      .flatMap((item) => item.splits?.length ? item.splits.map((split) => split.category) : [item.category])
+      .map((category) => [financeCategoryKey(category), category.trim().replace(/\s+/g, " ")])).values()].map((category, index) => ({
       id: `category-${index}`,
       category,
       limit: 0,
@@ -1521,8 +1527,9 @@ function ReceivablesPage({ accounts, privacy, onAdd, onReceive, onHistory }: { a
 }
 
 function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onDelete }: { budgets: Budget[]; transactions: Transaction[]; privacy: boolean; month: string; onAdd: () => void; onEdit: (budget: Budget) => void; onDelete: (budget: Budget) => void }) {
-  const totalLimit = budgets.reduce((sum, item) => sum + item.limit, 0);
-  const totalSpent = budgets.reduce((sum, item) => sum + budgetSpent(transactions, item.category, month), 0);
+  const visibleBudgets = budgets.filter((budget) => !budget.period || budget.period === month);
+  const totalLimit = visibleBudgets.reduce((sum, item) => sum + item.limit, 0);
+  const totalSpent = visibleBudgets.reduce((sum, item) => sum + budgetSpent(transactions, item.category, month), 0);
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
   const dayOfMonth = Math.min(daysInMonth, Number(today().slice(-2)));
   const daysLeft = Math.max(0, daysInMonth - dayOfMonth);
@@ -1531,18 +1538,23 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onD
   const paceGap = usage - expectedPace;
   const perDay = daysLeft > 0 ? Math.max(0, totalLimit - totalSpent) / daysLeft : Math.max(0, totalLimit - totalSpent);
 
-  const budgetedCategories = new Set(budgets.map((item) => item.category));
-  const unbudgetedCategories = [...new Set(transactions.filter((item) => item.type === "expense" && item.date.startsWith(month) && !budgetedCategories.has(item.category)).map((item) => item.category))]
+  const budgetedCategories = new Set(visibleBudgets.map((item) => financeCategoryKey(item.category)));
+  const periodCategoryMap = new Map(transactions
+    .filter((item) => ["expense", "refund"].includes(item.type) && item.date.startsWith(month) && item.status === "completed" && !item.deletedAt)
+    .flatMap((item) => item.splits?.length ? item.splits.map((split) => split.category) : [item.category])
+    .map((category) => [financeCategoryKey(category), category.trim().replace(/\s+/g, " ")]));
+  const unbudgetedCategories = [...periodCategoryMap.entries()].filter(([key]) => !budgetedCategories.has(key)).map(([, category]) => category)
     .map((category) => ({ category, spent: budgetSpent(transactions, category, month), color: categoryColors[category] ?? "#89918d" }))
+    .filter((item) => item.spent > 0)
     .sort((a, b) => b.spent - a.spent);
-  const monthExpenseTotal = transactions.filter((item) => item.type === "expense" && item.date.startsWith(month) && item.status === "completed").reduce((sum, item) => sum + item.amount, 0);
+  const monthExpenseTotal = Math.max(0, monthlySummary(transactions, month).expense);
   const unbudgetedTotal = unbudgetedCategories.reduce((sum, item) => sum + item.spent, 0);
   const budgetedCoverage = monthExpenseTotal > 0 ? (monthExpenseTotal - unbudgetedTotal) / monthExpenseTotal * 100 : 100;
   const topUnbudgeted = unbudgetedCategories[0];
 
   const history = Array.from({ length: 6 }, (_, index) => {
     const period = addMonthsToPeriod(month, index - 5);
-    const spent = budgets.reduce((sum, item) => sum + budgetSpent(transactions, item.category, period), 0);
+    const spent = visibleBudgets.reduce((sum, item) => sum + budgetSpent(transactions, item.category, period), 0);
     return { period, spent };
   });
   const historyMax = Math.max(totalLimit, ...history.map((item) => item.spent), 1);
@@ -1564,8 +1576,9 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onD
     <section className="panel budget-list-panel">
       <div className="card-title-row"><div><span className="card-kicker">Kategori</span><h2>Realisasi anggaran</h2><p className="card-subtitle">Garis putus-putus menandai laju wajar untuk hari ke-{dayOfMonth}.</p></div><button className="secondary-button" onClick={onAdd}><Plus size={16} /> Tambah anggaran</button></div>
       <div className="budget-list">
-        {budgets.map((budget) => {
+        {visibleBudgets.map((budget) => {
           const spent = budgetSpent(transactions, budget.category, month);
+          const transactionCount = budgetTransactionCount(transactions, budget.category, month);
           const percent = budget.limit > 0 ? spent / budget.limit * 100 : 0;
           const paceDelta = percent - expectedPace;
           const paceStatus = Math.abs(paceDelta) < 5 ? "on-pace" : paceDelta > 0 ? "over-pace" : "under-pace";
@@ -1580,7 +1593,7 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onD
               {" · "}
               <span className={`pace-status ${paceStatus}`}>
                 {paceStatus === "on-pace" ? "Sesuai pace" : paceStatus === "over-pace" ? `${Math.abs(paceDelta).toFixed(0)}% lebih cepat` : `${Math.abs(paceDelta).toFixed(0)}% lebih lambat`}
-              </span>
+              </span>{" · "}{transactionCount} transaksi terhitung
             </small>
           </div>
           <span className="budget-row-actions"><strong>{Math.round(percent)}%</strong><button className="icon-button small" onClick={() => onEdit(budget)} aria-label={`Edit anggaran ${budget.category}`}><Pencil size={15} /></button><button className="icon-button small" onClick={() => window.confirm(`Hapus anggaran ${budget.category}?`) && onDelete(budget)} aria-label={`Hapus anggaran ${budget.category}`}><Trash2 size={15} /></button></span>
@@ -1594,7 +1607,7 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onD
           <div className="budget-details-side"><Amount value={item.spent} privacy={privacy} /><small>{monthExpenseTotal > 0 ? `${Math.round(item.spent / monthExpenseTotal * 100)}% pengeluaran tanpa batas` : ""}</small></div>
           <button className="primary-button compact" onClick={onAdd}>Set batas</button>
         </div>)}
-        {!budgets.length && !unbudgetedCategories.length && <div className="empty-state"><BarChart3 size={28} /><h3>Belum ada anggaran</h3><p>Tambahkan batas kategori agar realisasi dapat dipantau otomatis.</p><button className="primary-button" onClick={onAdd}><Plus size={16} /> Tambah anggaran</button></div>}
+        {!visibleBudgets.length && !unbudgetedCategories.length && <div className="empty-state"><BarChart3 size={28} /><h3>Belum ada anggaran</h3><p>Tambahkan batas kategori agar realisasi dapat dipantau otomatis.</p><button className="primary-button" onClick={onAdd}><Plus size={16} /> Tambah anggaran</button></div>}
       </div>
     </section>
     <div className="two-col-grid">

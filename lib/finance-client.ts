@@ -284,13 +284,13 @@ function normalizeTransaction(row: Record<string, unknown>): Transaction {
     time: text(row.time),
     title: text(row.title ?? row.description ?? row.merchant, "Transaksi"),
     merchant: text(row.merchant),
-    category: text(row.category, "Lainnya"),
+    category: text(row.category, "Lainnya").trim().replace(/\s+/g, " "),
     notes: text(row.notes),
     tags: parseArray(rawTags).map(String),
     location: text(row.location),
     splits: parseArray(rawSplits).map((split, index) => {
       const value = split as Record<string, unknown>;
-      return { id: text(value.id, `split-${index}`), category: text(value.category), amount: number(value.amount), note: text(value.note) || undefined };
+      return { id: text(value.id, `split-${index}`), category: text(value.category).trim().replace(/\s+/g, " "), amount: number(value.amount), note: text(value.note) || undefined };
     }),
     accountId: text(row.accountId ?? row.account_id),
     destinationAccountId: text(row.destinationAccountId ?? row.destination_account_id) || undefined,
@@ -314,7 +314,7 @@ function normalizeCategory(row: Record<string, unknown>): FinanceCategory {
   const archived = bool(row.archived) || (activeValue !== undefined && !bool(activeValue));
   return {
     id: text(row.id),
-    name: text(row.name, "Lainnya"),
+    name: text(row.name, "Lainnya").trim().replace(/\s+/g, " "),
     type: text(row.type, "expense") as FinanceCategory["type"],
     color: text(row.color, "#126b59"),
     active: !archived,
@@ -357,7 +357,7 @@ function normalizeAuditLog(row: Record<string, unknown>): AuditLog {
 function normalizeBudget(row: Record<string, unknown>, index: number): Budget {
   return {
     id: text(row.id, `budget-${index}`),
-    category: text(row.category, "Lainnya"),
+    category: text(row.category, "Lainnya").trim().replace(/\s+/g, " "),
     limit: number(row.limit ?? row.limitAmount ?? row.limit_amount),
     color: text(row.color, "#126b59"),
     period: text(row.period ?? row.month) || undefined,

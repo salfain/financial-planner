@@ -4,7 +4,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'Financial Planner',
   slug: 'financial-planner-mobile',
-  version: '1.0.12',
+  version: '1.0.13',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   scheme: 'financialplanner',
@@ -21,7 +21,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: 'com.vinn.financialplanner',
-    versionCode: 13,
+    versionCode: 14,
     softwareKeyboardLayoutMode: 'pan',
     predictiveBackGestureEnabled: true,
     adaptiveIcon: {

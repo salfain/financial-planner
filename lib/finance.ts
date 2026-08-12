@@ -288,6 +288,21 @@ export const formatIDR = (value: number, compact = false) =>
 const isActiveTransaction = (transaction: Transaction, includePending = false) =>
   !transaction.deletedAt && (includePending || transaction.status === "completed");
 
+/** Samakan kategori impor lama yang berbeda kapitalisasi atau spasi. */
+export const financeCategoryKey = (category: string) =>
+  String(category || "").trim().replace(/\s+/g, " ").toLowerCase();
+
+const budgetAmountForTransaction = (transaction: Transaction, categoryKey: string) => {
+  const direction = transaction.type === "expense" ? 1 : transaction.type === "refund" ? -1 : 0;
+  if (!direction) return 0;
+  if (transaction.splits?.length) {
+    return transaction.splits
+      .filter((split) => financeCategoryKey(split.category) === categoryKey)
+      .reduce((sum, split) => sum + split.amount * direction, 0);
+  }
+  return financeCategoryKey(transaction.category) === categoryKey ? transaction.amount * direction : 0;
+};
+
 /**
  * Ringkasan arus kas satu bulan. Transfer dan pembelian investasi dikecualikan
  * karena hanya memindahkan nilai antar-akun.
@@ -339,18 +354,23 @@ export const budgetSpent = (
   selector?: MonthSelector,
 ) => {
   const { month, includePending } = resolveMonthOptions(selector);
+  const categoryKey = financeCategoryKey(category);
   return transactions
     .filter((item) => item.date.startsWith(month) && isActiveTransaction(item, includePending))
-    .reduce((sum, item) => {
-      const direction = item.type === "expense" ? 1 : item.type === "refund" ? -1 : 0;
-      if (!direction) return sum;
-      if (item.splits?.length) {
-        return sum + item.splits
-          .filter((split) => split.category === category)
-          .reduce((splitSum, split) => splitSum + split.amount * direction, 0);
-      }
-      return item.category === category ? sum + item.amount * direction : sum;
-    }, 0);
+    .reduce((sum, item) => sum + budgetAmountForTransaction(item, categoryKey), 0);
+};
+
+export const budgetTransactionCount = (
+  transactions: Transaction[],
+  category: string,
+  selector?: MonthSelector,
+) => {
+  const { month, includePending } = resolveMonthOptions(selector);
+  const categoryKey = financeCategoryKey(category);
+  return transactions.filter((item) =>
+    item.date.startsWith(month)
+    && isActiveTransaction(item, includePending)
+    && budgetAmountForTransaction(item, categoryKey) !== 0).length;
 };
 
 export const investmentValue = (investment: InvestmentAsset) => investment.marketValue;

@@ -41,7 +41,7 @@ export function DonutChart({ items }: { items: Array<{ label: string; value: num
         {segments.map(({ item, length, offset }) => <Circle key={item.label} cx="50" cy="50" r="38" stroke={item.color} strokeWidth="14" fill="none" strokeDasharray={`${length} ${circumference - length}`} strokeDashoffset={-offset} strokeLinecap="butt" transform="rotate(-90 50 50)" />)}
       </Svg>
       <View style={{ flex: 1, gap: 6 }}>
-        {items.slice(0, 5).map((item) => <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.color }} /><AppText variant="caption" style={{ flex: 1 }} numberOfLines={1}>{item.label}</AppText><AppText variant="caption" muted>{Math.round(item.value / total * 100)}%</AppText></View>)}
+        {items.map((item) => <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.color }} /><AppText variant="caption" style={{ flex: 1 }} numberOfLines={1}>{item.label}</AppText><AppText variant="caption" muted>{Math.round(item.value / total * 100)}%</AppText></View>)}
       </View>
     </View>
   );

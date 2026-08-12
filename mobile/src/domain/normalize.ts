@@ -78,7 +78,7 @@ export const normalizeTransaction = (value: unknown): Transaction => {
     time: text(row.time) || undefined,
     title: text(row.title ?? row.description ?? row.merchant, 'Transaksi'),
     merchant: text(row.merchant) || undefined,
-    category: text(row.category, 'Lainnya'),
+    category: text(row.category, 'Lainnya').trim().replace(/\s+/g, ' '),
     notes: text(row.notes) || undefined,
     tags: parseArray(row.tags ?? row.tags_json).map(String),
     location: text(row.location) || undefined,
@@ -86,7 +86,7 @@ export const normalizeTransaction = (value: unknown): Transaction => {
       const split = record(item);
       return {
         id: text(split.id, `split-${index}`),
-        category: text(split.category),
+        category: text(split.category).trim().replace(/\s+/g, ' '),
         amount: number(split.amount),
         note: text(split.note) || undefined,
       };
@@ -113,7 +113,7 @@ const normalizeCategory = (value: unknown): Category => {
   const activeValue = row.active ?? row.isActive ?? row.is_active;
   const archived = bool(row.archived) || (activeValue !== undefined && !bool(activeValue));
   return {
-    id: text(row.id), name: text(row.name, 'Lainnya'),
+    id: text(row.id), name: text(row.name, 'Lainnya').trim().replace(/\s+/g, ' '),
     type: text(row.type) === 'income' ? 'income' : 'expense',
     color: text(row.color, '#126b59'), active: !archived, archived,
     isDefault: bool(row.isDefault ?? row.is_default), icon: text(row.icon) || undefined,
@@ -124,7 +124,7 @@ const normalizeCategory = (value: unknown): Category => {
 const normalizeBudget = (value: unknown, index: number): Budget => {
   const row = record(value);
   return {
-    id: text(row.id, `budget-${index}`), category: text(row.category, 'Lainnya'),
+    id: text(row.id, `budget-${index}`), category: text(row.category, 'Lainnya').trim().replace(/\s+/g, ' '),
     limit: number(row.limit ?? row.limitAmount ?? row.limit_amount),
     color: text(row.color, '#126b59'), period: text(row.period ?? row.month) || undefined,
     rollover: bool(row.rollover),

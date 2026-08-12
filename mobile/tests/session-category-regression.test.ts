@@ -88,3 +88,11 @@ test('akses cepat Insight memakai slug modul yang terdaftar', () => {
   assert.doesNotMatch(home, /router\.push\('\/module\/assistant'\)/);
   assert.match(moduleRoute, /insight: \{ title: 'Financial Insight'/);
 });
+
+test('komposisi pengeluaran tidak membatasi kategori hanya lima item', () => {
+  const home = source('../src/app/(tabs)/index.tsx');
+  const charts = source('../src/components/finance/charts.tsx');
+  assert.match(home, /expenseByCategory\(snapshot!, selectedMonth\)/);
+  assert.doesNotMatch(home, /expenseByCategory\(snapshot!\)\.slice\(0, 5\)/);
+  assert.doesNotMatch(charts, /items\.slice\(0, 5\)/);
+});
