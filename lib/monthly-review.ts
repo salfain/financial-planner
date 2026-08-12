@@ -1,5 +1,6 @@
 import {
   accountSummary,
+  budgetsForPeriod,
   budgetSpent,
   monthlySummary,
   type Account,
@@ -105,8 +106,7 @@ export function buildMonthlyReview(input: {
   const previousAccounts = accountBalancesAtPeriod(input.accounts, input.transactions, shiftMonth(period, -1));
   const currentTotals = accountSummary(currentAccounts);
   const previousTotals = accountSummary(previousAccounts);
-  const budgetRows = input.budgets
-    .filter((budget) => !budget.period || budget.period === period)
+  const budgetRows = budgetsForPeriod(input.budgets, period)
     .map((budget) => {
       const spent = budgetSpent(input.transactions, budget.category, period);
       return { category: budget.category, limit: budget.limit, spent, percent: budget.limit > 0 ? spent / budget.limit * 100 : 0 };

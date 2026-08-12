@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Account, FinanceCategory, Transaction } from "../lib/finance";
-import { budgetSpent, budgetTransactionCount } from "../lib/finance";
+import type { Account, Budget, FinanceCategory, Transaction } from "../lib/finance";
+import { budgetsForPeriod, budgetSpent, budgetTransactionCount } from "../lib/finance";
 import { parseCsvRecords, previewTransactionCsv } from "../lib/transaction-import";
 import type { CategoryRule } from "../lib/category-rules";
 
@@ -100,4 +100,27 @@ test("realisasi Parkir menggabungkan variasi spasi dan kapitalisasi pada bulan y
   ];
   assert.equal(budgetSpent(transactions, "Parkir", "2026-08"), 15_000);
   assert.equal(budgetTransactionCount(transactions, "Parkir", "2026-08"), 3);
+});
+
+test("anggaran periode aktif tidak menghitung kategori lama atau duplikat dua kali", () => {
+  const budgets: Budget[] = [
+    { id: "legacy-parking", category: "Parkir", limit: 100_000, color: "#16876f" },
+    { id: "old-parking", category: "PARKIR", limit: 150_000, color: "#16876f", period: "2026-07" },
+    { id: "current-parking-old", category: " parkir ", limit: 200_000, color: "#16876f", period: "2026-08" },
+    { id: "current-parking-new", category: "Parkir", limit: 250_000, color: "#16876f", period: "2026-08" },
+    { id: "food", category: "Makanan", limit: 500_000, color: "#16876f", period: "2026-08" },
+  ];
+  const selected = budgetsForPeriod(budgets, "2026-08");
+  assert.deepEqual(selected.map((budget) => [budget.id, budget.limit]), [
+    ["current-parking-new", 250_000],
+    ["food", 500_000],
+  ]);
+});
+
+test("refund tidak membuat realisasi anggaran menjadi negatif", () => {
+  const transactions: Transaction[] = [
+    { id: "expense", type: "expense", date: "2026-08-01", title: "Parkir", category: "Parkir", accountId: "cash", amount: 5_000, status: "completed" },
+    { id: "refund", type: "refund", date: "2026-08-02", title: "Refund parkir", category: "Parkir", accountId: "cash", amount: 8_000, status: "completed" },
+  ];
+  assert.equal(budgetSpent(transactions, "Parkir", "2026-08"), 0);
 });

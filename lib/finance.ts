@@ -292,6 +292,33 @@ const isActiveTransaction = (transaction: Transaction, includePending = false) =
 export const financeCategoryKey = (category: string) =>
   String(category || "").trim().replace(/\s+/g, " ").toLowerCase();
 
+/**
+ * Ambil satu anggaran aktif per kategori untuk periode yang dipilih.
+ * Anggaran berperiode mengalahkan data lama tanpa periode, sedangkan duplikat
+ * terakhir dipakai agar kategori dengan beda kapitalisasi tidak dihitung ganda.
+ */
+export const budgetsForPeriod = (budgets: Budget[], selector?: MonthSelector) => {
+  const { month } = resolveMonthOptions(selector);
+  const selected = new Map<string, { budget: Budget; priority: number; index: number }>();
+
+  budgets.forEach((budget, index) => {
+    if (budget.period && budget.period !== month) return;
+    const category = String(budget.category || "").trim().replace(/\s+/g, " ");
+    const key = financeCategoryKey(category);
+    if (!key) return;
+    const priority = budget.period === month ? 2 : 1;
+    const current = selected.get(key);
+    if (current && (current.priority > priority || (current.priority === priority && current.index > index))) return;
+    selected.set(key, {
+      budget: { ...budget, category, limit: Math.max(0, Number(budget.limit) || 0) },
+      priority,
+      index,
+    });
+  });
+
+  return [...selected.values()].sort((a, b) => a.index - b.index).map((item) => item.budget);
+};
+
 const budgetAmountForTransaction = (transaction: Transaction, categoryKey: string) => {
   const direction = transaction.type === "expense" ? 1 : transaction.type === "refund" ? -1 : 0;
   if (!direction) return 0;
@@ -355,9 +382,10 @@ export const budgetSpent = (
 ) => {
   const { month, includePending } = resolveMonthOptions(selector);
   const categoryKey = financeCategoryKey(category);
-  return transactions
+  const netSpent = transactions
     .filter((item) => item.date.startsWith(month) && isActiveTransaction(item, includePending))
     .reduce((sum, item) => sum + budgetAmountForTransaction(item, categoryKey), 0);
+  return Math.max(0, netSpent);
 };
 
 export const budgetTransactionCount = (
@@ -396,17 +424,18 @@ export const calculateHealthScore = (
 ) => {
   const monthly = monthlySummary(transactions, selector);
   const account = accountSummary(accounts);
+  const periodBudgets = budgetsForPeriod(budgets, selector);
   const savingsPoints = Math.min(25, Math.max(0, (monthly.savingsRate / 30) * 25));
   const emergencyMonths = monthly.expense > 0 ? account.liquid / monthly.expense : 6;
   const emergencyPoints = Math.min(20, (emergencyMonths / 6) * 20);
   const debtRatio = account.assets > 0 ? account.liabilities / account.assets : 0;
   const debtPoints = Math.max(0, 20 * (1 - debtRatio * 2));
-  const budgetAverage = budgets.reduce((sum, budget) => {
+  const budgetAverage = periodBudgets.reduce((sum, budget) => {
     const ratio = budget.limit > 0
       ? budgetSpent(transactions, budget.category, selector) / budget.limit
       : 0;
     return sum + Math.min(ratio, 1.5);
-  }, 0) / Math.max(budgets.length, 1);
+  }, 0) / Math.max(periodBudgets.length, 1);
   const budgetPoints = Math.max(0, 15 * (1 - Math.max(0, budgetAverage - 0.75)));
   return Math.round(Math.min(100, savingsPoints + emergencyPoints + debtPoints + budgetPoints + 18));
 };

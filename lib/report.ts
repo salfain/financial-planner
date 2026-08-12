@@ -9,7 +9,7 @@ import type {
   InvestmentTransaction,
   Transaction,
 } from "./finance";
-import { accountSummary, budgetSpent, formatIDR, formatMonthLabel, monthlySummary } from "./finance";
+import { accountSummary, budgetsForPeriod, budgetSpent, formatIDR, formatMonthLabel, monthlySummary } from "./finance";
 import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 import { addMonthsToPeriod, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "./debt";
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
@@ -397,7 +397,7 @@ export function generateFinancePdf(input: FinanceReportInput): GeneratedFinanceR
     sectionTitle("05 - Anggaran", "Kinerja anggaran", "Realisasi dihitung dari expense periode yang sama; refund mengurangi pemakaian.");
     table(
       ["Kategori", "Batas", "Realisasi", "Sisa", "Status"],
-      input.budgets.map((budget) => {
+      budgetsForPeriod(input.budgets, input.period).map((budget) => {
         const spent = budgetSpent(input.transactions, budget.category, input.period);
         const ratio = budget.limit > 0 ? spent / budget.limit * 100 : 0;
         return [budget.category, money(budget.limit, input.privacy), money(spent, input.privacy), money(budget.limit - spent, input.privacy), ratio > 100 ? "Terlampaui" : ratio >= 90 ? "Waspada" : "Aman"];

@@ -1,5 +1,5 @@
 import type { Bill, Budget, Goal, InvestmentAsset, Transaction } from "./finance";
-import { budgetSpent } from "./finance";
+import { budgetsForPeriod, budgetSpent } from "./finance";
 
 export type NotificationSeverity = "info" | "warning" | "critical";
 export type NotificationActionPage = "bills" | "budgets" | "goals" | "investments" | "settings";
@@ -110,7 +110,7 @@ export function buildFinanceNotifications(input: NotificationEngineInput): Finan
     });
   });
 
-  input.budgets.filter((budget) => !budget.period || budget.period === input.period).forEach((budget) => {
+  budgetsForPeriod(input.budgets, input.period).forEach((budget) => {
     const spent = budgetSpent(input.transactions, budget.category, input.period);
     const percent = budget.limit > 0 ? spent / budget.limit * 100 : 0;
     if (percent < input.settings.budgetWarningPercent) return;

@@ -116,6 +116,7 @@ import {
   Transaction,
   TransactionType,
   accountSummary,
+  budgetsForPeriod,
   budgetSpent,
   budgetTransactionCount,
   calculateHealthScore,
@@ -1176,7 +1177,7 @@ function DashboardPage({ transactions, accounts, budgets, bills, goals, privacy,
   monthly: ReturnType<typeof monthlySummary>; accountTotals: ReturnType<typeof accountSummary>; healthScore: number;
   onNavigate: (page: PageKey) => void; onAdd: () => void;
 }) {
-  const currentBudgets = budgets.filter((budget) => !budget.period || budget.period === month);
+  const currentBudgets = budgetsForPeriod(budgets, month);
   const visibleBudgets = currentBudgets.length
     ? currentBudgets
     : [...new Map(transactions
@@ -1545,7 +1546,7 @@ function ReceivablesPage({ accounts, privacy, onAdd, onReceive, onHistory }: { a
 }
 
 function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onDelete }: { budgets: Budget[]; transactions: Transaction[]; privacy: boolean; month: string; onAdd: () => void; onEdit: (budget: Budget) => void; onDelete: (budget: Budget) => void }) {
-  const visibleBudgets = budgets.filter((budget) => !budget.period || budget.period === month);
+  const visibleBudgets = budgetsForPeriod(budgets, month);
   const totalLimit = visibleBudgets.reduce((sum, item) => sum + item.limit, 0);
   const totalSpent = visibleBudgets.reduce((sum, item) => sum + budgetSpent(transactions, item.category, month), 0);
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
@@ -1553,7 +1554,7 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onD
   const daysLeft = Math.max(0, daysInMonth - dayOfMonth);
   const expectedPace = (dayOfMonth / daysInMonth) * 100;
   const usage = totalLimit > 0 ? totalSpent / totalLimit * 100 : 0;
-  const paceGap = usage - expectedPace;
+  const paceGap = totalLimit > 0 ? usage - expectedPace : 0;
   const perDay = daysLeft > 0 ? Math.max(0, totalLimit - totalSpent) / daysLeft : Math.max(0, totalLimit - totalSpent);
 
   const budgetedCategories = new Set(visibleBudgets.map((item) => financeCategoryKey(item.category)));
@@ -1567,15 +1568,22 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onD
     .sort((a, b) => b.spent - a.spent);
   const monthExpenseTotal = Math.max(0, monthlySummary(transactions, month).expense);
   const unbudgetedTotal = unbudgetedCategories.reduce((sum, item) => sum + item.spent, 0);
-  const budgetedCoverage = monthExpenseTotal > 0 ? (monthExpenseTotal - unbudgetedTotal) / monthExpenseTotal * 100 : 100;
+  const budgetedCoverage = monthExpenseTotal > 0
+    ? Math.max(0, Math.min(100, (monthExpenseTotal - unbudgetedTotal) / monthExpenseTotal * 100))
+    : 100;
   const topUnbudgeted = unbudgetedCategories[0];
 
   const history = Array.from({ length: 6 }, (_, index) => {
     const period = addMonthsToPeriod(month, index - 5);
-    const spent = visibleBudgets.reduce((sum, item) => sum + budgetSpent(transactions, item.category, period), 0);
-    return { period, spent };
+    const savedPeriodBudgets = budgetsForPeriod(budgets, period);
+    const comparableBudgets = savedPeriodBudgets.length ? savedPeriodBudgets : visibleBudgets;
+    const limit = savedPeriodBudgets.length
+      ? savedPeriodBudgets.reduce((sum, item) => sum + item.limit, 0)
+      : totalLimit;
+    const spent = comparableBudgets.reduce((sum, item) => sum + budgetSpent(transactions, item.category, period), 0);
+    return { period, limit, spent };
   });
-  const historyMax = Math.max(totalLimit, ...history.map((item) => item.spent), 1);
+  const historyMax = Math.max(...history.flatMap((item) => [item.limit, item.spent]), 1);
 
   return <div className="content-stack">
     <div className="budget-hero budget-hero-triple">
@@ -1631,12 +1639,12 @@ function BudgetsPage({ budgets, transactions, privacy, month, onAdd, onEdit, onD
     <div className="two-col-grid">
       <section className="panel">
         <h3>Realisasi 6 bulan</h3>
-        <p className="card-subtitle">Total anggaran vs realisasi per bulan — mencari pola, bukan angka tunggal.</p>
+        <p className="card-subtitle">Total anggaran vs realisasi per bulan. Bila batas historis belum tersedia, batas bulan ini dipakai sebagai pembanding.</p>
         <div className="budget-history-chart">
           {history.map((item) => {
-            const exceeded = totalLimit > 0 && item.spent > totalLimit;
+            const exceeded = item.limit > 0 && item.spent > item.limit;
             return <div className="budget-history-column" key={item.period}>
-              <span className="budget-history-limit" />
+              <span className="budget-history-limit" style={{ height: `${Math.min(100, item.limit / historyMax * 100)}%` }} />
               <span className="budget-history-spent" style={{ height: `${Math.min(100, item.spent / historyMax * 100)}%`, background: exceeded ? "var(--negative-soft, #c9525b)" : item.period === month ? "#3fae8d" : "var(--primary)" }} />
             </div>;
           })}
