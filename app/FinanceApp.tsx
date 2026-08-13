@@ -3383,7 +3383,7 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
       : status.email
     : status?.displayName ?? "Sesi pemilik";
 
-  const passwordReady = currentPassword.length > 0 && newPassword.length >= 14 && newPassword === confirmPassword;
+  const passwordReady = /^\d{6}$/.test(currentPassword) && /^\d{6}$/.test(newPassword) && newPassword === confirmPassword;
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!passwordReady || changingPassword) return;
@@ -3394,7 +3394,7 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
       const result = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ currentPin: currentPassword, newPin: newPassword }),
       });
       const body = await result.json() as { ok?: boolean; message?: string; error?: { message?: string } };
       if (!result.ok || !body.ok) throw new Error(body.error?.message || "Kunci belum dapat diganti.");
@@ -3402,7 +3402,7 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
       setNewPassword("");
       setConfirmPassword("");
       setShowPasswords(false);
-      setPasswordMessage(body.message || "Kunci akses berhasil diganti.");
+      setPasswordMessage(body.message || "PIN akses berhasil diganti.");
     } catch (reason) {
       setPasswordError(reason instanceof Error ? reason.message : "Kunci belum dapat diganti.");
     } finally {
@@ -3421,16 +3421,16 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
         <article><span><Database size={18} /></span><div><small>Isolasi data</small><strong>Dikunci di server</strong><p>ID workspace dari browser tidak dapat mengalihkan akses data.</p></div></article>
       </div>
       <div className="security-account-row"><span><ShieldCheck size={17} /><span><strong>Proteksi respons aktif</strong><small>API tidak disimpan di cache dan halaman dibatasi dari embedding pihak lain.</small></span></span>{status.signOutUrl && <a className="secondary-button" href={status.signOutUrl}><LogOut size={15} /> Keluar dari sesi</a>}</div>
-      {status.provider === "Kunci pemilik" && <form className="owner-password-change" onSubmit={changePassword}>
-        <div className="owner-password-change-head"><span><LockKeyhole size={18} /></span><div><strong>Ganti kunci akses</strong><small>Kunci disimpan sebagai hash privat. Setelah diganti, sesi perangkat lain otomatis dicabut.</small></div><button type="button" className="secondary-button compact" onClick={() => setShowPasswords((value) => !value)} aria-pressed={showPasswords}>{showPasswords ? <EyeOff size={15} /> : <Eye size={15} />} {showPasswords ? "Sembunyikan" : "Tampilkan"}</button></div>
+      {status.provider === "PIN pemilik" && <form className="owner-password-change" onSubmit={changePassword}>
+        <div className="owner-password-change-head"><span><LockKeyhole size={18} /></span><div><strong>Ganti PIN akses</strong><small>Gunakan tepat 6 angka. Setelah diganti, sesi perangkat lain otomatis dicabut.</small></div><button type="button" className="secondary-button compact" onClick={() => setShowPasswords((value) => !value)} aria-pressed={showPasswords}>{showPasswords ? <EyeOff size={15} /> : <Eye size={15} />} {showPasswords ? "Sembunyikan" : "Tampilkan"}</button></div>
         <div className="owner-password-change-grid">
-          <label><span>Kunci saat ini</span><input type={showPasswords ? "text" : "password"} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></label>
-          <label><span>Kunci baru</span><input type={showPasswords ? "text" : "password"} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={14} maxLength={128} required aria-describedby="owner-new-password-help" /><small id="owner-new-password-help">Minimal 14 karakter.</small></label>
-          <label><span>Ulangi kunci baru</span><input type={showPasswords ? "text" : "password"} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={14} maxLength={128} required />{confirmPassword && confirmPassword !== newPassword && <small className="field-error">Kunci baru belum sama.</small>}</label>
+          <label><span>PIN saat ini</span><input type={showPasswords ? "text" : "password"} inputMode="numeric" pattern="[0-9]{6}" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value.replace(/\D/g, "").slice(0, 6))} autoComplete="current-password" minLength={6} maxLength={6} required /></label>
+          <label><span>PIN baru</span><input type={showPasswords ? "text" : "password"} inputMode="numeric" pattern="[0-9]{6}" value={newPassword} onChange={(event) => setNewPassword(event.target.value.replace(/\D/g, "").slice(0, 6))} autoComplete="new-password" minLength={6} maxLength={6} required aria-describedby="owner-new-password-help" /><small id="owner-new-password-help">Tepat 6 angka.</small></label>
+          <label><span>Ulangi PIN baru</span><input type={showPasswords ? "text" : "password"} inputMode="numeric" pattern="[0-9]{6}" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value.replace(/\D/g, "").slice(0, 6))} autoComplete="new-password" minLength={6} maxLength={6} required />{confirmPassword && confirmPassword !== newPassword && <small className="field-error">PIN baru belum sama.</small>}</label>
         </div>
         {passwordError && <div className="portability-error" role="alert">{passwordError}</div>}
         {passwordMessage && <div className="owner-password-success" role="status"><CheckCircle2 size={16} /> {passwordMessage}</div>}
-        <div className="owner-password-change-actions"><small>Perangkat ini tetap masuk menggunakan kunci baru.</small><button className="primary-button" disabled={!passwordReady || changingPassword}><KeyRound size={16} /> {changingPassword ? "Menggantiâ€¦" : "Ganti kunci akses"}</button></div>
+        <div className="owner-password-change-actions"><small>Perangkat ini tetap masuk menggunakan PIN baru.</small><button className="primary-button" disabled={!passwordReady || changingPassword}><KeyRound size={16} /> {changingPassword ? "Mengganti…" : "Ganti PIN akses"}</button></div>
       </form>}
     </>}
   </section>;

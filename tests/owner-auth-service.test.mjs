@@ -23,9 +23,12 @@ const createHarness = () => {
   return { context, properties, audits };
 };
 
-test("Apps Script menyimpan hash kunci dan revisi tanpa plaintext", () => {
+test("Apps Script memigrasikan PIN default lalu menyimpan rotasi tanpa plaintext", () => {
   const harness = createHarness();
-  assert.equal(harness.context.apiOwnerAuthState().data.configured, false);
+  const initial = harness.context.apiOwnerAuthState().data;
+  assert.equal(initial.configured, true);
+  assert.equal(initial.passwordHash, "f8c94f689e2eecbfea9ffa0e5328688980dac5436bb39b1cac228a9045c338c0");
+  assert.equal(initial.credentialKind, "pin-v1");
   assert.throws(() => harness.context.apiRotateOwnerPassword({ passwordHash: "bukan-hash" }), /Hash kunci/);
 
   const passwordHash = "a".repeat(64);
@@ -33,6 +36,7 @@ test("Apps Script menyimpan hash kunci dan revisi tanpa plaintext", () => {
   assert.equal(rotated.ok, true);
   assert.equal(rotated.data.sessionsRevoked, true);
   assert.equal(harness.context.apiOwnerAuthState().data.passwordHash, passwordHash);
+  assert.equal(harness.context.apiOwnerAuthState().data.credentialKind, "pin-v1");
   assert.equal(harness.context.apiOwnerAuthState().data.revision, "auth-revision-2026");
   assert.equal(JSON.stringify(harness.audits).includes(passwordHash), false);
 });

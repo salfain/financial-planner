@@ -11,8 +11,8 @@ import {
 } from "../lib/owner-auth";
 import { clearOwnerAuthStateCache } from "../lib/owner-auth-store";
 
-const password = "uji-kunci-pemilik-yang-kuat";
-const passwordHash = "9f6ef1dbdb0d4167e8cfe37e91efd821c3e749da435f5188e011ceb024509d7b";
+const password = "253246";
+const passwordHash = "f8c94f689e2eecbfea9ffa0e5328688980dac5436bb39b1cac228a9045c338c0";
 
 test("owner auth menolak konfigurasi kosong dan menerima sesi bertanda tangan", async () => {
   const beforeHash = process.env.FINANCE_OWNER_PASSWORD_SHA256;
@@ -44,7 +44,7 @@ test("rotasi kunci mencabut sesi lama dan menerima sesi baru", async () => {
   const originalKey = process.env.APPS_SCRIPT_ACCESS_KEY;
   const originalHash = process.env.FINANCE_OWNER_PASSWORD_SHA256;
   const originalSecret = process.env.FINANCE_SESSION_SECRET;
-  const newPassword = "kunci-pemilik-baru-yang-kuat";
+  const newPassword = "654321";
   const newHash = await hashOwnerPassword(newPassword);
   let storedState = { configured: false, passwordHash: null as string | null, revision: "environment" };
 

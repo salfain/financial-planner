@@ -659,6 +659,7 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .owner-password-field { height: 48px; display: grid; grid-template-columns: 20px minmax(0,1fr) 36px; align-items: center; gap: 8px; padding: 0 8px 0 13px; color: var(--text-faint); border: 1px solid var(--border); border-radius: 12px; background: var(--surface-soft); }
 .owner-password-field:focus-within { border-color: color-mix(in srgb,var(--primary) 55%,var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb,var(--primary-soft) 75%,transparent); }
 .owner-password-field input { min-width: 0; height: 100%; color: var(--text); border: 0; outline: 0; background: transparent; font: inherit; }
+.owner-pin-field input { font-size: 18px; font-weight: 800; letter-spacing: .32em; text-align: center; }
 .owner-password-field button { width: 36px; height: 36px; display: grid; place-items: center; color: var(--text-faint); border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
 .owner-login-submit { height: 46px; margin-top: 7px; color: #fff; border: 0; border-radius: 12px; background: var(--primary); cursor: pointer; font: inherit; font-size: 13.5px; font-weight: 800; }
 .owner-login-submit:disabled { opacity: .55; cursor: wait; }
@@ -1120,6 +1121,10 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .budget-history-legend i { display: block; width: 8px; height: 8px; border-radius: 2px; }
 .budget-row-actions,.bill-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .budget-row-actions > strong { min-width: 38px; font-size: 11px; text-align: right; }
+.budget-row:not(.unbudgeted) { grid-template-columns: 42px minmax(0,1fr) auto; }
+.budget-details { min-width: 0; }
+.budget-row-actions { min-width: max-content; gap: 7px; }
+.budget-row-actions > strong { min-width: 42px; font-size: 12px; }
 .pace-status { font-weight: 700; }
 .pace-status.on-pace { color: var(--positive); }
 .pace-status.over-pace { color: var(--warning); }
@@ -2256,6 +2261,7 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .two-col-grid > * { min-width: 0; }
   .budget-list-panel .card-title-row { align-items: stretch; flex-direction: column; gap: 12px; }
   .budget-list-panel .card-title-row .secondary-button { width: 100%; justify-content: center; }
+  .budget-row:not(.unbudgeted) { grid-template-columns: 1fr; }
   .budget-details { min-width: 0; }
   .budget-details > span,
   .budget-details > small { flex-wrap: wrap; line-height: 1.5; overflow-wrap: anywhere; }

@@ -41,7 +41,7 @@ export async function GET(request: Request) {
   return response(request, {
     authenticated: true,
     ...profile,
-    provider: viewer ? "ChatGPT private access" : "Kunci pemilik",
+    provider: viewer ? "ChatGPT private access" : "PIN pemilik",
     accessMode: "owner_only",
     workspaceIsolation: "server_enforced",
     sessionState: "verified",
@@ -54,22 +54,22 @@ export async function POST(request: Request) {
   const key = clientKey(request);
   if (blocked(key)) return response(request, { ok: false, error: { code: "TOO_MANY_ATTEMPTS", message: "Terlalu banyak percobaan. Tunggu 15 menit lalu coba lagi." } }, 429, { "Retry-After": "900" });
 
-  let password = "";
+  let pin = "";
   try {
-    const body = await request.json() as { password?: unknown };
-    password = typeof body.password === "string" ? body.password : "";
+    const body = await request.json() as { pin?: unknown };
+    pin = typeof body.pin === "string" ? body.pin : "";
   } catch {
     return response(request, { ok: false, error: { code: "INVALID_JSON", message: "Permintaan tidak valid." } }, 400);
   }
   let valid = false;
   try {
-    valid = await verifyOwnerPassword(password);
+    valid = await verifyOwnerPassword(pin);
   } catch {
     return response(request, { ok: false, error: { code: "OWNER_AUTH_UNAVAILABLE", message: "Pemeriksaan kunci sedang tidak tersedia. Coba lagi beberapa saat." } }, 503);
   }
   if (!valid) {
     recordFailure(key);
-    return response(request, { ok: false, error: { code: "AUTH_INVALID", message: "Kunci akses tidak cocok." } }, 401);
+    return response(request, { ok: false, error: { code: "AUTH_INVALID", message: "PIN tidak cocok." } }, 401);
   }
   attempts.delete(key);
   let session;

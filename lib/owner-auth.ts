@@ -44,11 +44,13 @@ export async function hashOwnerPassword(password: string) {
 }
 
 export async function verifyOwnerPassword(password: string) {
-  if (!ownerPasswordConfigured() || !password || password.length > 256) return false;
+  if (!ownerPasswordConfigured() || !/^\d{6}$/.test(password)) return false;
   const expected = (await getOwnerAuthState()).passwordHash;
   const actual = await hashOwnerPassword(password);
   return constantTimeEqual(actual, expected);
 }
+
+export const verifyOwnerPin = verifyOwnerPassword;
 
 export async function createOwnerSession() {
   const authState = await getOwnerAuthState({ refresh: true });

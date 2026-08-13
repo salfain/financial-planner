@@ -58,7 +58,7 @@ export async function getOwnerAuthState(options: { refresh?: boolean } = {}): Pr
 export async function rotateStoredOwnerPassword(passwordHash: string) {
   const result = await callAppsScriptUpstream("rotateOwnerPassword", crypto.randomUUID(), { passwordHash });
   const envelope = result.envelope as OwnerAuthEnvelope;
-  if (!envelope.ok) throw new AppsScriptUpstreamError(502, String(envelope.error?.code || "OWNER_PASSWORD_ROTATION_FAILED"), String(envelope.error?.message || "Kunci pemilik belum dapat diganti."));
+  if (!envelope.ok) throw new AppsScriptUpstreamError(502, String(envelope.error?.code || "OWNER_PIN_ROTATION_FAILED"), String(envelope.error?.message || "PIN pemilik belum dapat diganti."));
   const revision = String(envelope.data?.revision || "").trim();
   if (!revision) {
     clearOwnerAuthStateCache();

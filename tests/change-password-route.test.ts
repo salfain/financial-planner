@@ -6,8 +6,8 @@ import { createOwnerSession, ownerSessionCookie, verifyOwnerSession } from "../l
 import { clearOwnerAuthStateCache } from "../lib/owner-auth-store";
 
 test("endpoint pengaturan mengganti kunci dan mencabut sesi lama", async () => {
-  const oldPassword = "kunci-pemilik-lama-yang-kuat";
-  const newPassword = "kunci-pemilik-baru-yang-kuat";
+  const oldPassword = "253246";
+  const newPassword = "654321";
   const oldHash = createHash("sha256").update(oldPassword).digest("hex");
   const originalFetch = globalThis.fetch;
   const originalEnv = { ...process.env };
@@ -33,7 +33,7 @@ test("endpoint pengaturan mengganti kunci dan mencabut sesi lama", async () => {
     const request = new Request("https://financial.example/api/auth/change-password", {
       method: "POST",
       headers: { "content-type": "application/json", cookie: ownerSessionCookie(oldSession.token) },
-      body: JSON.stringify({ currentPassword: oldPassword, newPassword }),
+      body: JSON.stringify({ currentPin: oldPassword, newPin: newPassword }),
     });
     const response = await POST(request);
     const body = await response.json() as { ok?: boolean; message?: string };
@@ -52,8 +52,8 @@ test("endpoint pengaturan mengganti kunci dan mencabut sesi lama", async () => {
 });
 
 test("endpoint mengonfirmasi rotasi yang sudah tersimpan ketika respons ulang tidak membawa revisi", async () => {
-  const oldPassword = "kunci-pemilik-lama-yang-kuat";
-  const newPassword = "kunci-pemilik-baru-yang-kuat";
+  const oldPassword = "253246";
+  const newPassword = "654321";
   const oldHash = createHash("sha256").update(oldPassword).digest("hex");
   const newHash = createHash("sha256").update(newPassword).digest("hex");
   const originalFetch = globalThis.fetch;
@@ -79,7 +79,7 @@ test("endpoint mengonfirmasi rotasi yang sudah tersimpan ketika respons ulang ti
     const request = new Request("https://financial.example/api/auth/change-password", {
       method: "POST",
       headers: { "content-type": "application/json", cookie: ownerSessionCookie(oldSession.token) },
-      body: JSON.stringify({ currentPassword: oldPassword, newPassword }),
+      body: JSON.stringify({ currentPin: oldPassword, newPin: newPassword }),
     });
     const response = await POST(request);
     assert.equal(response.status, 200);
