@@ -13,8 +13,18 @@ function healthResponse(request: Request, body: Record<string, unknown>, status:
 
 export async function GET(request: Request) {
   const now = Date.now();
-  if (cached && cached.expiresAt > now) return healthResponse(request, cached.body, cached.status);
   const checkedAt = new Date().toISOString();
+  const deep = new URL(request.url).searchParams.get("deep") === "1";
+  if (!deep) {
+    return healthResponse(request, {
+      status: "ok",
+      service: "financial-planner",
+      storage: "google-sheets",
+      check: "liveness",
+      checkedAt,
+    }, 200);
+  }
+  if (cached && cached.expiresAt > now) return healthResponse(request, cached.body, cached.status);
   try {
     const requestId = crypto.randomUUID();
     const result = await callAppsScriptUpstream("health", requestId, {});
@@ -27,7 +37,7 @@ export async function GET(request: Request) {
       latencyMs: result.durationMs,
       attempts: result.attempts,
     };
-    cached = { body, status: 200, expiresAt: now + 30_000 };
+    cached = { body, status: 200, expiresAt: now + 5 * 60_000 };
     return healthResponse(request, body, 200);
   } catch (error) {
     const code = error instanceof AppsScriptUpstreamError ? error.code : "HEALTH_CHECK_FAILED";

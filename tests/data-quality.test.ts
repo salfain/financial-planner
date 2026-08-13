@@ -31,3 +31,16 @@ test("menandai referensi akun putus dan transaksi pending lama", () => {
   assert.equal(report.issues.some((issue) => issue.id === "missing-accounts"), true);
   assert.equal(report.issues.some((issue) => issue.id === "stale-pending"), true);
 });
+
+test("transaksi identik yang dikonfirmasi sah tidak lagi dianggap masalah", () => {
+  const duplicate = { ...base, id: "tx-2" };
+  const report = analyzeFinanceDataQuality({
+    accounts,
+    transactions: [base, duplicate],
+    budgets: [],
+    categories,
+    period: "2026-08",
+    ignoredDuplicateFingerprints: ["expense|2026-08-01|warung|bank||25000"],
+  });
+  assert.equal(report.issues.some((issue) => issue.id === "duplicates"), false);
+});

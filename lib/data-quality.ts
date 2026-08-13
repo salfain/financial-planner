@@ -57,13 +57,16 @@ export function analyzeFinanceDataQuality(input: {
   categories: FinanceCategory[];
   period: string;
   now?: Date;
+  ignoredDuplicateFingerprints?: Iterable<string>;
 }): DataQualityReport {
   const { accounts, transactions, budgets, categories, period } = input;
   const now = input.now ?? new Date();
   const active = activeTransactions(transactions);
   const accountIds = new Set(accounts.map((account) => account.id));
   const activeCategoryKeys = new Set(categories.filter((category) => category.active).map((category) => financeCategoryKey(category.name)));
-  const duplicateGroups = findDuplicateTransactionGroups(active);
+  const ignoredDuplicateFingerprints = new Set(input.ignoredDuplicateFingerprints ?? []);
+  const duplicateGroups = findDuplicateTransactionGroups(active)
+    .filter((group) => !ignoredDuplicateFingerprints.has(transactionFingerprint(group[0])));
   const missingAccounts = active.filter((transaction) => !accountIds.has(transaction.accountId)
     || ((transaction.type === "transfer" || transaction.type === "investment_buy") && (!transaction.destinationAccountId || !accountIds.has(transaction.destinationAccountId))));
   const invalidTransactions = active.filter((transaction) => !/^\d{4}-\d{2}-\d{2}$/.test(transaction.date) || !Number.isFinite(transaction.amount) || transaction.amount <= 0);
@@ -88,7 +91,7 @@ export function analyzeFinanceDataQuality(input: {
   if (missingAccounts.length) issues.push({ id: "missing-accounts", severity: "critical", title: "Referensi akun terputus", description: "Transaksi mengarah ke akun yang tidak tersedia. Perbaiki sebelum melakukan rekonsiliasi.", count: missingAccounts.length, target: "transactions" });
   if (invalidTransactions.length) issues.push({ id: "invalid-transactions", severity: "critical", title: "Transaksi tidak valid", description: "Tanggal atau nominal transaksi perlu diperbaiki agar perhitungan tetap akurat.", count: invalidTransactions.length, target: "transactions" });
   if (invalidAccounts.length) issues.push({ id: "invalid-accounts", severity: "critical", title: "Data akun tidak lengkap", description: "Nama, ID, atau saldo akun tidak dapat dipakai untuk menghitung ledger.", count: invalidAccounts.length, target: "accounts" });
-  if (duplicateGroups.length) issues.push({ id: "duplicates", severity: "warning", title: "Kemungkinan transaksi ganda", description: "Tanggal, merchant, akun, dan nominalnya sama. Tinjau sebelum menghapus salah satunya.", count: duplicateGroups.reduce((sum, group) => sum + group.length - 1, 0), target: "transactions" });
+  if (duplicateGroups.length) issues.push({ id: "duplicates", severity: "warning", title: "Transaksi yang tampak mirip", description: "Tanggal, merchant, akun, dan nominalnya sama. Ini bukan bukti duplikat—tandai sah jika memang transaksi terpisah.", count: duplicateGroups.reduce((sum, group) => sum + group.length - 1, 0), target: "transactions" });
   if (stalePending.length) issues.push({ id: "stale-pending", severity: "warning", title: "Transaksi pending terlalu lama", description: "Transaksi sudah menunggu lebih dari tujuh hari dan belum masuk perhitungan utama.", count: stalePending.length, target: "transactions" });
   if (uncategorized.length) issues.push({ id: "uncategorized", severity: "info", title: "Kategori masih umum", description: "Lengkapi kategori agar anggaran dan insight bulanan lebih tepat.", count: uncategorized.length, target: "transactions" });
   if (duplicateBudgets.length) issues.push({ id: "duplicate-budgets", severity: "warning", title: "Anggaran kategori ganda", description: "Lebih dari satu batas ditemukan untuk kategori dan periode yang sama.", count: duplicateBudgets.reduce((sum, group) => sum + group.length - 1, 0), target: "budgets" });

@@ -229,7 +229,7 @@ import { freeEntitlement, type PlanCapability, type PlanEntitlement } from "../l
 import { FINANCE_SCHEMA_VERSION } from "../lib/schema-version";
 import { customerReadiness } from "../lib/customer-readiness";
 import { searchTransactions } from "../lib/transaction-search";
-import { analyzeFinanceDataQuality, findPotentialDuplicate } from "../lib/data-quality";
+import { analyzeFinanceDataQuality, findPotentialDuplicate, transactionFingerprint } from "../lib/data-quality";
 
 type PageKey =
   | "dashboard"
@@ -3264,19 +3264,38 @@ function CustomerReadinessPanel({ configured, accounts, transactions, bills, goa
   </section>;
 }
 
-function DataQualityPanel({ accounts, transactions, budgets, categories, month, onNavigate }: {
+function DataQualityPanel({ accounts, transactions, budgets, categories, month, privacy, onNavigate }: {
   accounts: Account[];
   transactions: Transaction[];
   budgets: Budget[];
   categories: FinanceCategory[];
   month: string;
+  privacy: boolean;
   onNavigate: (page: PageKey) => void;
 }) {
-  const report = useMemo(() => analyzeFinanceDataQuality({ accounts, transactions, budgets, categories, period: month }), [accounts, transactions, budgets, categories, month]);
+  const [acceptedDuplicates, setAcceptedDuplicates] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const stored = JSON.parse(window.localStorage.getItem("financial-planner:accepted-duplicates") || "[]");
+      return Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string").slice(0, 200) : [];
+    } catch { return []; }
+  });
+  const report = useMemo(() => analyzeFinanceDataQuality({ accounts, transactions, budgets, categories, period: month, ignoredDuplicateFingerprints: acceptedDuplicates }), [accounts, transactions, budgets, categories, month, acceptedDuplicates]);
+  const acceptDuplicateGroup = (fingerprint: string) => {
+    const next = [...new Set([...acceptedDuplicates, fingerprint])].slice(-200);
+    setAcceptedDuplicates(next);
+    try { window.localStorage.setItem("financial-planner:accepted-duplicates", JSON.stringify(next)); } catch { /* Tetap berlaku selama halaman terbuka. */ }
+  };
+  const resetAcceptedDuplicates = () => {
+    setAcceptedDuplicates([]);
+    try { window.localStorage.removeItem("financial-planner:accepted-duplicates"); } catch { /* Tidak memengaruhi data utama. */ }
+  };
   return <section className="panel settings-section settings-wide data-quality-panel">
     <div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Pusat pemeriksaan data</h2><p>Temukan data ganda, referensi terputus, transaksi pending, dan kategori yang perlu dirapikan.</p></div><span className={`quality-score ${report.status}`}>{report.score}/100</span></div>
     <div className={`quality-overview ${report.status}`}><span>{report.status === "healthy" ? <CheckCircle2 size={20} /> : <TriangleAlert size={20} />}</span><div><strong>{report.status === "healthy" ? "Semua data utama rapi" : `${report.issueCount} data perlu ditinjau`}</strong><small>{report.status === "critical" ? "Perbaiki masalah merah terlebih dahulu agar perhitungan tetap aman." : report.status === "attention" ? "Tidak ada kerusakan kritis, tetapi beberapa data sebaiknya dirapikan." : "Transaksi, akun, kategori, dan anggaran lolos pemeriksaan cepat."}</small></div></div>
     {report.issues.length > 0 && <div className="quality-issue-list">{report.issues.map((issue) => <article className={issue.severity} key={issue.id}><span><strong>{issue.count}</strong><small>{issue.severity === "critical" ? "Kritis" : issue.severity === "warning" ? "Tinjau" : "Rapikan"}</small></span><div><strong>{issue.title}</strong><small>{issue.description}</small></div><button className="secondary-button compact" onClick={() => onNavigate(issue.target)}>Periksa <ArrowRight size={14} /></button></article>)}</div>}
+    {report.duplicateGroups.length > 0 && <div className="duplicate-review-list"><div className="duplicate-review-head"><div><strong>Periksa transaksi yang mirip</strong><small>Konfirmasi hanya jika setiap catatan memang mewakili pembayaran yang berbeda.</small></div></div>{report.duplicateGroups.slice(0, 8).map((group) => { const sample = group[0]; const fingerprint = transactionFingerprint(sample); return <article key={fingerprint}><div><strong>{sample.merchant || sample.title}</strong><small>{shortDate(sample.date)} · {group.length} transaksi · {privacy ? "Rp ••••" : formatIDR(sample.amount)}</small></div><button className="secondary-button compact" onClick={() => acceptDuplicateGroup(fingerprint)}>Tandai sah</button></article>; })}</div>}
+    {acceptedDuplicates.length > 0 && <button className="text-button quality-reset" onClick={resetAcceptedDuplicates}>Periksa ulang {acceptedDuplicates.length} kelompok yang pernah ditandai sah</button>}
   </section>;
 }
 
@@ -3346,7 +3365,7 @@ function SettingsPage({ profile, entitlement, configured, accounts, transactions
     <div className={`settings-tab-content settings-wide ${section === "data" ? "active" : ""}`}>
     <DataPortabilityPanel backendLabel={backendLabel} onToast={onToast} onRefresh={onRefresh} />
     <CustomerReadinessPanel configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} entitlement={entitlement} schemaVersion={schemaVersion} backendLabel={backendLabel} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onNavigate={onNavigate} onToast={onToast} />
-    <DataQualityPanel accounts={accounts} transactions={transactions} budgets={budgets} categories={categories} month={month} onNavigate={onNavigate} />
+    <DataQualityPanel accounts={accounts} transactions={transactions} budgets={budgets} categories={categories} month={month} privacy={privacy} onNavigate={onNavigate} />
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
     <UpdateCenterPanel schemaVersion={schemaVersion} backendLabel={backendLabel} onRefresh={onRefresh} onToast={onToast}/>
     <LedgerHealthPanel privacy={privacy} onToast={onToast} onRefresh={onRefresh} />

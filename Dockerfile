@@ -20,6 +20,7 @@ RUN npm run build
 FROM node:22-alpine AS runner
 
 WORKDIR /app
+RUN apk add --no-cache curl
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
@@ -30,6 +31,6 @@ COPY --from=builder /app/dist ./dist
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/api/health').then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD curl --fail --silent --show-error http://127.0.0.1:3000/api/health >/dev/null || exit 1
 
 CMD ["npm", "run", "start"]

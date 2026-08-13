@@ -737,6 +737,12 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .quality-issue-list article > div { display: grid; gap: 3px; min-width: 0; }
 .quality-issue-list article > div strong { font-size: 13px; }
 .quality-issue-list article > div small { color: var(--text-faint); font-size: 11.5px; line-height: 1.45; }
+.duplicate-review-list { display: grid; gap: 8px; margin-top: 14px; padding: 12px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-soft); }
+.duplicate-review-head div, .duplicate-review-list article > div { display: grid; gap: 3px; min-width: 0; }
+.duplicate-review-head strong, .duplicate-review-list article strong { font-size: 12.5px; }
+.duplicate-review-head small, .duplicate-review-list article small { color: var(--text-faint); font-size: 11px; line-height: 1.4; }
+.duplicate-review-list article { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 12px; padding-top: 8px; border-top: 1px solid var(--border-soft); }
+.quality-reset { margin-top: 10px; color: var(--text-faint); font-size: 11px; }
 
 .help-center-layout { display: grid; gap: 18px; }
 .help-intro { display: flex; align-items: center; gap: 13px; padding: 18px 20px; color: var(--primary); border: 1px solid color-mix(in srgb,var(--primary) 22%,var(--border)); border-radius: 16px; background: color-mix(in srgb,var(--primary-soft) 55%,var(--surface)); }
@@ -767,6 +773,8 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
   .pin-rotation-banner button { grid-column: 1 / -1; width: 100%; justify-content: center; }
   .quality-issue-list article { grid-template-columns: 46px minmax(0,1fr); }
   .quality-issue-list article > button { grid-column: 1 / -1; width: 100%; justify-content: center; }
+  .duplicate-review-list article { grid-template-columns: 1fr; }
+  .duplicate-review-list article button { width: 100%; justify-content: center; }
   .help-guide-grid { grid-template-columns: 1fr; }
   .help-intro { align-items: flex-start; padding: 15px; }
   .help-guide-card { padding: 16px; }
