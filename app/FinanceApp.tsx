@@ -584,6 +584,7 @@ export function FinanceApp() {
     let active = true;
     const themeTimer = window.setTimeout(() => {
       setDarkMode(window.localStorage.getItem("vinn-store-theme") === "dark");
+      setPrivacy(window.localStorage.getItem("financial-planner-privacy") === "hidden");
       setHydrated(true);
     }, 0);
     const cached = readCachedFinanceSnapshot(month, window.sessionStorage);
@@ -620,6 +621,10 @@ export function FinanceApp() {
     document.documentElement.dataset.theme = darkMode ? "dark" : "light";
     if (hydrated) window.localStorage.setItem("vinn-store-theme", darkMode ? "dark" : "light");
   }, [darkMode, hydrated]);
+
+  useEffect(() => {
+    if (hydrated) window.localStorage.setItem("financial-planner-privacy", privacy ? "hidden" : "visible");
+  }, [privacy, hydrated]);
 
   useEffect(() => {
     const pinChanged = () => setSecurityStatus((current) => current ? { ...current, requiresPinChange: false } : current);
@@ -3491,7 +3496,6 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
         <article><span><Database size={18} /></span><div><small>Isolasi data</small><strong>Dikunci di server</strong><p>ID workspace dari browser tidak dapat mengalihkan akses data.</p></div></article>
       </div>
       <div className="security-account-row"><span><ShieldCheck size={17} /><span><strong>Proteksi respons aktif</strong><small>API tidak disimpan di cache dan halaman dibatasi dari embedding pihak lain.</small></span></span>{status.signOutUrl && <a className="secondary-button" href={status.signOutUrl}><LogOut size={15} /> Keluar dari sesi</a>}</div>
-      {status.requiresPinChange && <div className="pin-change-required" role="alert"><TriangleAlert size={18} /><span><strong>PIN bawaan masih aktif</strong><small>Ganti PIN 253246 dengan enam angka pribadi. Hindari tanggal lahir atau pola berulang.</small></span></div>}
       {status.provider === "PIN pemilik" && <form className="owner-password-change" onSubmit={changePassword}>
         <div className="owner-password-change-head"><span><LockKeyhole size={18} /></span><div><strong>Ganti PIN akses</strong><small>Gunakan tepat 6 angka. Setelah diganti, sesi perangkat lain otomatis dicabut.</small></div><button type="button" className="secondary-button compact" onClick={() => setShowPasswords((value) => !value)} aria-pressed={showPasswords}>{showPasswords ? <EyeOff size={15} /> : <Eye size={15} />} {showPasswords ? "Sembunyikan" : "Tampilkan"}</button></div>
         <div className="owner-password-change-grid">

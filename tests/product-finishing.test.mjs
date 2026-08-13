@@ -15,8 +15,10 @@ test("finishing produksi menjaga fitur lama sambil menambah pemeriksaan dan bant
   assert.match(app, /Kemungkinan duplikat/);
   assert.match(app, /Bantuan Financial Planner/);
   assert.match(app, /Ganti PIN bawaan sekarang/);
+  assert.doesNotMatch(app, /PIN bawaan masih aktif/);
   assert.match(app, /Tersinkron/);
   assert.match(app, /useDeferredValue/);
+  assert.match(app, /financial-planner-privacy/);
   assert.match(styles, /content-visibility: auto/);
   assert.match(styles, /\.help-guide-grid/);
   assert.match(dockerfile, /HEALTHCHECK/);
