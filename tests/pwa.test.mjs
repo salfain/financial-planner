@@ -22,6 +22,8 @@ test("PWA dapat dipasang tanpa menyimpan respons API finansial", async () => {
   assert.match(layout, /manifest: "\/manifest\.webmanifest"/);
   assert.match(worker, /addEventListener\("push"/);
   assert.match(worker, /addEventListener\("periodicsync"/);
+  assert.match(worker, /SKIP_WAITING/);
+  assert.match(financeApp, /Pusat pemeriksaan data|DataQualityPanel/);
   assert.match(financeApp, /Notifikasi perangkat/);
   assert.match(deviceNotifications, /Notification\.requestPermission\(\)/);
   assert.match(deviceNotifications, /item\.severity !== "info"/);

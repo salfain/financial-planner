@@ -3,6 +3,7 @@ import {
   createOwnerSession,
   isOwnerRequest,
   ownerPasswordConfigured,
+  ownerPinNeedsRotation,
   ownerProfile,
   ownerSessionCookie,
   verifyOwnerPassword,
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
     workspaceIsolation: "server_enforced",
     sessionState: "verified",
     signOutUrl: "/api/auth/logout",
+    requiresPinChange: viewer ? false : await ownerPinNeedsRotation(),
   });
 }
 
@@ -78,5 +80,5 @@ export async function POST(request: Request) {
   } catch {
     return response(request, { ok: false, error: { code: "OWNER_AUTH_UNAVAILABLE", message: "Sesi aman belum dapat dibuat. Coba lagi beberapa saat." } }, 503);
   }
-  return response(request, { ok: true, expiresAt: new Date(session.expiresAt * 1000).toISOString() }, 200, { "Set-Cookie": ownerSessionCookie(session.token, session.maxAge) });
+  return response(request, { ok: true, expiresAt: new Date(session.expiresAt * 1000).toISOString(), requiresPinChange: await ownerPinNeedsRotation() }, 200, { "Set-Cookie": ownerSessionCookie(session.token, session.maxAge) });
 }

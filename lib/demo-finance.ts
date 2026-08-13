@@ -223,5 +223,5 @@ export function demoRequest<T = unknown>(action: string, payload: Record<string,
 }
 
 export function demoSecurityStatus() {
-  return { authenticated: true, displayName: "Pengunjung Demo", email: null, provider: "Mode Demo", accessMode: "deployment_managed", workspaceIsolation: "server_enforced", sessionState: "local_preview", signOutUrl: null };
+  return { authenticated: true, displayName: "Pengunjung Demo", email: null, provider: "Mode Demo", accessMode: "deployment_managed", workspaceIsolation: "server_enforced", sessionState: "local_preview", signOutUrl: null, requiresPinChange: false };
 }

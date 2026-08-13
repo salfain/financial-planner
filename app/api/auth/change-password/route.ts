@@ -56,6 +56,7 @@ export async function POST(request: Request) {
       ok: true,
       message: "PIN akses berhasil diganti. Sesi perangkat lain telah dicabut.",
       expiresAt: new Date(session.expiresAt * 1000).toISOString(),
+      requiresPinChange: false,
     }, 200, { "Set-Cookie": ownerSessionCookie(session.token, session.maxAge) });
   } catch (error) {
     if (error instanceof AppsScriptUpstreamError) {

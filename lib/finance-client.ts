@@ -40,6 +40,7 @@ export type FinanceSecurityStatus = {
   workspaceIsolation: "server_enforced";
   sessionState: "verified" | "local_preview" | "protected";
   signOutUrl: string | null;
+  requiresPinChange?: boolean;
 };
 
 export type FinanceSnapshot = {

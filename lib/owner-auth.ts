@@ -2,6 +2,7 @@ import { authenticatedViewerFromHeaders } from "./security";
 import { getOwnerAuthState } from "./owner-auth-store";
 
 export const OWNER_SESSION_COOKIE = "finance_owner_session";
+export const DEFAULT_OWNER_PIN_HASH = "f8c94f689e2eecbfea9ffa0e5328688980dac5436bb39b1cac228a9045c338c0";
 const SESSION_VERSION = "v2";
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 30;
 
@@ -51,6 +52,14 @@ export async function verifyOwnerPassword(password: string) {
 }
 
 export const verifyOwnerPin = verifyOwnerPassword;
+
+export async function ownerPinNeedsRotation() {
+  try {
+    return constantTimeEqual((await getOwnerAuthState()).passwordHash, DEFAULT_OWNER_PIN_HASH);
+  } catch {
+    return false;
+  }
+}
 
 export async function createOwnerSession() {
   const authState = await getOwnerAuthState({ refresh: true });

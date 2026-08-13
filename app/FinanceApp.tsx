@@ -14,6 +14,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  CircleHelp,
   CircleDollarSign,
   Clock3,
   Copy,
@@ -39,6 +40,7 @@ import {
   Plus,
   ReceiptText,
   Repeat2,
+  RefreshCw,
   Route,
   Search,
   Send,
@@ -63,7 +65,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { AiChatMessage, AiSettingsStatus, OcrReceipt } from "../lib/ai";
 import type { ReportSection } from "../lib/report";
 import type { LedgerHealthReport } from "../lib/ledger";
@@ -227,6 +229,7 @@ import { freeEntitlement, type PlanCapability, type PlanEntitlement } from "../l
 import { FINANCE_SCHEMA_VERSION } from "../lib/schema-version";
 import { customerReadiness } from "../lib/customer-readiness";
 import { searchTransactions } from "../lib/transaction-search";
+import { analyzeFinanceDataQuality, findPotentialDuplicate } from "../lib/data-quality";
 
 type PageKey =
   | "dashboard"
@@ -247,6 +250,7 @@ type PageKey =
   | "review"
   | "reports"
   | "assistant"
+  | "help"
   | "settings";
 
 const currentMonth = () => getCurrentMonth();
@@ -304,6 +308,7 @@ const navGroups: Array<{ key: string; label: string; icon: LucideIcon; items: Na
       { key: "review", label: "Review Bulanan", icon: CheckCircle2 },
       { key: "reports", label: "Laporan", icon: FileText },
       { key: "assistant", label: "Insight", icon: Sparkles },
+      { key: "help", label: "Bantuan", icon: CircleHelp },
       { key: "settings", label: "Pengaturan", icon: Settings },
     ],
   },
@@ -384,6 +389,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   review: { eyebrow: "Kontrol bulanan", title: "Review & tutup buku", subtitle: "Periksa hasil bulan berjalan, simpan snapshot, lalu kunci ledger ketika semuanya sudah sesuai." },
   reports: { eyebrow: "Laporan bulanan", title: "Laporan keuangan", subtitle: "Ringkasan siap cetak dengan data yang dapat ditelusuri kembali." },
   assistant: { eyebrow: "AI universal · read-only", title: "Financial Insight", subtitle: "Tanyakan kondisi keuanganmu dengan konteks terpilih dan kontrol privasi yang jelas." },
+  help: { eyebrow: "Panduan penggunaan", title: "Bantuan Financial Planner", subtitle: "Jawaban singkat untuk pencatatan, perhitungan, sinkronisasi, dan pemulihan data." },
   settings: { eyebrow: "Workspace personal", title: "Pengaturan", subtitle: "Kelola preferensi, keamanan data, backup, dan koneksi Google." },
 };
 
@@ -465,6 +471,8 @@ export function FinanceApp() {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [syncDurationMs, setSyncDurationMs] = useState<number | null>(null);
   const [usingCachedData, setUsingCachedData] = useState(false);
+  const [syncState, setSyncState] = useState<"syncing" | "ready" | "error">("syncing");
+  const [securityStatus, setSecurityStatus] = useState<FinanceSecurityStatus | null>(null);
   const [privacy, setPrivacy] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -528,14 +536,21 @@ export function FinanceApp() {
   };
 
   const refreshData = async () => {
+    setSyncState("syncing");
     const startedAt = performance.now();
-    const snapshot = await loadFinanceSnapshot(month);
-    applySnapshot(snapshot);
-    cacheFinanceSnapshot(month, snapshot, window.sessionStorage);
-    setLastSyncedAt(new Date().toISOString());
-    setSyncDurationMs(Math.round(performance.now() - startedAt));
-    setUsingCachedData(false);
-    loadFinanceNotifications(month).then(setNotificationOverview).catch(() => undefined);
+    try {
+      const snapshot = await loadFinanceSnapshot(month);
+      applySnapshot(snapshot);
+      cacheFinanceSnapshot(month, snapshot, window.sessionStorage);
+      setLastSyncedAt(new Date().toISOString());
+      setSyncDurationMs(Math.round(performance.now() - startedAt));
+      setUsingCachedData(false);
+      setSyncState("ready");
+      loadFinanceNotifications(month).then(setNotificationOverview).catch(() => undefined);
+    } catch (error) {
+      setSyncState("error");
+      throw error;
+    }
   };
 
   const refreshNotifications = async () => {
@@ -587,11 +602,13 @@ export function FinanceApp() {
         setLastSyncedAt(new Date().toISOString());
         setSyncDurationMs(Math.round(performance.now() - startedAt));
         setUsingCachedData(false);
+        setSyncState("ready");
         setDataError(null);
       })
-      .catch((error) => active && setDataError(error instanceof Error ? error.message : "Data keuangan tidak dapat dimuat."))
+      .catch((error) => { if (active) { setSyncState("error"); setDataError(error instanceof Error ? error.message : "Data keuangan tidak dapat dimuat."); } })
       .finally(() => active && setLoading(false));
     loadFinanceNotifications(month).then(setNotificationOverview).catch(() => undefined);
+    loadFinanceSecurity().then((value) => active && setSecurityStatus(value)).catch(() => undefined);
     return () => { active = false; window.clearTimeout(themeTimer); };
   }, [month]);
 
@@ -603,6 +620,12 @@ export function FinanceApp() {
     document.documentElement.dataset.theme = darkMode ? "dark" : "light";
     if (hydrated) window.localStorage.setItem("vinn-store-theme", darkMode ? "dark" : "light");
   }, [darkMode, hydrated]);
+
+  useEffect(() => {
+    const pinChanged = () => setSecurityStatus((current) => current ? { ...current, requiresPinChange: false } : current);
+    window.addEventListener("financial-planner:pin-changed", pinChanged);
+    return () => window.removeEventListener("financial-planner:pin-changed", pinChanged);
+  }, []);
 
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
@@ -1037,6 +1060,10 @@ export function FinanceApp() {
             <input id="global-transaction-search" aria-label="Cari transaksi" placeholder="Cari transaksi, akun, atau kategori..." value={transactionQuery} onChange={(event) => { setTransactionQuery(event.target.value); setActivePage("transactions"); }} onFocus={() => activePage !== "transactions" && setActivePage("transactions")} />
             <kbd>⌘ K</kbd>
           </label>
+          <button className={`sync-chip ${syncState}`} onClick={() => void refreshData().catch((error) => setDataError(error instanceof Error ? error.message : "Sinkronisasi gagal."))} disabled={syncState === "syncing"} aria-label="Sinkronkan data Google Sheets" title={lastSyncedAt ? `Terakhir sinkron ${new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(lastSyncedAt))}` : "Sinkronkan data"}>
+            <RefreshCw size={15} />
+            <span>{syncState === "syncing" ? "Menyinkronkan" : syncState === "error" ? "Coba sinkron" : "Tersinkron"}</span>
+          </button>
           <div className="topbar-actions">
             <button className="privacy-toggle" onClick={() => setPrivacy((value) => !value)} aria-pressed={privacy} title="Privacy mode">
               {privacy ? <EyeOff size={17} /> : <Eye size={17} />}<span>{privacy ? "Tampilkan" : "Sembunyikan"}</span>
@@ -1071,11 +1098,17 @@ export function FinanceApp() {
           {demoWhatsAppUrl && <a href={demoWhatsAppUrl} target="_blank" rel="noreferrer"><Send size={15} /> Beli via WhatsApp</a>}
         </section>}
 
+        {securityStatus?.requiresPinChange && <section className="pin-rotation-banner" role="alert">
+          <span><KeyRound size={18} /></span>
+          <div><strong>Ganti PIN bawaan sekarang</strong><small>PIN awal masih digunakan. Buat PIN pribadi agar data keuangan tidak mudah dibuka.</small></div>
+          <button className="secondary-button" onClick={() => { selectPage("settings"); showToast("Buka tab Keamanan untuk mengganti PIN."); }}>Buka keamanan <ArrowRight size={15} /></button>
+        </section>}
+
         <div className="page-wrap">
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
-            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "debts" && activePage !== "calendar" && activePage !== "recurring" && activePage !== "assistant" && activePage !== "settings" && activePage !== "review" && (
+            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "debts" && activePage !== "calendar" && activePage !== "recurring" && activePage !== "assistant" && activePage !== "help" && activePage !== "settings" && activePage !== "review" && (
               <button className="primary-button" onClick={() => activePage === "investments" ? requirePlan("investments") && openCreateForPage() : openCreateForPage()}><Plus size={18} /> {createLabel}</button>
             )}
           </section>
@@ -1098,7 +1131,8 @@ export function FinanceApp() {
           {activePage === "review" && <MonthlyReviewPage period={month} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "reports" && <ReportsPage period={month} profile={profile} transactions={transactions} accounts={accounts} budgets={budgets} goals={goals} bills={bills} categories={categories} investmentAssets={investmentAssets} investmentTransactions={investmentTransactions} privacy={privacy} onToast={showToast} />}
           {activePage === "assistant" && <AssistantPage period={month} onOpenSettings={() => selectPage("settings")} />}
-          {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} schemaVersion={schemaVersion} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} onNavigate={selectPage} />}
+          {activePage === "help" && <HelpCenterPage onNavigate={selectPage} />}
+          {activePage === "settings" && <SettingsPage profile={profile} entitlement={entitlement} configured={configured} accounts={accounts} transactions={transactions} budgets={budgets} bills={bills} goals={goals} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onOpenLicense={() => demoMode ? showToast("Aktivasi lisensi tidak diperlukan di mode demo.") : setLicenseOpen(true)} saving={saving} darkMode={darkMode} setDarkMode={setDarkMode} privacy={privacy} setPrivacy={setPrivacy} featurePreferences={featurePreferences} categories={categories} categoryRules={categoryRules} auditLogs={auditLogs} backendLabel={financeBackendLabel()} schemaVersion={schemaVersion} notificationSettings={notificationOverview?.settings ?? DEFAULT_NOTIFICATION_SETTINGS} onSaveProfile={saveOwnerProfile} onSaveFeaturePreferences={saveFeaturePreferences} onSaveNotificationSettings={saveNotificationSettings} onAddCategory={() => setCategoryModal({})} onEditCategory={(category) => setCategoryModal({ category })} onArchiveCategory={archiveCategory} onAddCategoryRule={() => requirePlan("imports") && setCategoryRuleModal({})} onEditCategoryRule={(rule) => requirePlan("imports") && setCategoryRuleModal({ rule })} onDeleteCategoryRule={removeCategoryRule} onToast={showToast} onRefresh={refreshData} onNavigate={selectPage} />}
         </div>
       </main>
 
@@ -1434,15 +1468,16 @@ function TransactionsPage({ transactions, accounts, categories, privacy, month, 
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 20;
+  const deferredQuery = useDeferredValue(query);
   const filteredTransactions = useMemo(() => searchTransactions(transactions, accounts, {
-    query,
+    query: deferredQuery,
     type: filter,
     category: categoryFilter,
     accountId: accountFilter,
     status: statusFilter,
     dateFrom,
     dateTo,
-  }), [transactions, accounts, query, filter, categoryFilter, accountFilter, statusFilter, dateFrom, dateTo]);
+  }), [transactions, accounts, deferredQuery, filter, categoryFilter, accountFilter, statusFilter, dateFrom, dateTo]);
   const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
   const activeListingPage = Math.min(page, totalPages);
   const listing = {
@@ -3113,7 +3148,7 @@ function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLab
 
   const schedule = overview?.schedule;
   return <section className="panel settings-section settings-wide portability-panel">
-    <div className="settings-title"><span><HardDrive size={20} /></span><div><h2>Laporan data, backup & migrasi</h2><p>File tersimpan permanen di {backendLabel === "Google Sheets" ? "Google Drive" : "storage workspace"}; migrasi selalu melewati preview dan rekonsiliasi.</p></div>{loading && <span className="portability-loading">Memuat…</span>}</div>
+    <div className="settings-title"><span><HardDrive size={20} /></span><div><h2>Backup, pemulihan & migrasi</h2><p>File tersimpan permanen di {backendLabel === "Google Sheets" ? "Google Drive" : "storage workspace"}; pemulihan selalu melewati preview dan rekonsiliasi.</p></div>{loading && <span className="portability-loading">Memuat…</span>}</div>
     <div className="portability-grid">
       <div className="portability-column">
         <div className="portability-heading"><span><Database size={18} /></span><div><strong>Backup lengkap</strong><small>Akun, transaksi, planning, investasi, dan pengaturan aman. API key tidak pernah ikut.</small></div></div>
@@ -3124,7 +3159,7 @@ function DataPortabilityPanel({ backendLabel, onToast, onRefresh }: { backendLab
         <div className="export-history compact"><strong>Backup terbaru</strong>{overview?.backups.slice(0, 5).map((backup) => <a key={backup.id} href={backup.downloadUrl} target="_blank" rel="noreferrer"><span><Database size={15} /><span><b>{new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(backup.createdAt))}</b><small>{String(backup.metadata?.reason ?? "manual").replaceAll("_", " ")}</small></span></span><small>{fileSizeLabel(backup.sizeBytes)}</small></a>)}{!loading && !overview?.backups.length && <small className="empty-portability">Belum ada backup tersimpan.</small>}</div>
       </div>
       <div className="portability-column">
-        <div className="portability-heading"><span><Upload size={18} /></span><div><strong>Migrasi backup lama</strong><small>Unggah JSON, periksa jumlah baris dan selisih saldo, lalu konfirmasi secara eksplisit.</small></div></div>
+        <div className="portability-heading"><span><Upload size={18} /></span><div><strong>Pulihkan atau migrasikan backup</strong><small>Unggah JSON, periksa jumlah baris dan selisih saldo, lalu konfirmasi secara eksplisit.</small></div></div>
         <label className={`migration-drop ${working === "preview" ? "busy" : ""}`}><Upload size={21} /><span><strong>{working === "preview" ? "Memvalidasi file…" : "Pilih file backup JSON"}</strong><small>Maks. 12 MB · sumber tidak pernah dihapus</small></span><input type="file" accept="application/json,.json" disabled={Boolean(working)} onChange={(event) => { chooseMigrationFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>
         {preview && <div className={`migration-preview ${preview.canApply ? "valid" : preview.status === "applied" ? "applied" : "invalid"}`}><div className="migration-preview-head"><span>{preview.canApply || preview.status === "applied" ? <CheckCircle2 size={18} /> : <ShieldCheck size={18} />}</span><div><strong>{preview.status === "applied" ? "Migrasi sudah diterapkan" : preview.canApply ? "Preview siap diterapkan" : "Preview perlu diperbaiki"}</strong><small>{preview.sourceName} · skema {preview.sourceSchemaVersion}</small></div></div><div className="migration-counts">{Object.entries(preview.counts).filter(([, count]) => count > 0).map(([key, count]) => <span key={key}><small>{key.replace(/([A-Z])/g, " $1")}</small><strong>{count}</strong></span>)}</div><div className="balance-check"><Scale size={15} /><span>Selisih rekonsiliasi <strong>{formatIDR(preview.balanceDifference)}</strong></span></div>{preview.warnings.map((warning) => <small className="migration-warning" key={warning}>{warning}</small>)}{preview.errors.map((item) => <small className="migration-error" key={item}>{item}</small>)}{preview.status === "preview" && <div className="migration-actions"><button className="primary-button" onClick={applyMigration} disabled={!preview.canApply || Boolean(working)}>{working === "apply" ? "Menerapkan…" : "Konfirmasi & terapkan"}</button><button className="secondary-button" onClick={cancelMigration} disabled={Boolean(working)}>{working === "cancel" ? "Membatalkan…" : "Batalkan preview"}</button></div>}{preview.reportDownloadUrl && <a className="secondary-button report-download-link" href={preview.reportDownloadUrl} target="_blank" rel="noreferrer"><Download size={15} /> Unduh laporan migrasi</a>}</div>}
         {!preview && migrations.length > 0 && <div className="migration-history"><strong>Riwayat migrasi</strong>{migrations.slice(0, 4).map((item) => <div key={item.id}><span className={item.status}><i />{item.sourceName}</span><small>{item.status} · {item.totalRecords} baris</small></div>)}</div>}
@@ -3224,7 +3259,39 @@ function CustomerReadinessPanel({ configured, accounts, transactions, bills, goa
   </section>;
 }
 
-function SettingsPage({ profile, entitlement, configured, accounts, transactions, bills, goals, month, lastSyncedAt, syncDurationMs, usingCachedData, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, schemaVersion, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh, onNavigate }: {
+function DataQualityPanel({ accounts, transactions, budgets, categories, month, onNavigate }: {
+  accounts: Account[];
+  transactions: Transaction[];
+  budgets: Budget[];
+  categories: FinanceCategory[];
+  month: string;
+  onNavigate: (page: PageKey) => void;
+}) {
+  const report = useMemo(() => analyzeFinanceDataQuality({ accounts, transactions, budgets, categories, period: month }), [accounts, transactions, budgets, categories, month]);
+  return <section className="panel settings-section settings-wide data-quality-panel">
+    <div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Pusat pemeriksaan data</h2><p>Temukan data ganda, referensi terputus, transaksi pending, dan kategori yang perlu dirapikan.</p></div><span className={`quality-score ${report.status}`}>{report.score}/100</span></div>
+    <div className={`quality-overview ${report.status}`}><span>{report.status === "healthy" ? <CheckCircle2 size={20} /> : <TriangleAlert size={20} />}</span><div><strong>{report.status === "healthy" ? "Semua data utama rapi" : `${report.issueCount} data perlu ditinjau`}</strong><small>{report.status === "critical" ? "Perbaiki masalah merah terlebih dahulu agar perhitungan tetap aman." : report.status === "attention" ? "Tidak ada kerusakan kritis, tetapi beberapa data sebaiknya dirapikan." : "Transaksi, akun, kategori, dan anggaran lolos pemeriksaan cepat."}</small></div></div>
+    {report.issues.length > 0 && <div className="quality-issue-list">{report.issues.map((issue) => <article className={issue.severity} key={issue.id}><span><strong>{issue.count}</strong><small>{issue.severity === "critical" ? "Kritis" : issue.severity === "warning" ? "Tinjau" : "Rapikan"}</small></span><div><strong>{issue.title}</strong><small>{issue.description}</small></div><button className="secondary-button compact" onClick={() => onNavigate(issue.target)}>Periksa <ArrowRight size={14} /></button></article>)}</div>}
+  </section>;
+}
+
+function HelpCenterPage({ onNavigate }: { onNavigate: (page: PageKey) => void }) {
+  const guides: Array<{ title: string; description: string; steps: string[]; page: PageKey; action: string }> = [
+    { title: "Mencatat transaksi", description: "Gunakan Tambah untuk pemasukan, pengeluaran, atau transfer.", steps: ["Pilih jenis transaksi", "Isi nominal, akun, dan kategori", "Buka Catatan tambahan hanya bila diperlukan"], page: "transactions", action: "Buka transaksi" },
+    { title: "Memahami anggaran", description: "Realisasi hanya menghitung pengeluaran selesai pada kategori dan bulan yang sama.", steps: ["Pastikan kategori transaksi sesuai", "Refund mengurangi realisasi", "Transfer internal tidak dihitung sebagai pengeluaran"], page: "budgets", action: "Buka anggaran" },
+    { title: "Mencocokkan saldo", description: "Rekonsiliasi membuat transaksi penyesuaian sehingga riwayat tetap dapat ditelusuri.", steps: ["Buka Akun", "Pilih Rekonsiliasi", "Masukkan saldo aktual dan catatan"], page: "accounts", action: "Buka akun" },
+    { title: "Piutang dan cicilan", description: "Gunakan Piutang untuk uang yang dipinjamkan dan Tagihan untuk kewajiban rutin.", steps: ["Catat sumber dan tujuan dana", "Gunakan Terima pembayaran saat piutang dibayar", "Tandai cicilan sesuai pembayaran aktual"], page: "receivables", action: "Buka piutang" },
+    { title: "Backup dan pemulihan", description: "Backup tersimpan di Google Drive dan dapat dipulihkan melalui preview JSON.", steps: ["Aktifkan backup otomatis", "Unduh salah satu backup", "Unggah kembali di Pengaturan → Data dan periksa preview"], page: "settings", action: "Buka pengaturan" },
+    { title: "Jika sinkronisasi gagal", description: "Data tetap berada di Google Sheets; hindari menekan Simpan berulang kali.", steps: ["Tekan status sinkronisasi di atas", "Tunggu cold start Apps Script", "Gunakan Pusat pemeriksaan data setelah tersambung"], page: "settings", action: "Periksa koneksi" },
+  ];
+  return <div className="help-center-layout">
+    <section className="help-intro"><span><CircleHelp size={24} /></span><div><h2>Panduan cepat</h2><p>Setiap langkah dirancang untuk menjaga saldo, arus kas, dan riwayat tetap konsisten.</p></div></section>
+    <div className="help-guide-grid">{guides.map((guide) => <article className="panel help-guide-card" key={guide.title}><div><span className="card-kicker">Panduan</span><h2>{guide.title}</h2><p>{guide.description}</p></div><ol>{guide.steps.map((step) => <li key={step}>{step}</li>)}</ol><button className="secondary-button" onClick={() => onNavigate(guide.page)}>{guide.action} <ArrowRight size={15} /></button></article>)}</div>
+    <section className="panel help-safety-note"><ShieldCheck size={20} /><span><strong>Data utama tetap di Google Sheets</strong><small>Cache browser hanya mempercepat tampilan dan respons API finansial tidak disimpan untuk penggunaan offline.</small></span></section>
+  </div>;
+}
+
+function SettingsPage({ profile, entitlement, configured, accounts, transactions, budgets, bills, goals, month, lastSyncedAt, syncDurationMs, usingCachedData, onOpenLicense, saving, darkMode, setDarkMode, privacy, setPrivacy, featurePreferences, categories, categoryRules, auditLogs, backendLabel, schemaVersion, notificationSettings, onSaveProfile, onSaveFeaturePreferences, onSaveNotificationSettings, onAddCategory, onEditCategory, onArchiveCategory, onAddCategoryRule, onEditCategoryRule, onDeleteCategoryRule, onToast, onRefresh, onNavigate }: {
   profile: FinanceProfile;
   entitlement: PlanEntitlement;
   configured: boolean;
@@ -3274,6 +3341,7 @@ function SettingsPage({ profile, entitlement, configured, accounts, transactions
     <div className={`settings-tab-content settings-wide ${section === "data" ? "active" : ""}`}>
     <DataPortabilityPanel backendLabel={backendLabel} onToast={onToast} onRefresh={onRefresh} />
     <CustomerReadinessPanel configured={configured} accounts={accounts} transactions={transactions} bills={bills} goals={goals} entitlement={entitlement} schemaVersion={schemaVersion} backendLabel={backendLabel} month={month} lastSyncedAt={lastSyncedAt} syncDurationMs={syncDurationMs} usingCachedData={usingCachedData} onNavigate={onNavigate} onToast={onToast} />
+    <DataQualityPanel accounts={accounts} transactions={transactions} budgets={budgets} categories={categories} month={month} onNavigate={onNavigate} />
     <section className="panel settings-section"><div className="settings-title"><span><Building2 size={20} /></span><div><h2>Penyimpanan utama</h2><p>Status backend finansial aktif.</p></div></div><div className="connection-card"><span className="google-mark"><Database size={18} /></span><div><strong>{backendLabel}</strong><small>{backendLabel === "Google Sheets" ? "Terhubung melalui Google Apps Script." : "Terhubung ke database situs."}</small></div><span className="connection-status"><i /> Terhubung</span></div></section>
     <UpdateCenterPanel schemaVersion={schemaVersion} backendLabel={backendLabel} onRefresh={onRefresh} onToast={onToast}/>
     <LedgerHealthPanel privacy={privacy} onToast={onToast} onRefresh={onRefresh} />
@@ -3403,6 +3471,8 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
       setConfirmPassword("");
       setShowPasswords(false);
       setPasswordMessage(body.message || "PIN akses berhasil diganti.");
+      setStatus((current) => current ? { ...current, requiresPinChange: false } : current);
+      window.dispatchEvent(new Event("financial-planner:pin-changed"));
     } catch (reason) {
       setPasswordError(reason instanceof Error ? reason.message : "Kunci belum dapat diganti.");
     } finally {
@@ -3411,7 +3481,7 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
   };
 
   return <section className="panel settings-section settings-wide security-access-panel">
-    <div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Keamanan & akses</h2><p>Identitas, isolasi workspace, dan perlindungan respons aplikasi.</p></div><span className="security-badge"><CheckCircle2 size={13} /> Terlindungi</span></div>
+    <div className="settings-title"><span><ShieldCheck size={20} /></span><div><h2>Keamanan & akses</h2><p>Identitas, isolasi workspace, dan perlindungan respons aplikasi.</p></div><span className={`security-badge ${status?.requiresPinChange ? "warning" : ""}`}>{status?.requiresPinChange ? <TriangleAlert size={13} /> : <CheckCircle2 size={13} />} {status?.requiresPinChange ? "Ganti PIN" : "Terlindungi"}</span></div>
     {error && <div className="portability-error" role="alert">{error}</div>}
     {!status && !error && <div className="settings-empty">Memeriksa keamanan sesi…</div>}
     {status && <>
@@ -3421,6 +3491,7 @@ function SecurityAccessPanel({ privacy }: { privacy: boolean }) {
         <article><span><Database size={18} /></span><div><small>Isolasi data</small><strong>Dikunci di server</strong><p>ID workspace dari browser tidak dapat mengalihkan akses data.</p></div></article>
       </div>
       <div className="security-account-row"><span><ShieldCheck size={17} /><span><strong>Proteksi respons aktif</strong><small>API tidak disimpan di cache dan halaman dibatasi dari embedding pihak lain.</small></span></span>{status.signOutUrl && <a className="secondary-button" href={status.signOutUrl}><LogOut size={15} /> Keluar dari sesi</a>}</div>
+      {status.requiresPinChange && <div className="pin-change-required" role="alert"><TriangleAlert size={18} /><span><strong>PIN bawaan masih aktif</strong><small>Ganti PIN 253246 dengan enam angka pribadi. Hindari tanggal lahir atau pola berulang.</small></span></div>}
       {status.provider === "PIN pemilik" && <form className="owner-password-change" onSubmit={changePassword}>
         <div className="owner-password-change-head"><span><LockKeyhole size={18} /></span><div><strong>Ganti PIN akses</strong><small>Gunakan tepat 6 angka. Setelah diganti, sesi perangkat lain otomatis dicabut.</small></div><button type="button" className="secondary-button compact" onClick={() => setShowPasswords((value) => !value)} aria-pressed={showPasswords}>{showPasswords ? <EyeOff size={15} /> : <Eye size={15} />} {showPasswords ? "Sembunyikan" : "Tampilkan"}</button></div>
         <div className="owner-password-change-grid">
@@ -3613,6 +3684,7 @@ function TransactionModal({ accounts, categories, transactions, initial, initial
   accounts: Account[];
   categories: FinanceCategory[];
   transactions: Transaction[];
+  budgets: Budget[];
   initial?: Transaction;
   initialType?: QuickTransactionType;
   mode: TransactionModalMode;
@@ -3643,6 +3715,7 @@ function TransactionModal({ accounts, categories, transactions, initial, initial
   const [receiptFile, setReceiptFile] = useState<File | undefined>();
   const [removeReceipt, setRemoveReceipt] = useState(false);
   const [validationMessage, setValidationMessage] = useState("");
+  const [confirmedDuplicateId, setConfirmedDuplicateId] = useState("");
   const [ocrMessage, setOcrMessage] = useState("");
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrPreview, setOcrPreview] = useState("");
@@ -3657,6 +3730,21 @@ function TransactionModal({ accounts, categories, transactions, initial, initial
     : category ? [{ id: `legacy-${category}`, name: category, type: categoryType, color: categoryColors[category] ?? "#89918d", active: true } as FinanceCategory, ...availableCategories] : availableCategories;
   const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0);
   const numericAmount = moneyInputNumber(amount);
+  const potentialDuplicate = useMemo(() => {
+    if (!numericAmount || !title.trim() || !accountId || !date) return null;
+    return findPotentialDuplicate({
+      id: draftId,
+      type,
+      date,
+      title: title.trim(),
+      merchant: title.trim(),
+      category,
+      accountId,
+      destinationAccountId: type === "transfer" || type === "investment_buy" ? destinationAccountId : undefined,
+      amount: numericAmount,
+      status,
+    }, transactions, isEdit ? initial?.id : undefined);
+  }, [accountId, category, date, destinationAccountId, draftId, initial?.id, isEdit, numericAmount, status, title, transactions, type]);
   const recentTransactions = useMemo(() => {
     const seen = new Set<string>();
     return transactions
@@ -3718,6 +3806,11 @@ function TransactionModal({ accounts, categories, transactions, initial, initial
     }
     if (type !== "transfer" && type !== "investment_buy" && !category && !activeSplits.length) return;
     const tags = [...new Set(tagsInput.split(/[,|]/).map((tag) => tag.trim()).filter(Boolean))].slice(0, 10);
+    if (!isEdit && potentialDuplicate && confirmedDuplicateId !== potentialDuplicate.id) {
+      setConfirmedDuplicateId(potentialDuplicate.id);
+      setValidationMessage(`Kemungkinan duplikat dengan “${potentialDuplicate.title}” pada ${shortDate(potentialDuplicate.date)}. Periksa datanya, lalu tekan Simpan sekali lagi jika memang transaksi berbeda.`);
+      return;
+    }
     const saved = await onSubmit({
       id: draftId,
       type,
@@ -3790,7 +3883,7 @@ function TransactionModal({ accounts, categories, transactions, initial, initial
             {ocrLoading ? <div className="ocr-review-loading"><ScanLine size={21} /><strong>Mengekstrak data...</strong></div> : ocrReceipt ? <div className="ocr-result"><div><span>Merchant</span><strong>{ocrReceipt.merchant || "Tidak terbaca"}</strong></div><div><span>Total</span><strong>{formatIDR(ocrReceipt.total)}</strong></div><div><span>Tanggal</span><strong>{ocrReceipt.date}</strong></div><div><span>Kategori</span><strong>{ocrReceipt.suggestedCategory}</strong></div><button type="button" className="secondary-button" onClick={applyReceipt}><Check size={16} /> Gunakan hasil OCR</button></div> : null}
           </div>}
         </section>}
-        {(validationMessage || ocrMessage) && <div className="ocr-message"><Sparkles size={15} />{validationMessage || ocrMessage}</div>}
+        {(validationMessage || ocrMessage) && <div className={`ocr-message ${potentialDuplicate && validationMessage ? "duplicate-warning" : ""}`}>{potentialDuplicate && validationMessage ? <TriangleAlert size={15} /> : <Sparkles size={15} />}{validationMessage || ocrMessage}</div>}
         {!sourceAccounts.length && <div className="ocr-message"><WalletCards size={15} />Tambahkan akun pembayaran sebelum mencatat transaksi.</div>}
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose} disabled={saving}>Batal</button><button className="primary-button" type="submit" disabled={saving || !sourceAccounts.length || (type === "transfer" && accounts.length < 2)}><Check size={17} /> {saving ? "Menyimpan..." : isEdit ? "Simpan perubahan" : isDuplicate ? "Simpan duplikat" : "Simpan transaksi"}</button></div>
       </form>

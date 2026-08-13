@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, ShieldCheck, X } from "lucide-react";
+import { Download, RefreshCw, ShieldCheck, X } from "lucide-react";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -12,9 +12,24 @@ const DISMISS_KEY = "financial-planner-install-dismissed-until";
 
 export function PwaRuntime() {
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
+    let registration: ServiceWorkerRegistration | null = null;
+    let updateTimer = 0;
+    const register = async () => {
+      if (!("serviceWorker" in navigator)) return;
+      registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+      if (registration.waiting && navigator.serviceWorker.controller) setWaitingWorker(registration.waiting);
+      registration.addEventListener("updatefound", () => {
+        const worker = registration?.installing;
+        worker?.addEventListener("statechange", () => {
+          if (worker.state === "installed" && navigator.serviceWorker.controller) setWaitingWorker(worker);
+        });
+      });
+      updateTimer = window.setInterval(() => registration?.update().catch(() => undefined), 60 * 60 * 1000);
+    };
+    void register().catch(() => undefined);
     const capture = (event: Event) => {
       event.preventDefault();
       const dismissedUntil = Number(window.localStorage.getItem(DISMISS_KEY) || 0);
@@ -26,8 +41,20 @@ export function PwaRuntime() {
     return () => {
       window.removeEventListener("beforeinstallprompt", capture);
       window.removeEventListener("appinstalled", installed);
+      window.clearInterval(updateTimer);
     };
   }, []);
+
+  const applyUpdate = () => {
+    if (!waitingWorker) return;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
+    }, { once: true });
+    waitingWorker.postMessage({ type: "SKIP_WAITING" });
+  };
 
   const install = async () => {
     if (!installPrompt) return;
@@ -42,6 +69,12 @@ export function PwaRuntime() {
     setInstallPrompt(null);
   };
 
+  if (waitingWorker) return <aside className="pwa-install-banner pwa-update-banner" role="status">
+    <span><RefreshCw size={20} /></span>
+    <div><strong>Versi baru tersedia</strong><small>Pembaruan siap dipakai tanpa mengubah data di Google Sheets.</small></div>
+    <button className="primary-button" onClick={applyUpdate}>Perbarui</button>
+    <button className="icon-button small" onClick={() => setWaitingWorker(null)} aria-label="Tutup pemberitahuan pembaruan"><X size={16} /></button>
+  </aside>;
   if (!installPrompt) return null;
   return <aside className="pwa-install-banner" role="status">
     <span><Download size={20} /></span>

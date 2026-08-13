@@ -5,6 +5,7 @@ import {
   hashOwnerPassword,
   isOwnerRequest,
   ownerPasswordConfigured,
+  ownerPinNeedsRotation,
   ownerSessionCookie,
   verifyOwnerPassword,
   verifyOwnerSession,
@@ -22,6 +23,7 @@ test("owner auth menolak konfigurasi kosong dan menerima sesi bertanda tangan", 
   try {
     assert.equal(ownerPasswordConfigured(), true);
     assert.equal(await verifyOwnerPassword(password), true);
+    assert.equal(await ownerPinNeedsRotation(), true);
     assert.equal(await verifyOwnerPassword("salah"), false);
     const session = await createOwnerSession();
     assert.equal(await verifyOwnerSession(session.token), true);
