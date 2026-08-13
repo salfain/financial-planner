@@ -668,8 +668,36 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .owner-login-card > small svg { flex: 0 0 auto; margin-top: 1px; color: var(--primary); }
 
 @media (max-width: 520px) {
-  .owner-login-page { align-items: end; padding: 0; }
-  .owner-login-card { padding: 28px 21px calc(24px + env(safe-area-inset-bottom)); border-width: 1px 0 0; border-radius: 25px 25px 0 0; }
+  .owner-login-page {
+    min-height: 100svh;
+    place-items: center;
+    overflow-y: auto;
+    padding: max(18px,env(safe-area-inset-top)) 16px max(18px,env(safe-area-inset-bottom));
+  }
+  .owner-login-card {
+    width: min(430px,100%);
+    padding: 26px 21px;
+    border-width: 1px;
+    border-radius: 24px;
+  }
+  .owner-login-mark { width: 48px; height: 48px; border-radius: 14px; }
+  .owner-login-heading { margin: 18px 0 20px; }
+  .owner-login-heading h1 { font-size: clamp(25px,7vw,28px); }
+  .owner-login-card > small { margin-top: 16px; }
+}
+
+@media (max-width: 520px) and (max-height: 680px) {
+  .owner-login-page { place-items: start center; }
+  .owner-login-card { margin-block: auto; padding-block: 22px; }
+  .owner-login-heading { margin: 14px 0 16px; }
+  .owner-login-heading p { line-height: 1.5; }
+  .owner-login-card > small { margin-top: 12px; }
+}
+
+@media (max-width: 360px) {
+  .owner-login-page { padding-inline: 12px; }
+  .owner-login-card { padding-inline: 17px; border-radius: 20px; }
+  .owner-pin-field input { letter-spacing: .22em; }
 }
 
 .pwa-install-banner { position: fixed; z-index: 90; right: 20px; bottom: 20px; width: min(470px,calc(100vw - 40px)); display: grid; grid-template-columns: 40px minmax(0,1fr) auto 32px; align-items: center; gap: 11px; padding: 13px; color: var(--text); border: 1px solid color-mix(in srgb,var(--primary) 26%,var(--border)); border-radius: 16px; background: color-mix(in srgb,var(--surface) 94%,transparent); box-shadow: 0 18px 45px rgba(4,25,19,.19); backdrop-filter: blur(18px); }
