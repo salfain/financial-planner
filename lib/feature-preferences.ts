@@ -13,6 +13,7 @@ export const OPTIONAL_FEATURE_KEYS = [
   "review",
   "reports",
   "assistant",
+  "zakat",
 ] as const;
 
 export type OptionalFeatureKey = typeof OPTIONAL_FEATURE_KEYS[number];

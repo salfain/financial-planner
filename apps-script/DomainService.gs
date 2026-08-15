@@ -301,6 +301,48 @@ function apiUpdateEmergencyFundSettings(payload) {
   } catch (error) { return fail_(error, requestId); }
 }
 
+function defaultZakatSettings_() {
+  return { goldPricePerGram: 0, nisabGrams: 85, haulStartDate: '', includeInvestments: true, excludedAccountIds: [] };
+}
+function apiZakatSettings() {
+  try { const raw = settingValue_('zakat_settings', ''); return ok_(raw ? Object.assign(defaultZakatSettings_(), parseJsonObject_(raw)) : defaultZakatSettings_()); }
+  catch (error) { return fail_(error); }
+}
+function apiUpdateZakatSettings(payload) {
+  const requestId = String(payload && payload.requestId || id_('req'));
+  try {
+    return withDocumentLock_(function() {
+      const replay = requestAudit_(requestId);
+      if (replay) {
+        if (String(replay.action) !== 'UPDATE_ZAKAT' || String(replay.module) !== 'zakat') throw createError_('REQUEST_ID_REUSED', 'requestId sudah digunakan oleh operasi lain.');
+        return apiZakatSettings();
+      }
+      const goldPrice = Number(payload.goldPricePerGram);
+      const nisabGrams = Number(payload.nisabGrams);
+      const haulStartDate = payload.haulStartDate ? String(payload.haulStartDate) : '';
+      if (!Number.isSafeInteger(goldPrice) || goldPrice < 0 || goldPrice > 10000000000) throw createError_('INVALID_ZAKAT_GOLD_PRICE', 'Harga emas per gram tidak valid.');
+      if (!Number.isSafeInteger(nisabGrams) || nisabGrams < 1 || nisabGrams > 10000) throw createError_('INVALID_ZAKAT_NISAB', 'Gram nisab tidak valid.');
+      if (haulStartDate && !/^\d{4}-\d{2}-\d{2}$/.test(haulStartDate)) throw createError_('INVALID_ZAKAT_HAUL', 'Tanggal mulai haul harus berformat YYYY-MM-DD.');
+      const requestedIds = Array.isArray(payload.excludedAccountIds) ? payload.excludedAccountIds.map(String) : [];
+      if (requestedIds.length > 30) throw createError_('INVALID_ZAKAT_ACCOUNTS', 'Terlalu banyak akun dikecualikan.');
+      const known = rowsAsObjects_(VINN_CONFIG.SHEETS.ACCOUNTS).map(function(account) { return String(account.id); });
+      const excludedAccountIds = requestedIds.filter(function(id, index) { return known.indexOf(id) !== -1 && requestedIds.indexOf(id) === index; });
+      const next = {
+        goldPricePerGram: goldPrice,
+        nisabGrams: nisabGrams,
+        haulStartDate: haulStartDate,
+        includeInvestments: payload.includeInvestments !== false,
+        excludedAccountIds: excludedAccountIds
+      };
+      const before = settingValue_('zakat_settings', JSON.stringify(defaultZakatSettings_()));
+      upsertSetting_('zakat_settings', JSON.stringify(next));
+      audit_('UPDATE_ZAKAT', 'zakat', 'settings', requestId, { before: parseJsonObject_(before), after: next });
+      invalidateDashboard_();
+      return ok_(next, requestId);
+    });
+  } catch (error) { return fail_(error, requestId); }
+}
+
 function apiCreateAccount(payload) {
   const requestId = payload && payload.requestId ? String(payload.requestId) : id_('req');
   try {

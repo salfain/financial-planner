@@ -1368,3 +1368,38 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
     font-size: 16px;
   }
 }
+
+/* Zakat maal */
+.zakat-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(290px,.75fr);gap:15px}
+.zakat-hero{grid-column:1/-1;display:grid;grid-template-columns:minmax(300px,1.15fr) minmax(300px,.85fr);align-items:end;gap:30px;padding:28px 31px;color:#fff;border-radius:18px;background:radial-gradient(circle at 82% 12%,rgba(129,221,190,.25),transparent 29%),linear-gradient(125deg,#123d35,#126b59 56%,#274753);box-shadow:var(--shadow-lg);overflow:hidden}
+.zakat-hero.waiting{background:radial-gradient(circle at 82% 12%,rgba(244,208,132,.24),transparent 29%),linear-gradient(125deg,#334239,#597150 56%,#3d5360)}
+.zakat-hero.setup{background:radial-gradient(circle at 82% 12%,rgba(255,169,145,.22),transparent 29%),linear-gradient(125deg,#41302e,#71473f 56%,#4d4148)}
+.zakat-hero.below{background:radial-gradient(circle at 82% 12%,rgba(160,190,214,.2),transparent 29%),linear-gradient(125deg,#22333b,#37505c 56%,#2f4048)}
+.zakat-hero h2{margin:7px 0 6px;font-size:clamp(24px,3.4vw,38px);letter-spacing:-.055em}
+.zakat-hero>div>p{max-width:560px;margin:0;color:rgba(255,255,255,.68);font-size:9px;line-height:1.65}
+.zakat-due-card{display:grid;gap:6px;padding:17px;border:1px solid rgba(255,255,255,.13);border-radius:15px;background:rgba(255,255,255,.08)}
+.zakat-due-card small{color:rgba(255,255,255,.55);font-size:7px}
+.zakat-due-card>span:first-of-type{font-size:24px;font-weight:800}
+.zakat-due-card>span:last-of-type{color:rgba(255,255,255,.58);font-size:7px;font-weight:500;line-height:1.5}
+.zakat-due-card button{margin-top:4px;justify-content:center}
+.zakat-error{grid-column:1/-1}
+.zakat-metrics{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.zakat-metrics article{min-width:0;display:grid;gap:5px;padding:17px}
+.zakat-metrics small{color:var(--text-faint);font-size:7px}
+.zakat-metrics article>span,.zakat-metrics article>strong{overflow:hidden;font-size:13px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
+.zakat-metrics article>span:last-child{color:var(--text-faint);font-size:6.5px;font-weight:500}
+.zakat-progress-panel,.zakat-settings-panel{min-width:0;padding:21px 23px}
+.zakat-settings-panel h2{margin:5px 0 14px}
+.zakat-requirement{display:grid;gap:17px;margin:18px 0 4px}
+.zakat-requirement>div{display:grid;gap:7px}
+.zakat-requirement>div>span{display:flex;align-items:center;gap:7px;color:var(--text);font-size:8px;font-weight:700}
+.zakat-track{height:11px;border-radius:99px;background:var(--surface-soft);overflow:hidden}
+.zakat-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--primary),#76d5b3)}
+.zakat-requirement small{color:var(--text-faint);font-size:7px;line-height:1.5}
+.zakat-toggle{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:center;gap:8px;margin-top:13px;padding:9px;border:1px solid var(--border-soft);border-radius:9px;background:var(--surface-soft)}
+.zakat-toggle input{accent-color:var(--primary)}
+.zakat-toggle>span{min-width:0;display:grid;gap:2px}
+.zakat-toggle strong{font-size:8px}
+.zakat-toggle small{color:var(--text-faint);font-size:6.5px}
+@media(max-width:1100px){.zakat-layout{grid-template-columns:1fr}.zakat-hero{grid-template-columns:1fr;align-items:start;gap:22px}.zakat-metrics{grid-template-columns:1fr 1fr}}
+@media(max-width:720px){.zakat-hero{padding:23px 19px}.zakat-metrics{grid-template-columns:1fr}.zakat-progress-panel,.zakat-settings-panel{padding:18px 15px}}

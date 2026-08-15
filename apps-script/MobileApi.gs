@@ -11,6 +11,7 @@ const VINN_MOBILE_API = Object.freeze({
     'getDebtPlanner', 'updateDebtPlanner',
     'getCashflowForecastSettings', 'updateCashflowForecastSettings',
     'getEmergencyFundSettings', 'updateEmergencyFundSettings',
+    'getZakatSettings', 'updateZakatSettings',
     'monthlyClosingStatus', 'closeMonthlyBook', 'reopenMonthlyBook',
     'createAccount', 'createReceivable', 'updateAccount', 'importAccounts', 'archiveAccount',
     'createTransaction', 'recordLoanDrawdown', 'updateTransaction',
@@ -35,7 +36,7 @@ const VINN_MOBILE_API = Object.freeze({
   READ_ACTIONS: Object.freeze([
     'health', 'mutationStatus', 'bootstrap', 'licenseStatus',
     'getRoadmapSettings', 'getDebtPlanner', 'getCashflowForecastSettings',
-    'getEmergencyFundSettings', 'monthlyClosingStatus', 'listTransactions',
+    'getEmergencyFundSettings', 'getZakatSettings', 'monthlyClosingStatus', 'listTransactions',
     'inspectLedger', 'listCategories', 'categoryRules', 'listAuditLogs',
     'listRecurring', 'backupOverview', 'listReports', 'migrationHistory',
     'notificationOverview', 'aiKeyStatus', 'aiSettings', 'aiHistory'

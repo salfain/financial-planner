@@ -33,6 +33,7 @@ type DemoState = {
   debts: { settings: Record<string, unknown>; debts: Array<Record<string, unknown>> };
   forecast: Record<string, unknown>;
   emergency: Record<string, unknown>;
+  zakat: Record<string, unknown>;
   recurring: RecurringTemplate[];
   notificationSettings: NotificationSettings;
   dismissedNotifications: string[];
@@ -142,6 +143,7 @@ function seedDemoState(month: string): DemoState {
     debts: { settings: { strategy: "avalanche", extraMonthlyPayment: 500_000 }, debts: [{ accountId: "demo-card", name: "Kartu Kredit", balance: 2_150_000, annualInterestRatePct: 21, minimumPayment: 325_000, dueDay: 25 }] },
     forecast: { horizonDays: 60, monthlyIncomeOverride: 0, incomeDay: 1, minimumCashBuffer: 5_000_000 },
     emergency: { targetMonths: 6, monthlyExpenseOverride: 0, monthlyContribution: 1_500_000, accountIds: ["demo-bank", "demo-wallet"] },
+    zakat: { goldPricePerGram: 1_200_000, nisabGrams: 85, haulStartDate: dateInMonth(shiftMonth(month, -12), 1), includeInvestments: true, excludedAccountIds: [] },
     recurring: [
       { id: "demo-recurring-salary", name: "Gaji bulanan", type: "income", amount: 14_500_000, category: "Gaji", accountId: "demo-bank", frequency: "monthly", startDate: dateInMonth(twoMonthsAgo, 1), nextDueDate: dateInMonth(shiftMonth(month, 1), 1), isSubscription: false, active: true, lastPostedDate: dateInMonth(month, 1), updatedAt: nowIso() },
       { id: "demo-recurring-stream", name: "Streaming keluarga", type: "expense", amount: 159_000, category: "Hiburan", accountId: "demo-card", frequency: "monthly", startDate: dateInMonth(twoMonthsAgo, 18), nextDueDate: dateInMonth(month, 18), isSubscription: true, active: true, lastPostedDate: dateInMonth(previous, 18), updatedAt: nowIso() },
@@ -198,6 +200,7 @@ export function demoRequest<T = unknown>(action: string, payload: Record<string,
     case "getDebtPlanner": return structuredClone(state.debts) as T;
     case "getCashflowForecastSettings": return structuredClone(state.forecast) as T;
     case "getEmergencyFundSettings": return structuredClone(state.emergency) as T;
+    case "getZakatSettings": return structuredClone(state.zakat) as T;
     case "listRecurring": return { templates: structuredClone(state.recurring) } as T;
     case "listTransactions": {
       const query = String(payload.query || "").toLocaleLowerCase("id-ID");

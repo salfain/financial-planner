@@ -1,7 +1,7 @@
 const FINANCIAL_PLANNER_OPTIONAL_FEATURES = Object.freeze([
   'budgets', 'goals', 'funds', 'roadmap', 'forecast', 'emergency',
   'bills', 'calendar', 'recurring', 'debts', 'investments', 'review',
-  'reports', 'assistant'
+  'reports', 'assistant', 'zakat'
 ]);
 
 function normalizeFeaturePreferencesGs_(value) {

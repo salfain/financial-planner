@@ -283,7 +283,7 @@ function apiDeactivateLicense(payload) {
 function requireActionPlan_(action, payload) {
   const map = {
     importAccounts: 'imports', importTransactions: 'imports', createCategoryRule: 'imports', updateCategoryRule: 'imports', deleteCategoryRule: 'imports', attachTransactionReceipt: 'attachments',
-    updateRoadmapSettings: 'planning', updateDebtPlanner: 'planning', updateCashflowForecastSettings: 'planning', updateEmergencyFundSettings: 'planning',
+    updateRoadmapSettings: 'planning', updateDebtPlanner: 'planning', updateCashflowForecastSettings: 'planning', updateEmergencyFundSettings: 'planning', updateZakatSettings: 'planning',
     createSinkingFund: 'planning', updateSinkingFund: 'planning', archiveSinkingFund: 'planning', adjustSinkingFund: 'planning',
     createRecurring: 'recurring', updateRecurring: 'recurring', confirmRecurring: 'recurring', saveReportPdf: 'pdf_reports', updateBackupSchedule: 'scheduled_backup',
     createInvestmentAsset: 'investments', updateInvestmentAsset: 'investments', createInvestmentTrade: 'investments',

@@ -8,6 +8,7 @@ import { DEFAULT_ROADMAP_SETTINGS, type RoadmapSettings } from "./roadmap";
 import { DEFAULT_DEBT_SETTINGS, type DebtPlan, type DebtPlannerSettings } from "./debt";
 import { DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "./cashflow-forecast";
 import { DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "./emergency-fund";
+import { DEFAULT_ZAKAT_SETTINGS, type ZakatSettings } from "./zakat";
 import type { RecurringTemplate } from "./recurring";
 import type { MonthlyClosing, MonthlyReview } from "./monthly-review";
 import type { CategoryRule } from "./category-rules";
@@ -757,6 +758,29 @@ export async function loadFinanceEmergencyFundSettings() {
 export async function updateFinanceEmergencyFundSettings(settings: EmergencyFundSettings, requestId = `emergency-fund:${crypto.randomUUID()}`) {
   const raw = await mutation<unknown>("updateEmergencyFundSettings", "/api/finance/emergency-fund", { ...settings, requestId }, "PATCH");
   return normalizeEmergencyFundSettings(raw);
+}
+
+const normalizeZakatSettings = (value: unknown): ZakatSettings => {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const nisabGrams = number(source.nisabGrams ?? source.nisab_grams);
+  const haulStartDate = normalizeFinanceDate(source.haulStartDate ?? source.haul_start_date);
+  return {
+    goldPricePerGram: Math.max(0, number(source.goldPricePerGram ?? source.gold_price_per_gram)),
+    nisabGrams: nisabGrams > 0 ? nisabGrams : DEFAULT_ZAKAT_SETTINGS.nisabGrams,
+    haulStartDate,
+    includeInvestments: (source.includeInvestments ?? source.include_investments) === undefined
+      ? DEFAULT_ZAKAT_SETTINGS.includeInvestments
+      : bool(source.includeInvestments ?? source.include_investments),
+    excludedAccountIds: Array.isArray(source.excludedAccountIds) ? source.excludedAccountIds.map(String) : [],
+  };
+};
+export async function loadFinanceZakatSettings() {
+  const raw = isFinanceDemoMode() ? demoRequest<unknown>("getZakatSettings", {}) : hasAppsScriptBridge() ? await callAppsScript<unknown>("getZakatSettings", {}) : await webRequest<unknown>("/api/finance/zakat");
+  return normalizeZakatSettings(raw);
+}
+export async function updateFinanceZakatSettings(settings: ZakatSettings, requestId = `zakat:${crypto.randomUUID()}`) {
+  const raw = await mutation<unknown>("updateZakatSettings", "/api/finance/zakat", { ...settings, requestId }, "PATCH");
+  return normalizeZakatSettings(raw);
 }
 
 const normalizeRecurringTemplate = (value: unknown): RecurringTemplate => {

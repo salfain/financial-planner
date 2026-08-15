@@ -19,6 +19,8 @@ function api(action, payload) {
     updateCashflowForecastSettings: function() { return apiUpdateCashflowForecastSettings(payload || {}); },
     getEmergencyFundSettings: function() { return apiEmergencyFundSettings(); },
     updateEmergencyFundSettings: function() { return apiUpdateEmergencyFundSettings(payload || {}); },
+    getZakatSettings: function() { return apiZakatSettings(); },
+    updateZakatSettings: function() { return apiUpdateZakatSettings(payload || {}); },
     monthlyClosingStatus: function() { return apiMonthlyClosingStatus(payload || {}); },
     closeMonthlyBook: function() { return apiCloseMonthlyBook(payload || {}); },
     reopenMonthlyBook: function() { return apiReopenMonthlyBook(payload || {}); },

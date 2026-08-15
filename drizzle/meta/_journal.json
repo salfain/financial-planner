@@ -183,6 +183,13 @@
       "when": 1785310523162,
       "tag": "0025_chilly_dorian_gray",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1786832681902,
+      "tag": "0026_regular_pride",
+      "breakpoints": true
     }
   ]
 }

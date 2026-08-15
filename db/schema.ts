@@ -671,6 +671,24 @@ export const emergencyFundSettings = sqliteTable(
   ],
 );
 
+export const zakatSettings = sqliteTable(
+  "zakat_settings",
+  {
+    workspaceId: text("workspace_id").primaryKey().references(() => workspaces.id, { onDelete: "cascade" }),
+    goldPricePerGram: integer("gold_price_per_gram").notNull().default(0),
+    nisabGrams: integer("nisab_grams").notNull().default(85),
+    haulStartDate: text("haul_start_date").notNull().default(""),
+    includeInvestments: integer("include_investments", { mode: "boolean" }).notNull().default(true),
+    excludedAccountIdsJson: text("excluded_account_ids_json").notNull().default("[]"),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    check("zakat_gold_price_nonnegative", sql`${table.goldPricePerGram} >= 0`),
+    check("zakat_nisab_grams_positive", sql`${table.nisabGrams} > 0`),
+  ],
+);
+
 export const monthlyClosings = sqliteTable(
   "monthly_closings",
   {

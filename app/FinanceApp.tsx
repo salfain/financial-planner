@@ -52,6 +52,8 @@ import {
   Tags,
   Trash2,
   TrendingUp,
+  HandCoins,
+  HeartHandshake,
   TrendingDown,
   TriangleAlert,
   Undo2,
@@ -70,6 +72,7 @@ import { buildFinancialRoadmap, DEFAULT_ROADMAP_SETTINGS, type RoadmapScenario, 
 import { addMonthsToPeriod, compareDebtStrategies, DEFAULT_DEBT_SETTINGS, simulateDebtPayoff, type DebtPlan, type DebtPlannerSettings } from "../lib/debt";
 import { buildCashflowForecast, DEFAULT_CASHFLOW_FORECAST_SETTINGS, type CashflowForecastSettings } from "../lib/cashflow-forecast";
 import { buildEmergencyFundPlan, DEFAULT_EMERGENCY_FUND_SETTINGS, type EmergencyFundSettings } from "../lib/emergency-fund";
+import { buildZakatReport, DEFAULT_ZAKAT_SETTINGS, HAUL_DAYS, type ZakatSettings, type ZakatStatus } from "../lib/zakat";
 import { buildRecurringOverview, type RecurringTemplate } from "../lib/recurring";
 import { addCalendarDays, buildFinancialCalendarEvents, calendarBillsForActiveAccounts, calendarMonthRange, financialCalendarWindow, outstandingFinancialCalendarEvents, type FinancialCalendarEvent } from "../lib/financial-calendar";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
@@ -170,6 +173,7 @@ import {
   loadFinanceDiagnostics,
   loadFinanceCashflowForecastSettings,
   loadFinanceEmergencyFundSettings,
+  loadFinanceZakatSettings,
   loadFinanceRecurringTemplates,
   loadFinanceReports,
   loadFinanceSecurity,
@@ -205,6 +209,7 @@ import {
   upsertFinanceDebtPlan,
   updateFinanceCashflowForecastSettings,
   updateFinanceEmergencyFundSettings,
+  updateFinanceZakatSettings,
   confirmFinanceRecurring,
   setFinanceRecurringActive,
   updateFinanceTransaction,
@@ -229,6 +234,7 @@ type PageKey =
   | "roadmap"
   | "forecast"
   | "emergency"
+  | "zakat"
   | "debts"
   | "transactions"
   | "accounts"
@@ -278,6 +284,7 @@ const navGroups: Array<{ key: string; label: string; icon: LucideIcon; items: Na
       { key: "roadmap", label: "Roadmap", icon: Route },
       { key: "forecast", label: "Cashflow Forecast", icon: Activity },
       { key: "emergency", label: "Dana Darurat", icon: Umbrella },
+      { key: "zakat", label: "Zakat", icon: HandCoins },
     ],
   },
   {
@@ -325,6 +332,7 @@ const featurePreferenceGroups: Array<{
       { key: "roadmap", label: "Roadmap", description: "Simulasi kondisi finansial jangka panjang." },
       { key: "forecast", label: "Cashflow Forecast", description: "Proyeksi saldo dan kebutuhan kas." },
       { key: "emergency", label: "Dana Darurat", description: "Target perlindungan biaya hidup." },
+      { key: "zakat", label: "Zakat", description: "Nisab, haul, dan kewajiban zakat maal." },
     ],
   },
   {
@@ -365,6 +373,7 @@ const pageTitles: Record<PageKey, { eyebrow: string; title: string; subtitle: st
   roadmap: { eyebrow: "Perencanaan masa depan", title: "Financial Roadmap", subtitle: "Uji asumsi dan lihat kemungkinan perjalanan finansialmu sebelum mengambil keputusan." },
   forecast: { eyebrow: "Likuiditas ke depan", title: "Cashflow Forecast", subtitle: "Antisipasi pemasukan, biaya hidup, dan tagihan sebelum saldo kas memasuki zona kritis." },
   emergency: { eyebrow: "Financial safety", title: "Emergency Fund Planner", subtitle: "Ukur ketahanan finansial dan bangun dana darurat dengan target yang realistis." },
+  zakat: { eyebrow: "Kewajiban syariah", title: "Zakat Maal", subtitle: "Hitung nisab, pantau haul, dan ketahui kapan zakat harta menjadi wajib." },
   transactions: { eyebrow: "Ledger utama", title: "Semua transaksi", subtitle: "Pantau setiap pergerakan uang tanpa menghitung transfer dua kali." },
   accounts: { eyebrow: "6 akun aktif", title: "Akun & saldo", subtitle: "Semua rekening, dompet, kewajiban, dan investasi dalam satu tampilan." },
   receivables: { eyebrow: "Uang dipinjamkan", title: "Piutang", subtitle: "Catat uang yang dipinjam orang lain dan pantau sisa yang belum dikembalikan." },
@@ -458,6 +467,7 @@ export function FinanceApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [transactionOpen, setTransactionOpen] = useState(false);
+  const [zakatPayment, setZakatPayment] = useState<Transaction | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
   const [transactionImportOpen, setTransactionImportOpen] = useState(false);
@@ -617,7 +627,7 @@ export function FinanceApp() {
   };
 
   const pageCapability = (page: PageKey): PlanCapability | null => {
-    if (["roadmap", "forecast", "emergency", "debts", "calendar", "funds"].includes(page)) return "planning";
+    if (["roadmap", "forecast", "emergency", "zakat", "debts", "calendar", "funds"].includes(page)) return "planning";
     if (page === "recurring") return "recurring";
     if (page === "investments") return "investments";
     if (page === "reports") return "pdf_reports";
@@ -903,6 +913,25 @@ export function FinanceApp() {
     setTransactionOpen(true);
   };
 
+  /**
+   * Menyiapkan draf transaksi zakat lalu membuka form transaksi biasa.
+   * Pembayaran tetap harus dikonfirmasi manual seperti mutasi lain.
+   */
+  const startZakatPayment = (amount: number) => {
+    const expenseCategories = categories.filter((item) => item.active && item.type === "expense");
+    const zakatCategory = expenseCategories.find((item) => /zakat/i.test(item.name));
+    setZakatPayment({
+      id: `tx-${crypto.randomUUID()}`,
+      type: "expense",
+      date: today(),
+      title: "Zakat maal",
+      category: zakatCategory?.name ?? expenseCategories[0]?.name ?? "",
+      accountId: accounts.find((account) => !account.liability && account.type !== "Investment")?.id ?? "",
+      amount,
+      status: "completed",
+    });
+  };
+
   const createLabel = activePage === "accounts" ? "Tambah akun" : activePage === "receivables" ? "Catat piutang" : activePage === "budgets" ? "Tambah anggaran" : activePage === "goals" ? "Buat target" : activePage === "funds" ? "Buat pos dana" : activePage === "bills" ? "Tambah tagihan" : activePage === "investments" ? "Tambah aset" : "Tambah transaksi";
   const notifications = notificationOverview?.notifications ?? [];
   const unreadNotifications = notificationOverview?.unreadCount ?? 0;
@@ -912,6 +941,7 @@ export function FinanceApp() {
   if (activePage === "roadmap") title.eyebrow = `Proyeksi mulai ${monthLabel(month)}`;
   if (activePage === "forecast") title.eyebrow = "Proyeksi dari hari ini";
   if (activePage === "emergency") title.eyebrow = "Perlindungan finansial";
+  if (activePage === "zakat") title.eyebrow = "Perhitungan harta";
   if (activePage === "accounts") title.eyebrow = `${accounts.length} akun aktif`;
   if (activePage === "budgets") title.eyebrow = `Rencana ${monthLabel(month)}`;
   if (activePage === "goals") title.eyebrow = `${goals.length} target aktif`;
@@ -1033,7 +1063,7 @@ export function FinanceApp() {
           {dataError && <div className="data-alert"><span><Database size={17} /></span><div><strong>Sinkronisasi perlu perhatian</strong><small>{dataError}</small></div><button onClick={() => refreshData().then(() => setDataError(null)).catch((error) => setDataError(error instanceof Error ? error.message : "Gagal memuat data."))}>Coba lagi</button></div>}
           <section className="page-heading">
             <div><span className="eyebrow">{title.eyebrow}</span><h1>{title.title}</h1><p>{title.subtitle}</p></div>
-            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "debts" && activePage !== "calendar" && activePage !== "recurring" && activePage !== "assistant" && activePage !== "settings" && activePage !== "review" && (
+            {activePage !== "dashboard" && activePage !== "roadmap" && activePage !== "forecast" && activePage !== "emergency" && activePage !== "zakat" && activePage !== "debts" && activePage !== "calendar" && activePage !== "recurring" && activePage !== "assistant" && activePage !== "settings" && activePage !== "review" && (
               <button className="primary-button" onClick={() => activePage === "investments" ? requirePlan("investments") && openCreateForPage() : openCreateForPage()}><Plus size={18} /> {createLabel}</button>
             )}
           </section>
@@ -1042,6 +1072,7 @@ export function FinanceApp() {
           {activePage === "roadmap" && <RoadmapPage month={month} transactions={transactions} accounts={accounts} goals={goals} investmentAssets={investmentAssets} privacy={privacy} onToast={showToast} />}
           {activePage === "forecast" && <CashflowForecastPage transactions={transactions} accounts={accounts} bills={bills} privacy={privacy} onToast={showToast} />}
           {activePage === "emergency" && <EmergencyFundPage month={month} transactions={transactions} accounts={accounts} privacy={privacy} onToast={showToast} />}
+          {activePage === "zakat" && <ZakatPage accounts={accounts} investmentAssets={investmentAssets} privacy={privacy} onToast={showToast} onRecordPayment={startZakatPayment} />}
           {activePage === "debts" && <DebtPayoffPage month={month} accounts={accounts} privacy={privacy} onToast={showToast} />}
           {activePage === "transactions" && <TransactionsPage transactions={transactions} accounts={accounts} categories={categories} privacy={privacy} month={month} query={transactionQuery} onQueryChange={setTransactionQuery} onEdit={setEditingTransaction} onDuplicate={setDuplicatingTransaction} onDelete={deleteTransaction} onImport={() => requirePlan("imports") && setTransactionImportOpen(true)} onUndo={undoLastTransaction} saving={saving} />}
           {activePage === "accounts" && <AccountsPage accounts={accounts} privacy={privacy} onAdd={() => setAccountOpen(true)} onBorrow={() => setLoanDrawdownOpen(true)} onImport={() => requirePlan("imports") && setAccountImportOpen(true)} onEdit={setEditingAccount} onArchive={archiveAccount} onReconcile={setReconcileTarget} onInspect={(account) => { setTransactionQuery(account.name); selectPage("transactions"); }} />}
@@ -1065,7 +1096,7 @@ export function FinanceApp() {
         <button className="mobile-add" onClick={() => setTransactionOpen(true)} aria-label="Tambah transaksi"><Plus size={23} /></button>
       </nav>
 
-      {(transactionOpen || editingTransaction || duplicatingTransaction) && <TransactionModal accounts={accounts} categories={categories} transactions={transactions} initial={editingTransaction ?? duplicatingTransaction ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
+      {(transactionOpen || editingTransaction || duplicatingTransaction || zakatPayment) && <TransactionModal accounts={accounts} categories={categories} transactions={transactions} initial={editingTransaction ?? duplicatingTransaction ?? zakatPayment ?? undefined} mode={editingTransaction ? "edit" : duplicatingTransaction ? "duplicate" : "create"} saving={saving} onClose={() => { setTransactionOpen(false); setEditingTransaction(null); setDuplicatingTransaction(null); setZakatPayment(null); }} onSubmit={editingTransaction ? editTransaction : addTransaction} />}
       {transactionImportOpen && <TransactionImportModal accounts={accounts} categories={categories} categoryRules={categoryRules} existingTransactions={transactions} saving={saving} onClose={() => setTransactionImportOpen(false)} onSubmit={async (items) => { const ok = await importTransactions(items); if (ok) setTransactionImportOpen(false); return ok; }} />}
       {accountImportOpen && <AccountImportModal accounts={accounts} saving={saving} onClose={() => setAccountImportOpen(false)} onSubmit={async (items) => { const ok = await importAccounts(items); if (ok) setAccountImportOpen(false); return ok; }} />}
       {(accountOpen || editingAccount) && <AccountModal account={editingAccount ?? undefined} saving={saving} onClose={() => { setAccountOpen(false); setEditingAccount(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingAccount ? updateFinanceAccount(editingAccount.id, payload) : createFinanceAccount(payload), editingAccount ? "Akun berhasil diperbarui." : "Akun baru berhasil ditambahkan."); if (ok) { setAccountOpen(false); setEditingAccount(null); } }} />}
@@ -1577,6 +1608,142 @@ function EmergencyFundPage({ month, transactions, accounts, privacy, onToast }: 
     <section className="panel emergency-progress-panel"><div className="card-title-row"><div><span className="card-kicker">Safety runway</span><h2>Progress perlindungan</h2></div><span className={`forecast-status ${scoreTone === "safe" ? "safe" : scoreTone === "building" ? "warning" : "critical"}`}>{plan.progressPct.toFixed(0)}%</span></div><div className="emergency-progress-track"><span style={{ width: `${plan.progressPct}%` }}/>{[1,3,6,9,12].filter((value) => value <= settings.targetMonths).map((value) => <i key={value} style={{ left: `${value/settings.targetMonths*100}%` }}><b>{value}</b><small>bln</small></i>)}</div><div className="emergency-progress-values"><span><small>Sekarang</small><Amount value={plan.currentFund} privacy={privacy}/></span><span><small>Target penuh</small><Amount value={plan.targetAmount} privacy={privacy}/></span></div><div className="emergency-insight"><ShieldCheck size={18}/><span><strong>{plan.status === "ready" ? "Target perlindungan sudah terpenuhi." : plan.monthsToGoal ? `Konsisten ${privacy ? "menabung" : formatIDR(settings.monthlyContribution)} per bulan akan menutup gap.` : "Mulai kontribusi rutin agar tanggal pencapaian dapat dihitung."}</strong><small>Dana darurat sebaiknya likuid dan terpisah dari portofolio investasi berisiko.</small></span></div></section>
     <aside className="panel emergency-settings-panel"><span className="card-kicker">Plan controls</span><h2>Atur target</h2><div className="emergency-target-tabs">{([3,6,9,12] as const).map((value) => <button key={value} className={settings.targetMonths === value ? "active" : ""} onClick={() => setSettings((current) => ({ ...current, targetMonths: value }))}>{value}<small>bulan</small></button>)}</div><div className="forecast-control-list"><label><span>Pengeluaran bulanan <small>{settings.monthlyExpenseOverride ? "manual" : "otomatis"}</small></span><div className="roadmap-money-input"><small>Rp</small><input type="number" min={0} step={100000} value={settings.monthlyExpenseOverride} onChange={(event) => setSettings((value) => ({ ...value, monthlyExpenseOverride: Math.max(0, Number(event.target.value) || 0) }))}/></div><small>Nilai otomatis saat ini {privacy ? "disamarkan" : formatIDR(plan.monthlyExpense)} dari {plan.observedMonths} bulan data.</small></label><label><span>Kontribusi rutin per bulan</span><div className="roadmap-money-input"><small>Rp</small><input type="number" min={0} step={100000} value={settings.monthlyContribution} onChange={(event) => setSettings((value) => ({ ...value, monthlyContribution: Math.max(0, Number(event.target.value) || 0) }))}/></div></label></div><div className="emergency-account-picker"><span>Akun sumber dana</span>{eligibleAccounts.map((account) => <label key={account.id}><input type="checkbox" checked={effectiveIds.includes(account.id)} onChange={() => toggleAccount(account.id)}/><span><strong>{account.name}</strong><small>{account.type} · <Amount value={account.balance} privacy={privacy}/></small></span></label>)}{!eligibleAccounts.length && <small>Tambahkan akun kas, bank, atau e-wallet terlebih dahulu.</small>}</div><button className="primary-button roadmap-save" disabled={saving || !eligibleAccounts.length} onClick={() => void save()}><Check size={16}/>{saving ? "Menyimpan…" : "Simpan rencana"}</button></aside>
     <section className="emergency-score-grid"><article className="panel"><span className="emergency-factor coverage"><Umbrella size={19}/></span><div><small>Coverage</small><strong>{Math.min(60, Math.round(plan.progressPct*.6))}/60</strong><p>Seberapa besar target yang sudah tersedia.</p></div></article><article className="panel"><span className="emergency-factor momentum"><TrendingUp size={19}/></span><div><small>Momentum</small><strong>{plan.gap === 0 ? 20 : settings.monthlyContribution > 0 ? Math.min(20, Math.round(settings.monthlyContribution/Math.max(1,plan.monthlyExpense*.1)*20)) : 0}/20</strong><p>Kekuatan kontribusi rutin menuju target.</p></div></article><article className="panel"><span className="emergency-factor cashflow"><Activity size={19}/></span><div><small>Arus kas</small><strong>{plan.monthlyIncome > 0 ? Math.max(0,Math.min(20,Math.round((plan.monthlyIncome-plan.monthlyExpense)/plan.monthlyIncome*100))) : 0}/20</strong><p>Ruang antara pemasukan dan biaya hidup.</p></div></article></section>
+  </div>;
+}
+
+const ZAKAT_STATUS_COPY: Record<ZakatStatus, { tone: string; headline: string; detail: string }> = {
+  belum_diatur: { tone: "setup", headline: "Nisab belum dapat dihitung", detail: "Isi harga emas per gram agar batas nisab dan kewajiban zakat dapat dihitung." },
+  belum_nisab: { tone: "below", headline: "Harta belum mencapai nisab", detail: "Zakat maal belum wajib selama harta bersih masih di bawah nisab." },
+  menunggu_haul: { tone: "waiting", headline: "Nisab tercapai, menunggu haul", detail: "Harta sudah melewati nisab. Kewajiban muncul setelah genap satu tahun hijriah." },
+  wajib: { tone: "due", headline: "Zakat maal sudah wajib", detail: "Nisab dan haul terpenuhi. Segerakan pembayaran melalui lembaga amil yang terpercaya." },
+};
+
+function ZakatPage({ accounts, investmentAssets, privacy, onToast, onRecordPayment }: {
+  accounts: Account[];
+  investmentAssets: InvestmentAsset[];
+  privacy: boolean;
+  onToast: (message: string) => void;
+  onRecordPayment: (amount: number) => void;
+}) {
+  const [settings, setSettings] = useState<ZakatSettings>(DEFAULT_ZAKAT_SETTINGS);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    loadFinanceZakatSettings()
+      .then((value) => active && setSettings(value))
+      .catch((reason) => active && setError(reason instanceof Error ? reason.message : "Pengaturan zakat tidak dapat dimuat."));
+    return () => { active = false; };
+  }, []);
+  const asOfDate = today();
+  const report = useMemo(
+    () => buildZakatReport({ accounts, investmentAssets, settings, asOfDate }),
+    [accounts, investmentAssets, settings, asOfDate],
+  );
+  const copy = ZAKAT_STATUS_COPY[report.status];
+  const nisabProgress = report.nisabAmount > 0 ? Math.min(100, report.netAssets / report.nisabAmount * 100) : 0;
+  const haulProgress = report.haulStartDate ? Math.min(100, report.haulDaysElapsed / HAUL_DAYS * 100) : 0;
+  const cashAccounts = accounts.filter((account) => !account.liability && ["Bank", "E-Wallet", "Cash", "Deposit"].includes(account.type));
+  const toggleAccount = (id: string) => setSettings((current) => ({
+    ...current,
+    excludedAccountIds: current.excludedAccountIds.includes(id)
+      ? current.excludedAccountIds.filter((item) => item !== id)
+      : [...current.excludedAccountIds, id],
+  }));
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      setSettings(await updateFinanceZakatSettings(settings));
+      onToast("Pengaturan zakat berhasil disimpan.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Pengaturan zakat tidak dapat disimpan.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <div className="zakat-layout">
+    <section className={`zakat-hero ${copy.tone}`}>
+      <div>
+        <span className="card-kicker light">Zakat maal</span>
+        <h2>{copy.headline}</h2>
+        <p>{copy.detail}</p>
+      </div>
+      <div className="zakat-due-card">
+        <small>Zakat terutang (2,5%)</small>
+        <Amount value={report.zakatDue} privacy={privacy} />
+        <span>{report.status === "wajib" ? `Dari harta bersih ${privacy ? "yang disamarkan" : formatIDR(report.netAssets)}` : "Belum ada kewajiban untuk periode ini."}</span>
+        <button className="primary-button" disabled={report.zakatDue <= 0} onClick={() => onRecordPayment(report.zakatDue)}>
+          <HandCoins size={16} /> Catat pembayaran
+        </button>
+      </div>
+    </section>
+    {error && <div className="data-alert zakat-error"><span><HandCoins size={17} /></span><div><strong>Perhitungan zakat perlu perhatian</strong><small>{error}</small></div></div>}
+    <section className="zakat-metrics">
+      <article className="panel"><small>Kas & setara kas</small><Amount value={report.cashAssets} privacy={privacy} /><span>{report.accountIds.length} akun dihitung</span></article>
+      <article className="panel"><small>Nilai investasi</small><Amount value={report.investmentAssets} privacy={privacy} /><span>{settings.includeInvestments ? "Termasuk dalam basis zakat" : "Dikecualikan dari basis"}</span></article>
+      <article className="panel"><small>Kewajiban</small><Amount value={report.liabilities} privacy={privacy} /><span>Mengurangi harta zakawi</span></article>
+      <article className="panel"><small>Harta bersih</small><Amount value={report.netAssets} privacy={privacy} /><span>Dasar perhitungan zakat</span></article>
+    </section>
+    <section className="panel zakat-progress-panel">
+      <div className="card-title-row">
+        <div><span className="card-kicker">Nisab & haul</span><h2>Syarat kewajiban</h2></div>
+        <span className={`forecast-status ${report.status === "wajib" ? "critical" : report.status === "menunggu_haul" ? "warning" : "safe"}`}>{report.status === "wajib" ? "Wajib" : report.status === "menunggu_haul" ? "Menunggu haul" : report.status === "belum_nisab" ? "Belum nisab" : "Belum diatur"}</span>
+      </div>
+      <div className="zakat-requirement">
+        <div>
+          <span><Scale size={16} /> Nisab {settings.nisabGrams} gram emas</span>
+          <div className="zakat-track"><i style={{ width: `${nisabProgress}%` }} /></div>
+          <small>{report.nisabAmount > 0 ? `Harta bersih ${privacy ? "disamarkan" : formatIDR(report.netAssets)} dari batas ${privacy ? "disamarkan" : formatIDR(report.nisabAmount)}` : "Harga emas per gram belum diisi."}</small>
+        </div>
+        <div>
+          <span><CalendarDays size={16} /> Haul {HAUL_DAYS} hari</span>
+          <div className="zakat-track"><i style={{ width: `${haulProgress}%` }} /></div>
+          <small>{report.haulStartDate ? report.haulComplete ? `Haul genap pada ${report.haulCompleteDate}.` : `Berjalan ${report.haulDaysElapsed} hari, ${report.haulDaysRemaining} hari lagi menuju ${report.haulCompleteDate}.` : "Tetapkan tanggal harta pertama kali mencapai nisab."}</small>
+        </div>
+      </div>
+      <div className="emergency-insight">
+        <HeartHandshake size={18} />
+        <span>
+          <strong>Perhitungan ini adalah alat bantu, bukan fatwa.</strong>
+          <small>Basisnya kas, setara kas, dan investasi dikurangi kewajiban. Kondisi harta setiap orang berbeda, jadi konsultasikan dengan lembaga amil atau ustaz yang berkompeten sebelum menunaikan.</small>
+        </span>
+      </div>
+    </section>
+    <aside className="panel zakat-settings-panel">
+      <span className="card-kicker">Zakat controls</span>
+      <h2>Atur perhitungan</h2>
+      <div className="forecast-control-list">
+        <label>
+          <span>Harga emas per gram</span>
+          <div className="roadmap-money-input"><small>Rp</small><input type="number" min={0} step={10000} value={settings.goldPricePerGram} onChange={(event) => setSettings((value) => ({ ...value, goldPricePerGram: Math.max(0, Number(event.target.value) || 0) }))} /></div>
+          <small>Diisi manual. Aplikasi tidak memakai sumber harga otomatis.</small>
+        </label>
+        <label>
+          <span>Gram nisab</span>
+          <div className="roadmap-money-input"><small>gr</small><input type="number" min={1} max={10000} value={settings.nisabGrams} onChange={(event) => setSettings((value) => ({ ...value, nisabGrams: Math.max(1, Number(event.target.value) || 1) }))} /></div>
+          <small>Standar zakat maal setara 85 gram emas.</small>
+        </label>
+        <label>
+          <span>Tanggal mulai haul</span>
+          <input type="date" value={settings.haulStartDate} onChange={(event) => setSettings((value) => ({ ...value, haulStartDate: event.target.value }))} />
+          <small>Saat harta pertama kali mencapai nisab.</small>
+        </label>
+      </div>
+      <label className="zakat-toggle">
+        <input type="checkbox" checked={settings.includeInvestments} onChange={() => setSettings((value) => ({ ...value, includeInvestments: !value.includeInvestments }))} />
+        <span><strong>Sertakan nilai investasi</strong><small>Nilai pasar aset investasi aktif ikut dihitung.</small></span>
+      </label>
+      <div className="emergency-account-picker">
+        <span>Akun yang dikecualikan</span>
+        {cashAccounts.map((account) => <label key={account.id}>
+          <input type="checkbox" checked={settings.excludedAccountIds.includes(account.id)} onChange={() => toggleAccount(account.id)} />
+          <span><strong>{account.name}</strong><small>{account.type} · <Amount value={account.balance} privacy={privacy} /></small></span>
+        </label>)}
+        {!cashAccounts.length && <small>Tambahkan akun kas, bank, atau e-wallet terlebih dahulu.</small>}
+      </div>
+      <button className="primary-button roadmap-save" disabled={saving} onClick={() => void save()}><Check size={16} />{saving ? "Menyimpan…" : "Simpan pengaturan"}</button>
+    </aside>
   </div>;
 }
 
