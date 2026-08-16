@@ -33,4 +33,13 @@ EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 CMD curl --fail --silent --show-error http://127.0.0.1:3000/api/health >/dev/null || exit 1
 
-CMD ["npm", "run", "start"]
+# Node dipanggil langsung, bukan lewat `npm run start`. Sebagai PID 1, npm
+# tidak meneruskan SIGTERM ke proses anaknya, sehingga `docker stop` selalu
+# menunggu penuh timeout-nya (30 detik di Coolify) lalu SIGKILL — fase
+# "Removing old containers" jadi tampak menggantung tiap deploy.
+#
+# vinext sendiri tidak memasang handler SIGTERM, dan justru itu yang membuat
+# ini cukup: perilaku bawaan Node untuk SIGTERM adalah langsung keluar selama
+# tidak ada listener terdaftar. Dengan Node sebagai PID 1, container berhenti
+# di bawah satu detik.
+CMD ["node", "node_modules/vinext/dist/cli.js", "start"]
