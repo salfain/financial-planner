@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Account, FinanceCategory, Transaction } from "../lib/finance";
 import { budgetSpent } from "../lib/finance";
-import { parseCsvRecords, previewTransactionCsv } from "../lib/transaction-import";
+import { chunkTransactions, MAX_IMPORT_TRANSACTIONS, parseCsvRecords, previewTransactionCsv } from "../lib/transaction-import";
 import type { CategoryRule } from "../lib/category-rules";
 
 const accounts: Account[] = [{ id: "cash", name: "Kas Utama", type: "Cash", institution: "", balance: 2_000_000, mask: "", color: "#16876f" }];
@@ -88,4 +88,37 @@ test("realisasi anggaran memakai alokasi split, bukan kategori induk saja", () =
   };
   assert.equal(budgetSpent([transaction], "Makanan", "2026-07"), 100_000);
   assert.equal(budgetSpent([transaction], "Transportasi", "2026-07"), 50_000);
+});
+
+test("impor dipecah menjadi batch sesuai batas backend", () => {
+  const items = Array.from({ length: 205 }, (_, index) => index + 1);
+  const batches = chunkTransactions(items);
+  assert.equal(batches.length, 3);
+  assert.deepEqual(batches.map((batch) => batch.length), [100, 100, 5]);
+  assert.deepEqual(batches.flat(), items, "tidak ada transaksi yang hilang atau tergandakan");
+});
+
+test("impor yang muat satu batch tidak dipecah", () => {
+  assert.deepEqual(chunkTransactions([1, 2, 3]).length, 1);
+  assert.deepEqual(chunkTransactions([]).length, 0);
+});
+
+test("ukuran batch nol ditolak agar tidak memecah tanpa henti", () => {
+  assert.throws(() => chunkTransactions([1, 2], 0), RangeError);
+});
+
+test("preview menerima rekening koran ratusan baris", () => {
+  const header = "tanggal,jenis,deskripsi,kategori,akun,nominal";
+  const lines = Array.from({ length: 205 }, (_, index) => `2026-07-01,pengeluaran,Belanja ${index},Operasional,Kas Utama,10000`);
+  const preview = previewTransactionCsv([header, ...lines].join("\n"), accounts, categories, [], []);
+  assert.equal(preview.rows.length, 205);
+  assert.equal(preview.rows.some((row) => row.errors.some((message) => /Maksimal/.test(message))), false);
+});
+
+test("melewati batas keseluruhan tetap ditolak", () => {
+  const header = "tanggal,jenis,deskripsi,kategori,akun,nominal";
+  const lines = Array.from({ length: MAX_IMPORT_TRANSACTIONS + 5 }, () => "2026-07-01,pengeluaran,Belanja,Operasional,Kas Utama,10000");
+  const preview = previewTransactionCsv([header, ...lines].join("\n"), accounts, categories, [], []);
+  assert.equal(preview.rows.length, MAX_IMPORT_TRANSACTIONS + 1);
+  assert.match(preview.rows[preview.rows.length - 1].errors[0], /Maksimal 1000 transaksi/);
 });

@@ -17,6 +17,7 @@ import { normalizeFeaturePreferences, type FeaturePreferences } from "./feature-
 import { callAppsScript, hasAppsScriptBridge } from "./apps-script-client";
 import { freeEntitlement, type PlanCapability, type PlanEntitlement, type PlanTier } from "./plans";
 import { demoRequest, demoSecurityStatus, isFinanceDemoMode } from "./demo-finance";
+import { chunkTransactions } from "./transaction-import";
 import { installmentAmountAt, normalizeInstallmentPhases } from "./installment-phases";
 import { FINANCE_SCHEMA_VERSION } from "./schema-version";
 
@@ -921,8 +922,28 @@ export async function loadFinanceTransactions(filters: TransactionListFilters): 
   return { ...raw, transactions: raw.transactions.map(normalizeTransaction) };
 }
 
-export const importFinanceTransactions = (transactions: Transaction[], requestId = `transaction-import:${crypto.randomUUID()}`) =>
-  mutation<{ imported: number }>("importTransactions", "/api/finance/transactions/import", { transactions, requestId });
+/**
+ * Backend membatasi 100 transaksi per permintaan, sedangkan rekening koran
+ * sebulan bisa ratusan baris. Impor dipecah menjadi beberapa batch berurutan.
+ *
+ * Tiap batch memakai requestId turunan yang stabil, sehingga percobaan ulang
+ * setelah gagal di tengah jalan akan memutar ulang batch yang sudah masuk
+ * alih-alih menggandakannya. Batch dikirim berurutan karena Apps Script
+ * mengunci dokumen saat menulis.
+ */
+export async function importFinanceTransactions(transactions: Transaction[], requestId = `transaction-import:${crypto.randomUUID()}`) {
+  const batches = chunkTransactions(transactions);
+  let imported = 0;
+  for (const [index, batch] of batches.entries()) {
+    const result = await mutation<{ imported: number }>(
+      "importTransactions",
+      "/api/finance/transactions/import",
+      { transactions: batch, requestId: batches.length > 1 ? `${requestId}:${index + 1}` : requestId },
+    );
+    imported += Number(result?.imported ?? 0);
+  }
+  return { imported };
+}
 
 export const undoLastFinanceTransactionAction = (requestId = `transaction-undo:${crypto.randomUUID()}`) =>
   mutation<{ undone: boolean; action: string; transactionId: string }>("undoTransaction", "/api/finance/transactions/undo", { requestId });

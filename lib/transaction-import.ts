@@ -98,6 +98,20 @@ const parseSplits = (value: string, amount: number): { splits: TransactionSplit[
 
 const comparableTitle = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
 
+/** Batas satu permintaan impor di backend, baik route web maupun Apps Script. */
+export const IMPORT_BATCH_SIZE = 100;
+
+/** Batas keseluruhan satu sesi impor. Rekening koran sebulan bisa ratusan baris. */
+export const MAX_IMPORT_TRANSACTIONS = 1000;
+
+/** Memecah transaksi menjadi batch sesuai batas backend. */
+export function chunkTransactions<T>(items: T[], size = IMPORT_BATCH_SIZE): T[][] {
+  if (size < 1) throw new RangeError("Ukuran batch impor harus lebih dari nol.");
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
+
 export function previewTransactionCsv(source: string, accounts: Account[], categories: FinanceCategory[], categoryRules: CategoryRule[] = [], existingTransactions: Transaction[] = []): TransactionImportPreview {
   return previewTransactionRecords(parseCsvRecords(source), accounts, categories, categoryRules, existingTransactions);
 }
@@ -105,12 +119,12 @@ export function previewTransactionCsv(source: string, accounts: Account[], categ
 /**
  * Validasi dan preview dari record kanonik, apa pun sumbernya.
  * Dipakai jalur CSV maupun jalur rekening koran PDF agar aturan kategori,
- * deteksi duplikat, dan batas 100 transaksi tetap satu implementasi.
+ * deteksi duplikat, dan batas jumlah baris tetap satu implementasi.
  */
 export function previewTransactionRecords(records: Record<string, string>[], accounts: Account[], categories: FinanceCategory[], categoryRules: CategoryRule[] = [], existingTransactions: Transaction[] = []): TransactionImportPreview {
   const activeAccounts = accounts.filter((account) => account.type !== "Investment");
   const activeCategories = categories.filter((category) => category.active);
-  const rows = records.slice(0, 100).map((raw, index): TransactionImportPreviewRow => {
+  const rows = records.slice(0, MAX_IMPORT_TRANSACTIONS).map((raw, index): TransactionImportPreviewRow => {
     const errors: string[] = [];
     const date = parseDate(raw.date || "");
     const type = parseType(raw.type || "");
@@ -156,7 +170,7 @@ export function previewTransactionRecords(records: Record<string, string>[], acc
     };
     return { rowNumber: index + 2, raw, transaction, duplicateOf: duplicate?.id, matchedRule: errors.length ? undefined : matchedRule ?? undefined, errors };
   });
-  if (records.length > 100) rows.push({ rowNumber: 102, raw: {}, errors: ["Maksimal 100 transaksi per impor."] });
+  if (records.length > MAX_IMPORT_TRANSACTIONS) rows.push({ rowNumber: MAX_IMPORT_TRANSACTIONS + 2, raw: {}, errors: [`Maksimal ${MAX_IMPORT_TRANSACTIONS} transaksi per impor.`] });
   const valid = rows.flatMap((row) => row.transaction ? [row.transaction] : []);
   return {
     rows,
