@@ -76,7 +76,8 @@ import { buildZakatReport, DEFAULT_ZAKAT_SETTINGS, HAUL_DAYS, type ZakatSettings
 import { buildRecurringOverview, type RecurringTemplate } from "../lib/recurring";
 import { addCalendarDays, buildFinancialCalendarEvents, calendarBillsForActiveAccounts, calendarMonthRange, financialCalendarWindow, outstandingFinancialCalendarEvents, type FinancialCalendarEvent } from "../lib/financial-calendar";
 import { accountCsvTemplate, previewAccountCsv, type AccountImportItem, type AccountImportPreview } from "../lib/account-import";
-import { previewTransactionCsv, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
+import { previewTransactionCsv, previewTransactionRecords, transactionCsvTemplate, type TransactionImportPreview } from "../lib/transaction-import";
+import { isSeabankStatement, parseSeabankStatement, statementRowsToRecords, type BankStatementParseResult } from "../lib/bank-statement";
 import { byteArrayToBase64, type BackupOverview, type ExportRecord, type MigrationPreview } from "../lib/portability";
 import { DEFAULT_NOTIFICATION_SETTINGS, type FinanceNotification, type NotificationOverview, type NotificationSettings } from "../lib/notifications";
 import { financeDemoWhatsAppUrl, isFinanceDemoMode } from "../lib/demo-finance";
@@ -3551,15 +3552,40 @@ function TransactionImportModal({ accounts, categories, categoryRules, existingT
   const [preview, setPreview] = useState<TransactionImportPreview | null>(null);
   const [filename, setFilename] = useState("");
   const [error, setError] = useState("");
+  const [reading, setReading] = useState(false);
+  const [statement, setStatement] = useState<BankStatementParseResult | null>(null);
+  const statementAccounts = accounts.filter((account) => !account.liability && account.type !== "Investment");
+  const [statementAccountId, setStatementAccountId] = useState(statementAccounts[0]?.id ?? "");
+
+  const applyStatement = (result: BankStatementParseResult, accountId: string) => {
+    const account = statementAccounts.find((item) => item.id === accountId);
+    if (!account) { setPreview(null); setError("Pilih akun tujuan untuk rekening koran ini."); return; }
+    setPreview(previewTransactionRecords(statementRowsToRecords(result, account.name), accounts, categories, categoryRules, existingTransactions));
+  };
+
   const selectFile = async (file?: File) => {
     if (!file) return;
-    setError(""); setFilename(file.name);
-    if (file.size > 1024 * 1024) { setPreview(null); setError("Ukuran CSV maksimal 1 MB."); return; }
+    setError(""); setFilename(file.name); setStatement(null);
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    const limit = isPdf ? 10 * 1024 * 1024 : 1024 * 1024;
+    if (file.size > limit) { setPreview(null); setError(isPdf ? "Ukuran PDF maksimal 10 MB." : "Ukuran CSV maksimal 1 MB."); return; }
+    setReading(true);
     try {
+      if (isPdf) {
+        const { extractPdfTextItems } = await import("../lib/pdf-text");
+        const pages = await extractPdfTextItems(await file.arrayBuffer());
+        if (!isSeabankStatement(pages)) throw new Error("Format PDF ini belum dikenali. Saat ini baru rekening koran SeaBank yang didukung.");
+        const result = parseSeabankStatement(pages);
+        if (!result.rows.length) throw new Error(result.warnings[0] || "Tidak ada transaksi yang terbaca dari rekening koran ini.");
+        setStatement(result);
+        applyStatement(result, statementAccountId);
+        return;
+      }
       const result = previewTransactionCsv(await file.text(), accounts, categories, categoryRules, existingTransactions);
       if (!result.rows.length) throw new Error("CSV kosong atau hanya berisi header.");
       setPreview(result);
-    } catch (reason) { setPreview(null); setError(reason instanceof Error ? reason.message : "CSV tidak dapat dibaca."); }
+    } catch (reason) { setPreview(null); setError(reason instanceof Error ? reason.message : "File tidak dapat dibaca."); }
+    finally { setReading(false); }
   };
   const downloadTemplate = () => {
     const url = URL.createObjectURL(new Blob([transactionCsvTemplate], { type: "text/csv;charset=utf-8" }));
@@ -3569,7 +3595,12 @@ function TransactionImportModal({ accounts, categories, categoryRules, existingT
     <section className="modal import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
       <div className="modal-head"><div><span className="card-kicker">Bulk import</span><h2 id="import-title">Impor transaksi CSV</h2></div><button className="icon-button" onClick={onClose} aria-label="Tutup"><X size={20} /></button></div>
       <div className="import-guide"><FileUp size={22} /><div><strong>Preview dulu, simpan setelah semua baris valid.</strong><p>Kolom wajib: tanggal, jenis, deskripsi, akun, dan nominal. Kategori boleh kosong jika deskripsi cocok dengan aturan otomatis.</p><button type="button" className="text-button" onClick={downloadTemplate}><Download size={14} /> Unduh template CSV</button></div></div>
-      <label className="csv-dropzone"><Upload size={20} /><span><strong>{filename || "Pilih file CSV"}</strong><small>Maksimal 100 transaksi atau 1 MB</small></span><input type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
+      <label className="csv-dropzone"><Upload size={20} /><span><strong>{filename || "Pilih file CSV atau rekening koran PDF"}</strong><small>{reading ? "Membaca berkas…" : "CSV maksimal 1 MB · rekening koran SeaBank PDF maksimal 10 MB"}</small></span><input type="file" accept=".csv,.pdf,application/pdf,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /></label>
+      {statement && <div className="statement-summary">
+        <div><strong>Rekening koran {statement.bank}</strong><small>{statement.periodStart} s/d {statement.periodEnd} · {statement.rows.length} transaksi</small></div>
+        <label><span>Akun tujuan</span><select value={statementAccountId} onChange={(event) => { setStatementAccountId(event.target.value); applyStatement(statement, event.target.value); }}>{statementAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+        {statement.rows.some((row) => row.warning) && <div className="ocr-message"><TriangleAlert size={15} />{statement.rows.filter((row) => row.warning).length} baris tidak cocok dengan pergerakan saldo. Periksa sebelum menyimpan.</div>}
+      </div>}
       {error && <div className="ocr-message"><X size={15} />{error}</div>}
       {preview && <>
         <div className="import-summary"><span><small>Siap diimpor</small><strong>{preview.validCount}</strong></span><span><small>Sudah ada</small><strong>{preview.duplicateCount}</strong></span><span className={preview.errorCount ? "negative-text" : "positive-text"}><small>Perlu diperbaiki</small><strong>{preview.errorCount}</strong></span><span><small>Pengeluaran baru</small><strong>{formatIDR(preview.expense)}</strong></span></div>

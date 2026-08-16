@@ -8,6 +8,13 @@ export default defineConfig({
   root: fileURLToPath(new URL("./gas-frontend", import.meta.url)),
   base: "",
   plugins: [react()],
+  resolve: {
+    // Bundel GAS berformat IIFE tanpa code splitting, jadi pdfjs akan ikut ter-inline.
+    // Impor rekening koran PDF karena itu dibatasi pada versi web.
+    alias: [
+      { find: "../lib/pdf-text", replacement: fileURLToPath(new URL("./lib/pdf-text.gas.ts", import.meta.url)) },
+    ],
+  },
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },

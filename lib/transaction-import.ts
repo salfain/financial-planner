@@ -99,7 +99,15 @@ const parseSplits = (value: string, amount: number): { splits: TransactionSplit[
 const comparableTitle = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
 
 export function previewTransactionCsv(source: string, accounts: Account[], categories: FinanceCategory[], categoryRules: CategoryRule[] = [], existingTransactions: Transaction[] = []): TransactionImportPreview {
-  const records = parseCsvRecords(source);
+  return previewTransactionRecords(parseCsvRecords(source), accounts, categories, categoryRules, existingTransactions);
+}
+
+/**
+ * Validasi dan preview dari record kanonik, apa pun sumbernya.
+ * Dipakai jalur CSV maupun jalur rekening koran PDF agar aturan kategori,
+ * deteksi duplikat, dan batas 100 transaksi tetap satu implementasi.
+ */
+export function previewTransactionRecords(records: Record<string, string>[], accounts: Account[], categories: FinanceCategory[], categoryRules: CategoryRule[] = [], existingTransactions: Transaction[] = []): TransactionImportPreview {
   const activeAccounts = accounts.filter((account) => account.type !== "Investment");
   const activeCategories = categories.filter((category) => category.active);
   const rows = records.slice(0, 100).map((raw, index): TransactionImportPreviewRow => {

@@ -1403,3 +1403,11 @@ kbd { padding: 2px 6px; color: var(--text-faint); border: 1px solid var(--border
 .zakat-toggle small{color:var(--text-faint);font-size:6.5px}
 @media(max-width:1100px){.zakat-layout{grid-template-columns:1fr}.zakat-hero{grid-template-columns:1fr;align-items:start;gap:22px}.zakat-metrics{grid-template-columns:1fr 1fr}}
 @media(max-width:720px){.zakat-hero{padding:23px 19px}.zakat-metrics{grid-template-columns:1fr}.zakat-progress-panel,.zakat-settings-panel{padding:18px 15px}}
+
+/* Impor rekening koran PDF */
+.statement-summary{display:grid;gap:9px;margin-top:11px;padding:13px;border:1px solid var(--border-soft);border-radius:11px;background:var(--surface-soft)}
+.statement-summary>div:first-child{display:grid;gap:3px}
+.statement-summary strong{font-size:9px}
+.statement-summary small{color:var(--text-faint);font-size:7px}
+.statement-summary label{display:grid;gap:4px}
+.statement-summary label>span{color:var(--text-soft);font-size:7px;font-weight:700}
