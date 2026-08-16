@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Push yang beruntun pada branch yang sama membatalkan run lama agar antrean tidak menumpuk.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, test, dan build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Pasang dependensi
+        run: npm ci
+
+      # Lint belum memblokir: masih ada 7 error React Compiler lama di FinanceApp.tsx.
+      # Hapus baris continue-on-error setelah semuanya dibereskan.
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
+      # Menjalankan typecheck, unit test, smoke Apps Script, build GAS, dan build web.
+      - name: Typecheck, test, dan build
+        run: npm test
+
+      # `npm test` menjalankan build:gas. Kalau bundel apps-script yang ter-commit
+      # tertinggal dari sumbernya, langkah ini gagal supaya pelanggan tidak menerima kode basi.
+      - name: Pastikan bundel apps-script sinkron dengan sumber
+        run: |
+          if ! git diff --exit-code --stat apps-script/; then
+            echo "::error::Bundel apps-script tertinggal. Jalankan 'npm run build:gas' lalu commit hasilnya."
+            exit 1
+          fi
