@@ -780,8 +780,8 @@ export function FinanceApp() {
     setPaymentBill(bill);
   };
 
-  const submitBillPayment = async (bill: Bill, amount: number, fee: number, settlement: boolean, period: string, paymentDate: string) => runMutation(
-    () => markFinanceBillPaid(bill, period, paymentDate, { amount, fee, settlement }),
+  const submitBillPayment = async (bill: Bill, amount: number, fee: number, settlement: boolean, period: string, paymentDate: string, accountId: string) => runMutation(
+    () => markFinanceBillPaid(bill, period, paymentDate, { amount, fee, settlement, accountId }),
     settlement
       ? `${bill.name} dilunasi dan saldo kewajiban diperbarui.`
       : `${bill.name} dibayar; progres cicilan dan saldo sudah diperbarui.`,
@@ -1198,7 +1198,7 @@ export function FinanceApp() {
       {sinkingFundModal && <SinkingFundModal fund={sinkingFundModal.fund} accounts={accounts} funds={sinkingFunds} saving={saving} onClose={() => setSinkingFundModal(null)} onSubmit={async (payload) => { const current = sinkingFundModal.fund; const ok = await runMutation(() => current ? updateFinanceSinkingFund(current.id, payload) : createFinanceSinkingFund(payload), current ? "Pos dana berhasil diperbarui." : "Pos dana berhasil dibuat tanpa mengubah saldo akun."); if (ok) setSinkingFundModal(null); }} />}
       {sinkingFundAdjustment && <SinkingFundAdjustmentModal fund={sinkingFundAdjustment.fund} type={sinkingFundAdjustment.type} saving={saving} onClose={() => setSinkingFundAdjustment(null)} onSubmit={async (amount, date, note) => { const action = sinkingFundAdjustment; const ok = await runMutation(() => adjustFinanceSinkingFund(action.fund.id, amount, action.type, date, note), action.type === "allocate" ? `${formatIDR(amount)} dialokasikan ke ${action.fund.name}.` : `${formatIDR(amount)} dilepas dari ${action.fund.name}.`); if (ok) setSinkingFundAdjustment(null); }} />}
       {(billOpen || editingBill) && <BillModal bill={editingBill ?? undefined} accounts={accounts} categories={categories} saving={saving} onClose={() => { setBillOpen(false); setEditingBill(null); }} onSubmit={async (payload) => { const ok = await runMutation(() => editingBill ? updateFinanceBill(editingBill.id, payload) : createFinanceBill(payload), editingBill ? "Tagihan berhasil diperbarui." : "Tagihan rutin berhasil ditambahkan."); if (ok) { setBillOpen(false); setEditingBill(null); } }} />}
-      {paymentBill && <BillPaymentModal bill={paymentBill} privacy={privacy} saving={saving} onClose={() => setPaymentBill(null)} onSubmit={async (amount, fee, settlement, period, paymentDate) => { const ok = await submitBillPayment(paymentBill, amount, fee, settlement, period, paymentDate); if (ok) setPaymentBill(null); }} />}
+      {paymentBill && <BillPaymentModal bill={paymentBill} accounts={accounts} privacy={privacy} saving={saving} onClose={() => setPaymentBill(null)} onSubmit={async (amount, fee, settlement, period, paymentDate, accountId) => { const ok = await submitBillPayment(paymentBill, amount, fee, settlement, period, paymentDate, accountId); if (ok) setPaymentBill(null); }} />}
       {reconcileTarget && <ReconcileModal account={reconcileTarget} privacy={privacy} saving={saving} onClose={() => setReconcileTarget(null)} onSubmit={async (actualBalance, date, note, requestId) => { const ok = await reconcileAccount(reconcileTarget, actualBalance, date, note, requestId); if (ok) setReconcileTarget(null); }} />}
       {categoryModal && <CategoryModal category={categoryModal.category} saving={saving} onClose={() => setCategoryModal(null)} onSubmit={async (payload, requestId) => { const ok = await saveCategory(payload, categoryModal.category, requestId); if (ok) setCategoryModal(null); }} />}
       {categoryRuleModal && <CategoryRuleModal rule={categoryRuleModal.rule} categories={categories} saving={saving} onClose={() => setCategoryRuleModal(null)} onSubmit={async (payload) => { const ok = await saveCategoryRule(payload, categoryRuleModal.rule); if (ok) setCategoryRuleModal(null); }} />}
@@ -4386,19 +4386,21 @@ function ReceivablePaymentModal({ receivable, accounts, privacy, saving, onClose
   </SimpleModal>;
 }
 
-function BillPaymentModal({ bill, privacy, saving, onClose, onSubmit }: { bill: Bill; privacy: boolean; saving: boolean; onClose: () => void; onSubmit: (amount: number, fee: number, settlement: boolean, period: string, paymentDate: string) => Promise<void> }) {
+function BillPaymentModal({ bill, accounts, privacy, saving, onClose, onSubmit }: { bill: Bill; accounts: Account[]; privacy: boolean; saving: boolean; onClose: () => void; onSubmit: (amount: number, fee: number, settlement: boolean, period: string, paymentDate: string, accountId: string) => Promise<void> }) {
   const currentPaid = bill.currentPeriodPaid ?? 0;
   const regularRemaining = Math.max(0, bill.amount - currentPaid);
   const payoff = remainingInstallmentTotal(bill);
   const installmentPeriod = bill.dueDate.slice(0, 7);
+  const paymentAccounts = accounts.filter((account) => account.type !== "Investment" && account.id !== bill.liabilityAccountId);
   const [amount, setAmount] = useState(String(regularRemaining || bill.amount));
   const [fee, setFee] = useState("");
   const [settlement, setSettlement] = useState(false);
   const [paymentDate, setPaymentDate] = useState(today());
+  const [accountId, setAccountId] = useState(bill.accountId);
   const principal = settlement ? Number(payoff ?? regularRemaining) : moneyInputNumber(amount);
   return <SimpleModal title={`Bayar ${bill.name}`} kicker="Pembayaran fleksibel" saving={saving} onClose={onClose} submitLabel={settlement ? "Lunasi sekarang" : "Simpan pembayaran"} onSubmit={(event) => {
     event.preventDefault();
-    return onSubmit(principal, moneyInputNumber(fee), settlement, installmentPeriod, paymentDate);
+    return onSubmit(principal, moneyInputNumber(fee), settlement, installmentPeriod, paymentDate, accountId);
   }}>
     <div className="payment-summary-card">
       <span><small>Cicilan bulan ini</small><strong><Amount value={bill.amount} privacy={privacy}/></strong></span>
@@ -4412,6 +4414,7 @@ function BillPaymentModal({ bill, privacy, saving, onClose, onSubmit }: { bill: 
     <div className="form-grid">
       <label><span>Periode cicilan</span><input value={monthLabel(installmentPeriod)} readOnly/><small>Pembayaran ini menutup cicilan jatuh tempo {shortDate(bill.dueDate)}.</small></label>
       <label><span>Tanggal pembayaran</span><input type="date" value={paymentDate} max={today()} onChange={(event) => setPaymentDate(event.target.value)} required/><small>Boleh berbeda dari periode cicilan jika dibayar lebih awal.</small></label>
+      <label><span>Bayar dari akun</span><select value={accountId} onChange={(event) => setAccountId(event.target.value)} required>{paymentAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select><ChevronDown size={15}/><small>{accountId === bill.accountId ? "Akun bawaan tagihan ini." : "Hanya untuk pembayaran ini; akun bawaan tagihan tidak berubah."}</small></label>
       <label><span>Pokok yang dibayar</span><input value={formatMoneyInput(settlement ? String(payoff ?? 0) : amount)} onChange={(event) => setAmount(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" readOnly={settlement} required/><small>Bayar kurang dari tagihan untuk parsial, atau lebih untuk memajukan cicilan berikutnya.</small></label>
       <label><span>Biaya admin / denda</span><input value={formatMoneyInput(fee)} onChange={(event) => setFee(moneyInputDigits(event.target.value))} inputMode="numeric" pattern="[0-9.]*" placeholder="Rp 0"/><small>Dicatat terpisah sebagai Biaya Keuangan.</small></label>
     </div>

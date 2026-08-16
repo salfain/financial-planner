@@ -1005,7 +1005,7 @@ export const updateFinanceBill = (billId: string, payload: Record<string, unknow
 export const deleteFinanceBill = (billId: string) =>
   mutation("deleteBill", `/api/finance/bills/${encodeURIComponent(billId)}`, { billId }, "DELETE");
 
-export const markFinanceBillPaid = (bill: Bill, period: string, date: string, options?: { amount?: number; fee?: number; settlement?: boolean }) =>
+export const markFinanceBillPaid = (bill: Bill, period: string, date: string, options?: { amount?: number; fee?: number; settlement?: boolean; accountId?: string }) =>
   mutation("markBillPaid", `/api/finance/bills/${encodeURIComponent(bill.id)}/paid`, {
     billId: bill.id,
     period,

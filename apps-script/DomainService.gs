@@ -750,7 +750,7 @@ function apiMarkBillPaid(payload) {
       if (!flexiblePayment && String(bill.last_paid_period) === period) {
         return ok_({ bill: bill, transactionId: existingPayment ? existingPayment.id : '', duplicate: true }, requestId);
       }
-      const accountId = String(bill.account_id || '');
+      const accountId = String(payload.accountId || bill.account_id || '');
       if (!accountId || !findById_(VINN_CONFIG.SHEETS.ACCOUNTS, accountId)) {
         throw createError_('ACCOUNT_REQUIRED', 'Akun pembayaran tagihan tidak ditemukan.');
       }

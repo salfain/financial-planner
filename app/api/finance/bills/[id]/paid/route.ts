@@ -124,6 +124,17 @@ export async function POST(request: Request, context: Context) {
       });
     }
 
+    const paymentAccountId = payload.accountId === undefined
+      ? bill.accountId
+      : validateId(payload.accountId, "accountId");
+    if (bill.liabilityAccountId && paymentAccountId === bill.liabilityAccountId) {
+      throw new ApiError(
+        422,
+        "SAME_ACCOUNT",
+        "Akun pembayaran dan akun utang tujuan harus berbeda.",
+      );
+    }
+
     const serialized = serializeBill(bill, period);
     const scheduledRemaining = remainingInstallmentTotal(serialized);
     const currentPeriodPaid = Number(bill.currentPeriodPaid || 0);
@@ -168,7 +179,7 @@ export async function POST(request: Request, context: Context) {
         title: `Bayar ${bill.name}`,
         merchant: bill.name,
         category: bill.liabilityAccountId ? "Transfer" : bill.category,
-        accountId: bill.accountId,
+        accountId: paymentAccountId,
         destinationAccountId: bill.liabilityAccountId,
         amount: principal,
         status: "completed",
@@ -181,7 +192,7 @@ export async function POST(request: Request, context: Context) {
       title: `Biaya pembayaran ${bill.name}`,
       merchant: bill.name,
       category: "Biaya Keuangan",
-      accountId: bill.accountId,
+      accountId: paymentAccountId,
       amount: fee,
       status: "completed",
     }, `${transactionId}-fee`) : null;
@@ -311,7 +322,7 @@ export async function POST(request: Request, context: Context) {
             completed,
             dueDate: nextDueDate,
           },
-          details: { transactionId: transaction.id, period, principal, fee, settlement, installmentCompleted },
+          details: { transactionId: transaction.id, period, principal, fee, settlement, installmentCompleted, paymentAccountId },
           createdAt: now,
         },
         transaction.id,
